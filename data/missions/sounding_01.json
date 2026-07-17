@@ -1,0 +1,23 @@
+{
+    "id": "sounding_01",
+    "title": "The Blue Edge",
+    "description": "Launch a sounding balloon to capture images of the horizon from near space.",
+    "launch_site": "field",
+    "budget": 5000,
+    "required_payloads": ["camera"],
+    "objectives": [
+        {
+            "type": "reach_altitude",
+            "params": {"minimum_m": 30000}
+        },
+        {
+            "type": "capture_photo",
+            "params": {"target_id": "horizon", "minimum_quality": 0.7}
+        },
+        {
+            "type": "recover_data",
+            "params": {"required": true}
+        }
+    ],
+    "difficulty": 2
+}
