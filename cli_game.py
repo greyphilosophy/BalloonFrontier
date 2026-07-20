@@ -14,6 +14,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from balloon_frontier.simulation import SimulationState, EnvelopeConfig, run_simulation
 from balloon_frontier.flight_score import calculate_flight_score
 from balloon_frontier.medal_tier import get_medal_tier, get_medal_emoji, medal_tier_to_string
+from balloon_frontier.fill import calculate_optimal_fill, apply_fill_mode, FillMode
+from balloon_frontier.fill import MULTIPLIER_LIGHT, MULTIPLIER_NORMAL, MULTIPLIER_HEAVY
 
 # ── Latex Balloon Sizes ──────────────────────────────────
 # Realistic weather balloon data (Great Balloon / Scott Balloons)
@@ -50,6 +52,7 @@ BALLOON_LIST = list(BALLOON_SIZES.keys())
 PAYLOAD_LIST = list(PAYLOADS.keys())
 SITE_LIST = list(SITES.keys())
 
+
 # ── Input Helpers ────────────────────────────────────────
 
 def get_choice(count, prompt="Choose"):
@@ -80,8 +83,100 @@ def get_number(prompt, default, min_val=0.01):
         except ValueError:
             pass
 
+# ── Fill Mode Presets ──────────────────────────────────────
 
-# ── Menu Displays ────────────────────────────────────────
+FILL_PRESETS = [
+    {"mode": FillMode.AUTO,   "label": "Auto",   "desc": "Optimal fill, safe burst margin"},
+    {"mode": FillMode.LIGHT,  "label": "Light",  "desc": "20% less gas — faster climb"},
+    {"mode": FillMode.NORMAL, "label": "Normal", "desc": "Baseline optimal fill"},
+    {"mode": FillMode.HEAVY, "label": "Heavy",  "desc": "20% more gas — longer float"},
+    {"mode": FillMode.MANUAL, "label": "Manual", "desc": "Specify exact gas mass"},
+]
+
+
+def format_mass_kg(mass_kg):
+    """Format mass in kg with sensible precision."""
+    if mass_kg < 1.0:
+        return f"{mass_kg * 1000:.1f}g"
+    elif mass_kg < 100:
+        return f"{mass_kg:.3f} kg"
+    else:
+        return f"{mass_kg:.2f} kg"
+
+
+def show_fill_presets(balloon_key, gas_type):
+    """Show fill mode selection UI with presets and auto option.
+    
+    Displays all fill presets with their calculated masses.
+    Returns the selected FillMode and computed mass.
+    UI state persists across screen transitions via returned mode.
+    
+    Acceptance:
+    - Selecting any option immediately updates displayed mass
+    - Shows computed mass value next to each option
+    """
+    balloon_spec = BALLOON_SIZES[balloon_key]
+    max_vol = balloon_spec["max_vol"]
+    
+    # Calculate masses for all presets
+    base_mass = calculate_optimal_fill(max_vol, gas_type)
+    preset_masses = {}
+    for preset in FILL_PRESETS:
+        if preset["mode"] == FillMode.MANUAL:
+            preset_masses[preset["mode"]] = None
+        else:
+            preset_masses[preset["mode"]] = apply_fill_mode(max_vol, gas_type, preset["mode"])
+    
+    print("\n  Fill Mode Selection")
+    print("  ─────────────────────────────────────────────")
+    print(f"  Envelope: {balloon_spec['name']} ({max_vol:.1f}m³ max)")
+    print(f"  Gas type: {gas_type.replace('_', ' ').title()}")
+    print()
+    
+    for i, preset in enumerate(FILL_PRESETS, 1):
+        mode = preset["mode"]
+        mass = preset_masses[mode]
+        mass_str = format_mass_kg(mass) if mass else "You choose"
+        print(f"  {i}. {preset['label']:<8s} {mass_str:<12s} {preset['desc']}")
+    
+    print()
+    
+    while True:
+        raw = input("  Select fill mode (1-5) > ").strip()
+        
+        if raw.lower() in ("q", "quit", "exit"):
+            return None, None
+        
+        try:
+            idx = int(raw) - 1
+            if 0 <= idx < len(FILL_PRESETS):
+                selected = FILL_PRESETS[idx]
+                
+                if selected["mode"] == FillMode.MANUAL:
+                    fill_range = balloon_spec["fill_g"]
+                    safe_mid = (fill_range[0] + fill_range[1]) / 2 / 1000
+                    print(f"  Safe fill range: {fill_range[0]}–{fill_range[1]}g")
+                    print(f"  Preset masses for reference:")
+                    for ref in FILL_PRESETS:
+                        if ref["mode"] != FillMode.MANUAL:
+                            ref_mass = preset_masses[ref["mode"]]
+                            print(f"    {ref['label']}: {format_mass_kg(ref_mass)}")
+                    
+                    gas_mass = get_number(
+                        f"Gas mass (kg) [default {safe_mid:.3f}]", safe_mid, min_val=0.001
+                    )
+                    if gas_mass is None:
+                        return None, None
+                    return FillMode.MANUAL, gas_mass
+                else:
+                    mass = apply_fill_mode(max_vol, gas_type, selected["mode"])
+                    print(f"  Selected: {selected['label']} → {format_mass_kg(mass)}")
+                    return selected["mode"], mass
+            else:
+                print(f"  Invalid: choose 1-{len(FILL_PRESETS)}")
+        except ValueError:
+            print("  Enter a number from 1 to 5")
+
 
 def show_balloon_menu():
     print("\n  Select your balloon size:")
@@ -245,11 +340,8 @@ def play():
     if gas_type is None:
         return
 
-    # 3. Gas mass
-    fill_range = balloon_spec["fill_g"]
-    safe_mid = (fill_range[0] + fill_range[1]) / 2 / 1000
-    print(f"\n  Safe fill: {fill_range[0]}–{fill_range[1]}g ({fill_range[0]/1000:.1f}–{fill_range[1]/1000:.1f} kg)")
-    gas_mass = get_number(f"Gas mass (kg) [default {safe_mid:.1f}]", safe_mid)
+    # 3. Fill mode selection with presets + computed mass display
+    fill_mode, gas_mass = show_fill_presets(balloon_key, gas_type)
     if gas_mass is None:
         return
 
@@ -261,18 +353,20 @@ def play():
     if site_key is None:
         return
 
-    # Safety warning
-    if gas_mass * 1000 > fill_range[1]:
-        print(f"\n  ⚠️  WARNING: {gas_mass*1000:.0f}g exceeds safe fill ({fill_range[1]}g)!")
-    if gas_mass * 1000 < fill_range[0]:
-        print(f"\n  💡 TIP: {gas_mass*1000:.0f}g is below the typical fill range.")
+    # Safety warning (only for manual mode)
+    if fill_mode == FillMode.MANUAL:
+        fill_range = balloon_spec["fill_g"]
+        if gas_mass * 1000 > fill_range[1]:
+            print(f"\n  ⚠️  WARNING: {gas_mass*1000:.0f}g exceeds safe fill ({fill_range[1]}g)!")
+        if gas_mass * 1000 < fill_range[0]:
+            print(f"\n  💡 TIP: {gas_mass*1000:.0f}g is below the typical fill range.")
 
     # Review
     print("\n  ─────────────────────────────────────────────────")
     print("  CONFIGURATION")
     print("  ─────────────────────────────────────────────────")
     print(f"  Balloon:  {balloon_spec['name']} latex")
-    print(f"  Gas:      {gas_type} ({gas_mass*1000:.0f}g)")
+    print(f"  Gas:      {gas_type} ({format_mass_kg(gas_mass)})")
     print(f"  Payloads: {', '.join(PAYLOADS[p][0] for p in payloads)}")
     print(f"  Site:     {SITES[site_key][0]}")
     print("  ─────────────────────────────────────────────────")
