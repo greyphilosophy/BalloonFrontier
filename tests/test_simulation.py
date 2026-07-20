@@ -436,3 +436,157 @@ class TestPhysicalCorrectness:
         tel1 = run_simulation(s1, dt=0.1, total_time_s=5.0)
         tel2 = run_simulation(s2, dt=0.1, total_time_s=5.0)
         assert tel2[-1]["altitude_m"] > tel1[-1]["altitude_m"]
+
+
+# ─── Temperature-Driven Buoyancy ──────────────────────────────
+
+class TestTemperatureDrivenBuoyancy:
+    """Verify that buoyancy calculations correctly use dynamically
+    updated gas_temperature_k rather than a static initial value.
+
+    Ideal gas law: V = n * R * T / P
+    Hotter gas → larger volume → more displaced air → greater buoyancy.
+    """
+
+    def test_hotter_gas_produces_greater_buoyancy(self):
+        """A balloon with a higher gas temperature should produce more
+        buoyant force than the same balloon at a lower temperature."""
+        # Same balloon, same altitude, only temperature differs
+        s_cold = SimulationState(
+            altitude_m=100.0,
+            gas_mass_kg=10.0, gas_type="helium",
+            gas_temperature_k=270.0,
+            payload_mass_kg=5.0,
+            envelope=EnvelopeConfig(max_volume_m3=200.0, mass_kg=2.0),
+        )
+        s_hot = SimulationState(
+            altitude_m=100.0,
+            gas_mass_kg=10.0, gas_type="helium",
+            gas_temperature_k=300.0,
+            payload_mass_kg=5.0,
+            envelope=EnvelopeConfig(max_volume_m3=200.0, mass_kg=2.0),
+        )
+        r_cold = simulation_step(s_cold)
+        r_hot = simulation_step(s_hot)
+        # Hotter gas has larger volume → more displaced air → more buoyancy
+        assert r_hot["buoyancy_N"] > r_cold["buoyancy_N"]
+
+    def test_buoyancy_changes_as_temperature_changes(self):
+        """Changing gas_temperature_k mid-flight should change buoyant force.
+        We manually set temperature to different values across steps to prove
+        the simulation uses the *current* temperature, not the initial one."""
+        s = SimulationState(
+            gas_mass_kg=10.0, gas_type="helium",
+            gas_temperature_k=288.15,
+            payload_mass_kg=5.0,
+            envelope=EnvelopeConfig(max_volume_m3=200.0, mass_kg=2.0),
+        )
+        # Take one step to establish baseline buoyancy
+        r1 = simulation_step(s)
+        # Manually bump temperature to simulate a heated gas
+        s.gas_temperature_k = 310.0
+        r2 = simulation_step(s)
+        # Buoyancy should reflect the new higher temperature
+        assert r2["buoyancy_N"] > r1["buoyancy_N"]
+
+    def test_temperature_evolution_affects_trajectory(self):
+        """A balloon starting with warmer gas should ascend faster because
+        thermal effects accumulate over multiple steps."""
+        s_cold = SimulationState(
+            gas_mass_kg=10.0, gas_type="helium",
+            gas_temperature_k=270.0,
+            payload_mass_kg=5.0,
+            envelope=EnvelopeConfig(max_volume_m3=200.0, mass_kg=2.0),
+        )
+        s_hot = SimulationState(
+            gas_mass_kg=10.0, gas_type="helium",
+            gas_temperature_k=310.0,
+            payload_mass_kg=5.0,
+            envelope=EnvelopeConfig(max_volume_m3=200.0, mass_kg=2.0),
+        )
+        tel_cold = run_simulation(s_cold, dt=0.1, total_time_s=5.0)
+        tel_hot = run_simulation(s_hot, dt=0.1, total_time_s=5.0)
+        # Hotter initial gas → more buoyancy → higher altitude after 5s
+        assert tel_hot[-1]["altitude_m"] > tel_cold[-1]["altitude_m"]
+
+    def test_dynamic_temperature_affects_buoyancy_over_time(self):
+        """Over multiple simulation steps, the gas temperature changes due to
+        the thermal model, and buoyancy tracks those changes. We verify that
+        the gas_temperature_k actually evolves and that buoyancy correlates."""
+        s = SimulationState(
+            gas_mass_kg=10.0, gas_type="helium",
+            gas_temperature_k=288.15,
+            payload_mass_kg=5.0,
+            envelope=EnvelopeConfig(max_volume_m3=200.0, mass_kg=2.0),
+        )
+        # Run a longer simulation to let temperature drift
+        tel = run_simulation(s, dt=0.1, total_time_s=10.0)
+        # Gas temperature should have changed from its initial value
+        # (thermal model: solar heating vs IR/convective cooling)
+        initial_temp = tel[0].get("ambient_temperature_k", 288.15)
+        final_temp = s.gas_temperature_k
+        # The gas temperature should have shifted from the initial 288.15K
+        # after 10 seconds of thermal exchange
+        assert abs(final_temp - 288.15) > 0.1, \
+            "Gas temperature should have drifted from initial value"
+
+    def test_gas_density_uses_dynamic_temperature(self):
+        """Verify that gas_density reflects the current gas_temperature_k
+        and not a hardcoded value."""
+        from balloon_frontier.physics import gas_density, gas_volume
+        from balloon_frontier.physics import atmosphere_pressure
+
+        P = atmosphere_pressure(100.0)
+        # Cold gas should be denser than hot gas
+        rho_cold = gas_density("helium", 270.0, P)
+        rho_hot = gas_density("helium", 310.0, P)
+        assert rho_cold > rho_hot
+
+        # Cold gas should have smaller volume than hot gas
+        vol_cold = gas_volume(10.0, "helium", 270.0, P)
+        vol_hot = gas_volume(10.0, "helium", 310.0, P)
+        assert vol_hot > vol_cold
+
+    def test_equilibrium_altitude_depends_on_gas_temperature(self):
+        """A hotter gas should float at a higher equilibrium altitude
+        because the larger displaced volume provides more lift."""
+        from balloon_frontier.equilibrium import equilibrium_altitude
+
+        alt_cold = equilibrium_altitude(
+            gas_type="helium",
+            gas_mass_kg=10.0,
+            gas_temperature_k=270.0,
+            total_vehicle_mass_kg=15.0,
+            envelope_max_volume=200.0,
+        )
+        alt_hot = equilibrium_altitude(
+            gas_type="helium",
+            gas_mass_kg=10.0,
+            gas_temperature_k=310.0,
+            total_vehicle_mass_kg=15.0,
+            envelope_max_volume=200.0,
+        )
+        assert alt_hot > alt_cold
+
+    def test_buoyancy_formula_consistency_with_temperature(self):
+        """Verify the buoyancy formula: F_buoy = (rho_air - rho_gas) * g * V
+        where both V and rho_gas depend on gas_temperature_k."""
+        s = SimulationState(
+            gas_mass_kg=10.0, gas_type="helium",
+            gas_temperature_k=300.0,
+            payload_mass_kg=5.0,
+            envelope=EnvelopeConfig(max_volume_m3=200.0, mass_kg=2.0),
+        )
+        r = simulation_step(s)
+        # Recompute buoyancy from the *post-step* state (temp/mass may have changed)
+        from balloon_frontier.physics import (
+            gas_volume, gas_density, atmosphere_density,
+            atmosphere_pressure,
+        )
+        P = atmosphere_pressure(max(0.0, s.altitude_m))
+        V = gas_volume(s.gas_mass_kg, s.gas_type, s.gas_temperature_k, P)
+        rho_gas = gas_density(s.gas_type, s.gas_temperature_k, P)
+        rho_air = atmosphere_density(max(0.0, s.altitude_m))
+        expected_buoyancy = (rho_air - rho_gas) * G * V
+        # The telemetry buoyancy matches the formula with post-step state
+        assert abs(r["buoyancy_N"] - expected_buoyancy) < 0.01

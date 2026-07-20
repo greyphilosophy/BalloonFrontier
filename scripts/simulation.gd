@@ -13,6 +13,14 @@ const R_UNIVERSAL: float = 8.314462618
 const SEA_LEVEL_PRESSURE: float = 101325.0
 const SEA_LEVEL_TEMPERATURE: float = 288.15
 
+# Thermal constants
+const STEFAN_BOLTZMANN: float = 5.67e-8
+const SOLAR_CONSTANT: float = 1361.0
+const SPECIFIC_HEAT_HELIUM: float = 5193.0
+const SPECIFIC_HEAT_HYDROGEN: float = 14300.0
+const SPECIFIC_HEAT_HOT_AIR: float = 1005.0
+const SPECIFIC_HEAT_METHANE: float = 2214.0
+
 const MOLAR_MASS: Dictionary = {
     "helium": 0.0040026,
     "hydrogen": 0.002016,
@@ -45,6 +53,9 @@ func _physics_process(delta: float):
     _altitude_m += _velocity_mps * step
     _velocity_mps += _net_acceleration() * step
     _time_s += step
+
+    # Update gas temperature based on thermal model
+    _gas_temperature_k = _update_gas_temperature(DT)
 
     # Check for burst
     var vol: float = _gas_volume()
@@ -118,6 +129,35 @@ func _get_temperature():
         return 216.65 + 0.001 * (_altitude_m - 20000)
     return 270.0
 
+
+func _solar_flux_at_altitude(altitude_m: float) -> float:
+    var scale_height: float = 8000.0
+    return SOLAR_CONSTANT * (0.75 + 0.25 * (1.0 - exp(-altitude_m / scale_height)))
+
+func _update_gas_temperature(dt: float) -> float:
+    # Get gas-specific heat capacity
+    var c: float = SPECIFIC_HEAT_HELIUM
+    if _gas_type == "hydrogen":
+        c = SPECIFIC_HEAT_HYDROGEN
+    elif _gas_type == "hot_air":
+        c = SPECIFIC_HEAT_HOT_AIR
+    elif _gas_type == "methane":
+        c = SPECIFIC_HEAT_METHANE
+
+    # Calculate heat flows
+    var ambient_temp = _get_temperature()
+    var solar_flux = _solar_flux_at_altitude(_altitude_m)
+    var area = _spherical_area()
+    var Q_solar = solar_flux * 0.5 * area
+    var Q_radiation = 0.8 * STEFAN_BOLTZMANN * area * (_gas_temperature_k ** 4 - ambient_temp ** 4)
+    var Q_convection = 0.5 * area * (_gas_temperature_k - ambient_temp)
+    var Q_total = Q_solar - Q_radiation - Q_convection
+
+    # Update temperature: T_next = T + (Q / (m * c)) * dt
+    var thermal_capacity = _gas_mass_kg * c
+    if thermal_capacity > 0.0001:
+        return _gas_temperature_k + (Q_total / thermal_capacity) * dt
+    return _gas_temperature_k
 
 func _spherical_area():
     var vol: float = _gas_volume()
