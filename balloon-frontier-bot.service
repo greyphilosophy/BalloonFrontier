@@ -1,0 +1,18 @@
+[Unit]
+Description=Balloon Frontier Discord Bot
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/greyphilosophy/projects/BalloonFrontier
+ExecStart=/home/greyphilosophy/.hermes/hermes-agent/venv/bin/python /home/greyphilosophy/projects/BalloonFrontier/discord_bot.py
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=/home/greyphilosophy/projects/BalloonFrontier/.env
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=balloon-frontier-bot
+
+[Install]
+WantedBy=default.target

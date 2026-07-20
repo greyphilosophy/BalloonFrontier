@@ -15,6 +15,16 @@ from balloon_frontier.physics import (
     atmosphere_temperature, atmosphere_pressure, atmosphere_density,
     gas_volume, gas_density, buoyant_force, drag_force, spherical_area,
 )
+from balloon_frontier.fill import (
+    calculate_optimal_fill,
+    get_fill_variants,
+    MULTIPLIER_LIGHT,
+    MULTIPLIER_NORMAL,
+    MULTIPLIER_HEAVY,
+)
+from balloon_frontier.ascii_chart import chart_to_string
+from balloon_frontier.flight_score import calculate_flight_score
+from balloon_frontier.medal_tier import get_medal_tier, get_medal_emoji, medal_tier_to_string
 
 logger = logging.getLogger("balloon_frontier_bot")
 
@@ -52,8 +62,25 @@ SITE_OPTIONS = {
     "rooftop": ("Urban Rooftop", 50, 3, 3.0, "Warm microclimate, moderate wind"),
 }
 
+# ─── Fill mode presets ────────────────────────────────────────────────
 
-# ─── Simulation ───────────────────────────────────────────────────────
+FILL_MODES = {
+    "auto": {"label": "Auto (Optimal)", "description": "Calculated optimal fill"},
+    "light": {"label": "Light", "description": "20% less gas — faster climb"},
+    "normal": {"label": "Normal", "description": "Baseline optimal fill"},
+    "heavy": {"label": "Heavy", "description": "20% more gas — longer float"},
+}
+
+# Multiplier map for each fill mode
+FILL_MULTIPLIERS = {
+    "auto": None,  # Use raw optimal fill
+    "light": MULTIPLIER_LIGHT,
+    "normal": MULTIPLIER_NORMAL,
+    "heavy": MULTIPLIER_HEAVY,
+}
+
+
+# ─── Simulation ────────────────────────────────────────────────────────
 
 def run_simulation(gas_type, gas_mass, gas_temp, payload_mass,
                     drag_coeff, envelope_vol, stretch_ratio):
@@ -115,13 +142,31 @@ def make_result_embed(gas_name, gas_mass, env_name, payload_name, site_name,
     target = 30000
     status = "🟢" if peak >= target else "🟡" if peak >= target * 0.7 else "🔵"
 
+    # Medal
+    medal_emoji = get_medal_emoji(peak)
+    medal_name = medal_tier_to_string(peak)
+
     lines = ["🎈 **Launch Report**\n"]
     lines.append(f"Gas: {gas_name} | Mass: {gas_mass}kg")
     lines.append(f"Envelope: {env_name}")
     lines.append(f"Site: {site_name}\n")
     lines.append(f"Altitude: {status} {peak:,.0f}m / {target:,}m target")
-    lines.append(f"Burst: {'💥 Yes' if burst else '🟢 No'}\n")
+    lines.append(f"Burst: {'💥 Yes' if burst else '🟢 No'}")
+    if medal_name != "NONE":
+        lines.append(f"Medal: {medal_emoji} **{medal_name}")
+    else:
+        lines.append(f"Medal: ⚪ **None")
+    lines.append("")
 
+    # Generate ASCII trajectory chart
+    time_arr = [r["time"] for r in telemetry]
+    alt_arr = [r["alt"] for r in telemetry]
+    chart = chart_to_string(
+        time_arr, alt_arr,
+        title="📈 Flight Trajectory"
+    )
+
+    lines.append(chart + "\n")
     # Telemetry
     sampled = telemetry[::1]
     for r in sampled[:25]:
@@ -149,17 +194,16 @@ async def on_ready():
 class BalloonConfigurator(discord.ui.View):
     """View with select menus + launch button."""
 
-    # Class-level option builders
     def __init__(self):
         super().__init__(timeout=300)
 
         # Initialize config state
         self.state = {
             "gas": "helium",
-            "gas_mass": 2.0,
             "envelope": "latex",
             "payloads": ["none"],
             "site": "field",
+            "fill_mode": "auto",
         }
         self._msg = None
 
@@ -168,6 +212,8 @@ class BalloonConfigurator(discord.ui.View):
             _make_options(GAS_OPTIONS))
         self._add_menu("envelope", "Select envelope",
             _make_options(ENVELOPE_OPTIONS))
+        self._add_menu("fill_mode", "Select fill mode",
+            _make_fill_mode_options())
         self._add_menu("payloads", "Select payloads",
             _make_options(PAYLOAD_OPTIONS), allow_multi=True)
         self._add_menu("site", "Select launch site",
@@ -185,6 +231,27 @@ class BalloonConfigurator(discord.ui.View):
         self.add_item(btn)
         return btn
 
+    def _compute_gas_mass(self):
+        """Compute gas mass based on current fill_mode, envelope, and gas."""
+        gas_type = self.state["gas"]
+        env_id = self.state["envelope"]
+        fill_mode = self.state["fill_mode"]
+
+        env_info = ENVELOPE_OPTIONS[env_id]
+        volume = env_info[1]
+
+        base_mass = calculate_optimal_fill(volume, gas_type)
+
+        if fill_mode == "auto":
+            return round(base_mass, 3)
+        elif fill_mode == "light":
+            return round(base_mass * MULTIPLIER_LIGHT, 3)
+        elif fill_mode == "normal":
+            return round(base_mass * MULTIPLIER_NORMAL, 3)
+        elif fill_mode == "heavy":
+            return round(base_mass * MULTIPLIER_HEAVY, 3)
+        return round(base_mass, 3)
+
     def _build_config_text(self):
         """Build a text summary of current config."""
         s = self.state
@@ -195,28 +262,19 @@ class BalloonConfigurator(discord.ui.View):
         payload_names = [p[0] for p in payloads]
         payload_mass = sum(p[1] for p in payloads)
 
+        # Compute gas mass dynamically
+        gas_mass = self._compute_gas_mass()
+        fill_label = FILL_MODES[s["fill_mode"]]["label"]
+
         lines = ["🎈 **Balloon Configuration**\n"]
-        lines.append(f"Gas: {gas[0]} — {s['gas_mass']} kg")
+        lines.append(f"Gas: {gas[0]}")
+        lines.append(f"Fill: {fill_label} → {gas_mass:.3f} kg")
         lines.append(f"Envelope: {env[0]} — {env[1]}m³")
         lines.append(f"Payloads: {', '.join(payload_names)}")
         lines.append(f"Site: {site[0]}")
-        lines.append(f"Total mass: {s['gas_mass'] + env[2] + payload_mass:.1f} kg\n")
+        lines.append(f"Total mass: {gas_mass + env[2] + payload_mass:.1f} kg\n")
         lines.append("Use the dropdowns to configure, then tap Launch.")
         return "\n".join(lines)
-
-    def _handle_select(self, interaction, key, value):
-        """Handle a dropdown selection update."""
-        if key == "payloads":
-            self.state["payloads"] = value
-        else:
-            self.state[key] = value[0] if value else self.state[key]
-
-    async def _update_message(self, interaction):
-        """Update the message with current config."""
-        content = self._build_config_text()
-        if self._msg is None:
-            self._msg = interaction
-        await self._msg.edit(content=content, view=self)
 
 
 def _make_options(options_dict):
@@ -224,6 +282,18 @@ def _make_options(options_dict):
     opts = []
     for k, v in options_dict.items():
         opts.append(discord.SelectOption(value=k, label=v[0], description="select"))
+    return opts
+
+
+def _make_fill_mode_options():
+    """Build select options for fill mode presets."""
+    opts = []
+    for mode, info in FILL_MODES.items():
+        opts.append(discord.SelectOption(
+            value=mode,
+            label=info["label"],
+            description=info["description"],
+        ))
     return opts
 
 
@@ -239,9 +309,8 @@ class _Select(discord.ui.Select):
 
     async def callback(self, interaction):
         self._parent._handle_select(interaction, self._key, self.values)
-        if self._parent._msg:
-            new_content = self._parent._build_config_text()
-            await self._parent._msg.edit(content=new_content, view=self._parent)
+        new_content = self._parent._build_config_text()
+        await self._parent._msg.edit(content=new_content, view=self._parent)
 
 
 class _LaunchButton(discord.ui.Button):
@@ -258,13 +327,16 @@ class _LaunchButton(discord.ui.Button):
         payload_names = [p[0] for p in payloads]
         payload_mass = sum(p[1] for p in payloads)
 
+        # Compute gas mass from fill mode
+        gas_mass = self._parent._compute_gas_mass()
+
         try:
             tel, summary = run_simulation(
-                state["gas"], state["gas_mass"], 288.15, payload_mass,
+                state["gas"], gas_mass, 288.15, payload_mass,
                 env_info[3], env_info[1], env_info[4]
             )
             result = make_result_embed(
-                gas_info[0], state["gas_mass"], env_info[0],
+                gas_info[0], gas_mass, env_info[0],
                 " + ".join(payload_names), site_info[0],
                 tel, summary
             )

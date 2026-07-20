@@ -23,6 +23,7 @@ from balloon_frontier.physics import (
     burst_volume,
     G,
 )
+from balloon_frontier.thermal import calculate_balloon_heat_flows, gas_temperature_update
 
 
 @dataclass
@@ -38,6 +39,8 @@ class EnvelopeConfig:
         mass_kg: Dry mass of the envelope material.
         contained_gas: If True (superpressure/latex), gas is contained and volume
             expands freely up to burst. If False (zero-pressure), excess gas vents.
+        envelope_absorptivity: Solar absorptivity (0–1) of the envelope material.
+        envelope_emissivity: IR emissivity (0–1) of the envelope material.
     """
     max_volume_m3: float = 10.0
     burst_stretch_ratio: float = 2.5
@@ -45,6 +48,8 @@ class EnvelopeConfig:
     permeability: float = 0.001  # per second
     mass_kg: float = 1.0
     contained_gas: bool = False
+    envelope_absorptivity: float = 0.5
+    envelope_emissivity: float = 0.8
 
 
 @dataclass
@@ -171,6 +176,34 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     P_amb = atmosphere_pressure(max(0.0, state.altitude_m))
     leak_fraction = state.envelope.permeability * dt
     state.gas_mass_kg *= max(0.0001, 1.0 - leak_fraction)
+
+    # ── 4b. Thermal equilibrium: update gas temperature ──
+    gas_vol_before = gas_volume(
+        state.gas_mass_kg,
+        state.gas_type,
+        state.gas_temperature_k,
+        P_amb,
+    )
+    area = spherical_area(gas_vol_before)
+    heat_flows = calculate_balloon_heat_flows(
+        altitude_m=max(0.0, state.altitude_m),
+        gas_temp_K=state.gas_temperature_k,
+        gas_mass_kg=state.gas_mass_kg,
+        gas_type=state.gas_type,
+        envelope_absorptivity=state.envelope.envelope_absorptivity,
+        envelope_emissivity=state.envelope.envelope_emissivity,
+        envelope_area_m2=area,
+        envelope_mass_kg=state.envelope.mass_kg,
+        heater_power_watts=0.0,
+        equipment_heat_watts=0.0,
+    )
+    state.gas_temperature_k = gas_temperature_update(
+        gas_type=state.gas_type,
+        gas_mass_kg=state.gas_mass_kg,
+        gas_temp_K=state.gas_temperature_k,
+        heat_flows=heat_flows,
+        dt=dt,
+    )
 
     # ── 5. Venting: only zero-pressure envelopes vent overflow
     #    Contained (latex/superpressure) envelopes keep expanding

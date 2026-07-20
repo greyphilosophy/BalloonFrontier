@@ -187,3 +187,186 @@ class TestGasTemperatureUpdate:
         t_he = gas_temperature_update("helium", 1.0, 288.15, flows, 1.0)
         t_h2 = gas_temperature_update("hydrogen", 1.0, 288.15, flows, 1.0)
         assert (288.15 - t_h2) < (288.15 - t_he)
+
+
+class TestHotAirHeaterTracking:
+    """Hot air gas temperature tracks a heater target temperature."""
+
+    def test_hot_air_tracks_heater_target(self):
+        """Hot air with a heater target should approach the target temperature."""
+        t_new = gas_temperature_update(
+            gas_type="hot_air",
+            gas_mass_kg=1.0,
+            gas_temp_K=290.0,
+            heat_flows={},
+            dt=1.0,
+            target_heater_temp_K=350.0,
+        )
+        # Should move toward 350K
+        assert t_new > 290.0
+        assert t_new < 350.0  # Shouldn't overshoot
+
+    def test_hot_air_heater_warms_cold_gas(self):
+        """When gas is well below target, it should heat up significantly."""
+        t_new = gas_temperature_update(
+            gas_type="hot_air",
+            gas_mass_kg=1.0,
+            gas_temp_K=290.0,
+            heat_flows={},
+            dt=30.0,
+            target_heater_temp_K=350.0,
+        )
+        # After 30s (one time constant), should cover ~63% of the delta
+        delta = 350.0 - 290.0
+        expected_min = 290.0 + delta * 0.6
+        assert t_new >= expected_min
+
+    def test_hot_air_heater_does_not_overshoot(self):
+        """Heater tracking should not overshoot the target."""
+        t_new = gas_temperature_update(
+            gas_type="hot_air",
+            gas_mass_kg=1.0,
+            gas_temp_K=340.0,
+            heat_flows={},
+            dt=10.0,
+            target_heater_temp_K=350.0,
+        )
+        assert t_new < 350.0
+
+    def test_hot_air_cools_when_above_target(self):
+        """When gas is hotter than target, it should cool toward the target."""
+        t_new = gas_temperature_update(
+            gas_type="hot_air",
+            gas_mass_kg=1.0,
+            gas_temp_K=360.0,
+            heat_flows={},
+            dt=1.0,
+            target_heater_temp_K=350.0,
+        )
+        assert t_new < 360.0
+        assert t_new > 350.0  # Shouldn't undershoot
+
+    def test_hot_air_without_heater_uses_natural_model(self):
+        """Without a heater target, hot air falls back to natural thermal model."""
+        flows = {"Q_total": 100.0}
+        t_new = gas_temperature_update(
+            gas_type="hot_air",
+            gas_mass_kg=1.0,
+            gas_temp_K=288.15,
+            heat_flows=flows,
+            dt=1.0,
+        )
+        # Should heat up (Q_total = 100W, c=1005, m=1kg)
+        expected = 288.15 + (100.0 / (1.0 * 1005.0)) * 1.0
+        assert abs(t_new - expected) < 0.01
+
+    def test_hot_air_stays_at_target(self):
+        """When gas temperature equals the heater target, it stays there."""
+        t_new = gas_temperature_update(
+            gas_type="hot_air",
+            gas_mass_kg=1.0,
+            gas_temp_K=350.0,
+            heat_flows={},
+            dt=1.0,
+            target_heater_temp_K=350.0,
+        )
+        assert abs(t_new - 350.0) < 0.01
+
+    def test_hot_air_multiple_steps_approach_target(self):
+        """Repeated heating steps should converge on the target."""
+        temp = 290.0
+        for _ in range(10):
+            temp = gas_temperature_update(
+                gas_type="hot_air",
+                gas_mass_kg=1.0,
+                gas_temp_K=temp,
+                heat_flows={},
+                dt=5.0,
+                target_heater_temp_K=350.0,
+            )
+        assert temp > 330.0  # After ~50s, should be close to 350K
+        assert temp < 350.0
+
+    def test_hot_air_heater_respects_higher_target(self):
+        """A higher target heater temperature yields more heating."""
+        t_low = gas_temperature_update(
+            gas_type="hot_air",
+            gas_mass_kg=1.0,
+            gas_temp_K=290.0,
+            heat_flows={},
+            dt=10.0,
+            target_heater_temp_K=320.0,
+        )
+        t_high = gas_temperature_update(
+            gas_type="hot_air",
+            gas_mass_kg=1.0,
+            gas_temp_K=290.0,
+            heat_flows={},
+            dt=10.0,
+            target_heater_temp_K=380.0,
+        )
+        assert t_high > t_low
+
+
+class TestGasTypeDifferentiation:
+    """Verify that each gas type behaves differently in thermal updates."""
+
+    def test_helium_uses_natural_model(self):
+        """Helium temperature follows natural thermal equilibrium."""
+        flows = {"Q_total": -50.0}
+        t_cold = gas_temperature_update(
+            gas_type="helium",
+            gas_mass_kg=1.0,
+            gas_temp_K=300.0,
+            heat_flows=flows,
+            dt=1.0,
+        )
+        # Negative Q_total should cool the gas
+        assert t_cold < 300.0
+
+    def test_hydrogen_uses_natural_model(self):
+        """Hydrogen temperature follows natural thermal equilibrium."""
+        flows = {"Q_total": -50.0}
+        t_cold = gas_temperature_update(
+            gas_type="hydrogen",
+            gas_mass_kg=1.0,
+            gas_temp_K=300.0,
+            heat_flows=flows,
+            dt=1.0,
+        )
+        # Negative Q_total should cool the gas
+        assert t_cold < 300.0
+
+    def test_methane_uses_natural_model(self):
+        """Methane temperature follows natural thermal equilibrium."""
+        flows = {"Q_total": -50.0}
+        t_cold = gas_temperature_update(
+            gas_type="methane",
+            gas_mass_kg=1.0,
+            gas_temp_K=300.0,
+            heat_flows=flows,
+            dt=1.0,
+        )
+        assert t_cold < 300.0
+
+    def test_hot_air_with_heater_differs_from_helium(self):
+        """Hot air with a heater target tracks temperature differently than helium."""
+        # Hot air with heater: approaches target
+        t_hot = gas_temperature_update(
+            gas_type="hot_air",
+            gas_mass_kg=1.0,
+            gas_temp_K=300.0,
+            heat_flows={"Q_total": 0.0},
+            dt=1.0,
+            target_heater_temp_K=350.0,
+        )
+        # Helium with zero heat flow: stays the same
+        t_He = gas_temperature_update(
+            gas_type="helium",
+            gas_mass_kg=1.0,
+            gas_temp_K=300.0,
+            heat_flows={"Q_total": 0.0},
+            dt=1.0,
+        )
+        assert t_hot > 300.0  # Heating toward target
+        assert abs(t_He - 300.0) < 0.01  # No change with zero heat

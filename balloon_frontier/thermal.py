@@ -107,9 +107,19 @@ def gas_temperature_update(
     gas_temp_K: float,
     heat_flows: dict,
     dt: float,
+    target_heater_temp_K: float | None = None,
 ) -> float:
-    """Update gas temperature based on heat flows.
-    
+    """Update gas temperature based on gas type.
+
+    Gas-type specific thermal behavior:
+      - hot_air: temperature tracks an active heater target (burner).
+        The burner actively heats the gas toward target_heater_temp_K.
+        When no target is set, hot air cools naturally like other gases.
+      - helium/hydrogen/methane: temperature follows natural thermal
+        equilibrium with ambient (convection, radiation, solar, equipment
+        heat). As the balloon rises and falls, gas temperature naturally
+        shifts toward the changing ambient temperature.
+
     Specific heat of helium ~5193 J/(kg·K), hydrogen ~14300, etc.
     """
     specific_heats = {
@@ -119,5 +129,47 @@ def gas_temperature_update(
         "methane": 2214.0,
     }
     c = specific_heats.get(gas_type, 1005.0)
+
+    # ── Hot air with active heater: target tracking ────────────
+    if gas_type == "hot_air" and target_heater_temp_K is not None:
+        return _hot_air_temperature_update(
+            gas_temp_K, target_heater_temp_K, dt,
+        )
+
+    # ── All other gas types (and hot air without heater): natural thermal model ──
     heat_flow = heat_flows["Q_total"]
     return thermal_node_update(gas_temp_K, gas_mass_kg, c, heat_flow, dt)
+
+
+def _hot_air_temperature_update(
+    gas_temp_K: float,
+    target_heater_temp_K: float,
+    dt: float,
+) -> float:
+    """Update hot air balloon temperature toward the heater target.
+
+    Hot air balloons use a burner that actively heats the gas. We model
+    this as a first-order exponential approach toward the target temperature.
+    The burner has a fast response time constant (~30 seconds) to capture
+    the rapid heating characteristic of a propane burner.
+
+    When the gas is below the target, the burner adds heat.
+    When the gas exceeds the target, natural cooling dominates.
+    """
+    # Response rate: ~30-second time constant for a typical burner
+    burner_response_per_s = 1.0 / 30.0
+
+    if gas_temp_K < target_heater_temp_K:
+        # Heating phase: approach target exponentially
+        delta = target_heater_temp_K - gas_temp_K
+        gas_temp_K += delta * (1.0 - math.exp(-burner_response_per_s * dt))
+    else:
+        # Cooling phase: natural convection-driven approach to target
+        # (gas is hotter than target, burner is throttled back or cycled)
+        delta = gas_temp_K - target_heater_temp_K
+        # Slower cooling rate (~60s time constant) as the gas loses heat
+        # through the envelope to the ambient air
+        cooling_rate = 1.0 / 60.0
+        gas_temp_K -= delta * (1.0 - math.exp(-cooling_rate * dt))
+
+    return gas_temp_K
