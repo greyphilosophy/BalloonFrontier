@@ -124,28 +124,68 @@ def format_kg_compact(mass_kg: float) -> str:
     return s.rstrip("0").rstrip(".")
 
 
+def _validate_envelope_params(balloon_spec):
+    """Validate and extract envelope parameters from the balloon spec.
+    
+    Validates that the required fields exist and are numeric, returning
+    a dict of envelope parameters ready for the shared calculation.
+    
+    Raises:
+        ValueError: If required fields are missing or malformed.
+    """
+    if "max_vol" not in balloon_spec:
+        raise ValueError(f"Missing 'max_vol' in balloon spec for {balloon_spec.get('name', 'unknown')}")
+    if "burst" not in balloon_spec:
+        raise ValueError(f"Missing 'burst' in balloon spec for {balloon_spec.get('name', 'unknown')}")
+    if not isinstance(balloon_spec["max_vol"], (int, float)):
+        raise ValueError(f"'max_vol' must be numeric, got {balloon_spec['max_vol']!r}")
+    if not isinstance(balloon_spec["burst"], (int, float)):
+        raise ValueError(f"'burst' must be numeric, got {balloon_spec['burst']!r}")
+    if balloon_spec["max_vol"] <= 0:
+        raise ValueError(f"'max_vol' must be positive, got {balloon_spec['max_vol']}")
+    if balloon_spec["burst"] <= 0:
+        raise ValueError(f"'burst' must be positive, got {balloon_spec['burst']}")
+    return {
+        "max_vol": balloon_spec["max_vol"],
+        "burst_stretch_ratio": balloon_spec["burst"],
+    }
+
+
 def show_fill_presets(balloon_key, gas_type):
     """Show fill mode selection UI with presets and auto option.
-    
-    Displays all fill presets with their calculated masses.
+
+    Displays all fill presets with their calculated masses using envelope
+    parameters passed to the shared calculate_max_safe_gas_mass() function.
     Returns the selected FillMode and computed mass.
     UI state persists across screen transitions via returned mode.
-    
+
     Acceptance:
     - Selecting any option immediately updates displayed mass
     - Shows computed mass value next to each option
+    - Passes burst_stretch_ratio from envelope spec to shared calculation
     """
     balloon_spec = BALLOON_SIZES[balloon_key]
-    max_vol = balloon_spec["max_vol"]
     
-    # Calculate masses for all presets
-    base_mass = calculate_optimal_fill(max_vol, gas_type)
+    # Validate and extract envelope parameters
+    try:
+        env_params = _validate_envelope_params(balloon_spec)
+    except ValueError as e:
+        print(f"  ⚠️  Envelope parameter error: {e}")
+        return None, None
+    
+    max_vol = env_params["max_vol"]
+    burst_ratio = env_params["burst_stretch_ratio"]
+    
+    # Calculate masses for all presets using envelope parameters
     preset_masses = {}
     for preset in FILL_PRESETS:
         if preset["mode"] == FillMode.MANUAL:
             preset_masses[preset["mode"]] = None
         else:
-            preset_masses[preset["mode"]] = apply_fill_mode(max_vol, gas_type, preset["mode"])
+            preset_masses[preset["mode"]] = apply_fill_mode(
+                max_vol, gas_type, preset["mode"],
+                burst_stretch_ratio=burst_ratio,
+            )
     
     print("\n  Fill Mode Selection")
     print("  ─────────────────────────────────────────────")
@@ -207,7 +247,10 @@ def show_fill_presets(balloon_key, gas_type):
                     )
                     return FillMode.MANUAL, clamped
                 else:
-                    mass = apply_fill_mode(max_vol, gas_type, selected["mode"])
+                    mass = apply_fill_mode(
+                        max_vol, gas_type, selected["mode"],
+                        burst_stretch_ratio=burst_ratio,
+                    )
                     print(f"  Selected: {selected['label']} → {format_mass_kg(mass)}")
                     return selected["mode"], mass
             else:
@@ -437,7 +480,7 @@ def play():
         return
 
     print("\n  🚀 Launching...\n")
-    tel, summary = run_flight(gas_type, gas_mass, balloon_spec, payloads)
+    tel, summary = run_flight(gas_type, gas_mass, balloon_spec, payloads, site_key)
     show_results(balloon_spec, gas_type, gas_mass, payloads, summary)
 
 
