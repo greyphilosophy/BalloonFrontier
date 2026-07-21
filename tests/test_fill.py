@@ -221,6 +221,65 @@ class TestAutoFillIntegration:
         mass = apply_fill_mode(10.0, "helium", FillMode.MANUAL, manual_mass_kg=999.0)
         assert mass == safe
 
+    def test_manual_fill_clamped_with_custom_burst_stretch_ratio(self):
+        """Verify manual fill is clamped to the burst-safe range derived from burst_stretch_ratio.
+
+        This is the core safety invariant: a manual mass of 999 kg must never
+        exceed the safe limit, regardless of what burst_stretch_ratio is used.
+        """
+        vol = 10.0
+        gas = "helium"
+        huge_mass = 999.0
+
+        # Test with different burst_stretch_ratio values
+        for ratio in [2.0, 2.5, 3.0, 4.0]:
+            safe_max = calculate_max_safe_gas_mass(vol, gas, ratio)
+            clamped = apply_fill_mode(vol, gas, FillMode.MANUAL,
+                                     manual_mass_kg=huge_mass,
+                                     burst_stretch_ratio=ratio)
+            assert clamped == safe_max, (
+                f"Manual mass should be clamped to safe_max for ratio={ratio}"
+            )
+
+    def test_manual_fill_clamped_with_balloon_burst_ratio(self):
+        """Simulate the show_fill_presets() flow: manual mass routed through
+        apply_fill_mode() with the balloon's burst stretch ratio.
+
+        This test mirrors what happens in show_fill_presets() when the player
+        selects Manual mode and enters a gas mass. The returned value must be
+        clamped to the burst-safe range using the balloon's actual burst ratio.
+        """
+        # Simulate a typical balloon config (e.g., a 10m³ latex with burst=2.5)
+        vol = 10.0
+        gas = "helium"
+        burst_ratio = 2.5
+
+        # Player enters an enormous value (should be clamped)
+        player_input = 50.0
+        safe_max = calculate_max_safe_gas_mass(vol, gas, burst_ratio)
+        result = apply_fill_mode(vol, gas, FillMode.MANUAL,
+                                 manual_mass_kg=player_input,
+                                 burst_stretch_ratio=burst_ratio)
+        assert result == safe_max
+        assert result < player_input, "Clamped value should be less than input"
+
+    def test_manual_fill_respects_lower_bound(self):
+        """Manual mass below the 0.001 kg floor should be clamped up."""
+        result = apply_fill_mode(10.0, "helium", FillMode.MANUAL,
+                                 manual_mass_kg=0.0001)
+        assert result >= 0.001
+
+    def test_manual_fill_within_safe_range_passes_through(self):
+        """A reasonable manual mass within the safe range is returned as-is."""
+        vol = 10.0
+        gas = "helium"
+        safe_max = calculate_max_safe_gas_mass(vol, gas)
+        # Use half the safe max as a reasonable manual input
+        manual = safe_max * 0.5
+        result = apply_fill_mode(vol, gas, FillMode.MANUAL,
+                                 manual_mass_kg=manual)
+        assert result == round(manual, 6)
+
     def test_get_auto_fill_all_gases(self):
         for gas in VALID_GAS_TYPES:
             for mode in [FillMode.AUTO, FillMode.LIGHT, FillMode.NORMAL, FillMode.HEAVY]:
