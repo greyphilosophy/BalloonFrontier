@@ -4,17 +4,22 @@ Reference: Balloon Frontier GDD Section 6.7 (Wind layers).
 """
 
 import math
+
 import pytest
+
 from balloon_frontier.wind import (
-    wind_speed,
-    wind_direction,
-    wind_vector,
-    wind_profile,
     STANDARD_WIND_LAYERS,
+    WIND_SITES,
+    getWindVelocity,
+    wind_direction,
+    wind_profile,
+    wind_speed,
+    wind_vector,
 )
 
 
 # ─── Wind Speed ─────────────────────────────────────────────────
+
 
 class TestWindSpeed:
     """Test wind speed calculations at various altitudes."""
@@ -57,6 +62,7 @@ class TestWindSpeed:
 
 # ─── Wind Direction ─────────────────────────────────────────────
 
+
 class TestWindDirection:
     """Test wind direction calculations."""
 
@@ -80,6 +86,7 @@ class TestWindDirection:
 
 # ─── Wind Vector ────────────────────────────────────────────────
 
+
 class TestWindVector:
     """Test wind velocity decomposition into (u, v) components."""
 
@@ -98,6 +105,7 @@ class TestWindVector:
 
 
 # ─── Wind Profile ──────────────────────────────────────────────
+
 
 class TestWindProfile:
     """Test batch wind profile computation."""
@@ -124,6 +132,7 @@ class TestWindProfile:
 
 # ─── Wind Layer Definitions ───────────────────────────────────
 
+
 class TestWindLayers:
     """Test the standard wind layer definitions."""
 
@@ -147,3 +156,51 @@ class TestWindLayers:
             assert top > bot
             assert base > 0
             assert amp > 0
+
+
+# ─── Site-specific gust model ─────────────────────────────────────
+
+
+class TestSiteWindGusts:
+    def test_getWindVelocity_deterministic(self):
+        # Same (t, site, alt) should always match exactly.
+        t = 123.45
+        alt = 10000
+        for site_id in WIND_SITES.keys():
+            v1 = getWindVelocity(t, site_id=site_id, alt_m=alt)
+            v2 = getWindVelocity(t, site_id=site_id, alt_m=alt)
+            assert v1 == v2
+
+    def test_sites_diverge_at_same_time(self):
+        # Different site baselines should affect the magnitude at the same time.
+        t = 200.0
+        alt = 5000
+        mags = {}
+        for site_id in WIND_SITES.keys():
+            u, v = getWindVelocity(t, site_id=site_id, alt_m=alt)
+            mags[site_id] = math.sqrt(u * u + v * v)
+
+        # With at least two sites, magnitudes should not all be equal.
+        assert len(set(round(m, 6) for m in mags.values())) > 1
+
+    def test_wind_is_bounded_with_gusts(self):
+        # Ensure gusts do not push wind speeds into unstable territory.
+        alt = 12000
+        for site_id in WIND_SITES.keys():
+            for t in [0, 10, 37, 90, 180, 360]:
+                u, v = getWindVelocity(t, site_id=site_id, alt_m=alt)
+                speed = math.sqrt(u * u + v * v)
+                assert math.isfinite(speed)
+                assert 0.0 <= speed < 25.0
+
+    def test_gust_pattern_varies_over_time(self):
+        # For a fixed site + altitude, wind magnitude should vary over time.
+        alt = 8000
+        site_id = "field" if "field" in WIND_SITES else next(iter(WIND_SITES.keys()))
+
+        speeds = []
+        for t in [0, 15, 30, 45, 60, 90, 120]:
+            u, v = getWindVelocity(t, site_id=site_id, alt_m=alt)
+            speeds.append(math.sqrt(u * u + v * v))
+
+        assert max(speeds) - min(speeds) > 0.2

@@ -131,6 +131,20 @@ class TestBuoyancy:
         rho_cold = atmosphere_density(0)
         assert rho_hot < rho_cold
 
+    def test_hot_air_matches_ambient_density_at_same_temperature(self):
+        """If the envelope gas temperature equals ambient, hot-air density should match
+        ambient air density at the same pressure, so buoyancy approaches zero."""
+        T_amb = 288.15
+        P_amb = 101325.0
+
+        rho_gas = gas_density("hot_air", T_amb, P_amb)
+        rho_air = atmosphere_density(0)
+        assert abs(rho_gas - rho_air) < 1e-6
+
+        # Using 10kg is arbitrary; any nonzero difference should be very small.
+        F_buoy = buoyant_force("hot_air", 10.0, T_amb, 0.0)
+        assert abs(F_buoy) < 1e-6
+
     def test_zero_mass_zero_lift(self):
         assert abs(buoyant_force("helium", 0.0, 288.15, 0)) < 0.001
 

@@ -16,7 +16,9 @@ SEA_LEVEL_TEMPERATURE = 288.15
 MOLAR_MASS = {
     "helium": 0.0040026,
     "hydrogen": 0.002016,
-    "hot_air": 0.02897,
+    # Chosen so hot_air at the same T and P matches ambient air density
+    # using the engine's air gas constant R_AIR (ideal gas consistency)
+    "hot_air": 0.0289652068,
     "methane": 0.01604,
 }
 
