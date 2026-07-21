@@ -42,10 +42,12 @@ GAS_OPTIONS = {
 }
 
 ENVELOPE_OPTIONS = {
-    "mylar": ("Mylar Party Balloon", 0.5, 0.05, 2.0, 0.47, 500),
-    "latex": ("Latex Weather Balloon", 10.0, 1.0, 3.0, 0.47, 2000),
-    "zero_pressure": ("Zero-Pressure Polyethylene", 100.0, 18.0, 1.5, 0.47, 15000),
-    "blimp": ("Small Non-Rigid Blimp", 500.0, 45.0, 1.3, 0.55, 50000),
+    # Tuple layout used by the Discord simulation:
+    # (display_name, envelope_vol_m3, <unused>, drag_coeff, burst_stretch_ratio, <unused>)
+    "mylar": ("Mylar Party Balloon", 200.0, 0.05, 2.0, 3.0, 500),
+    "latex": ("Latex Weather Balloon", 10.0, 1.0, 3.0, 2.5, 2000),
+    "zero_pressure": ("Zero-Pressure Polyethylene", 300.0, 18.0, 1.5, 1.8, 15000),
+    "blimp": ("Small Non-Rigid Blimp", 500.0, 45.0, 1.3, 2.0, 50000),
 }
 
 PAYLOAD_OPTIONS = {
