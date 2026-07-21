@@ -590,3 +590,51 @@ class TestTemperatureDrivenBuoyancy:
         expected_buoyancy = (rho_air - rho_gas) * G * V
         # The telemetry buoyancy matches the formula with post-step state
         assert abs(r["buoyancy_N"] - expected_buoyancy) < 0.01
+
+    def test_temperature_delta_k_resolves_gas_temperature_and_lift_sign(self):
+        """If callers provide dT (temperature differential), we must resolve
+        T_gas = T_amb + dT and then use that resolved temperature in density /
+        buoyancy (lift sign should flip positive for this configuration)."""
+        from balloon_frontier.physics import (
+            buoyant_force,
+            gas_density,
+            atmosphere_temperature,
+        )
+
+        env = EnvelopeConfig(
+            max_volume_m3=500.0,
+            burst_stretch_ratio=10.0,
+            drag_coefficient=0.47,
+            permeability=0.0,
+            mass_kg=0.0,
+            contained_gas=True,
+        )
+
+        # Methane at sea level is near the lift threshold in this simplified
+        # model; raising gas temperature by +65K should make net lift positive.
+        s = SimulationState(
+            altitude_m=0.0,
+            terrain_base_altitude_offset_m=0.0,
+            gas_type="methane",
+            gas_mass_kg=1.0,
+            gas_temperature_delta_k=65.0,
+            payload_mass_kg=0.0,
+            ballast_mass_kg=0.0,
+            envelope=env,
+        )
+
+        assert s.gas_temperature_k == pytest.approx(353.15, abs=1e-6)
+
+        P = atmosphere_pressure(0.0)
+        rho_gas = gas_density(s.gas_type, s.gas_temperature_k, P)
+        rho_amb = gas_density(s.gas_type, atmosphere_temperature(0.0), P)
+        assert rho_gas < rho_amb
+
+        F_buoy = buoyant_force(
+            s.gas_type,
+            s.gas_mass_kg,
+            s.gas_temperature_k,
+            s.altitude_m,
+        )
+        net_lift = F_buoy - s.total_mass() * G
+        assert net_lift > 0.0

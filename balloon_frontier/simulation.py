@@ -14,7 +14,7 @@ All units are SI (meters, kilograms, seconds, Kelvin, Pascals).
 
 import math
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 from balloon_frontier.physics import (
     atmosphere_temperature,
@@ -78,7 +78,17 @@ class SimulationState:
     # ── Gas compartment ─────────────────────────────────────
     gas_type: str = "helium"
     gas_mass_kg: float = 1.0
-    gas_temperature_k: float = 288.15
+    # Initial gas temperature.
+    #
+    # Callers may specify either:
+    #   - gas_temperature_k (absolute, Kelvin), OR
+    #   - gas_temperature_delta_k (dT in Kelvin), where:
+    #       gas_temperature_k = ambient_temperature_k + gas_temperature_delta_k
+    #
+    # If neither is provided, gas_temperature_k defaults to the ambient
+    # temperature at the initial altitude.
+    gas_temperature_k: Optional[float] = None
+    gas_temperature_delta_k: Optional[float] = None
     # Internal pressure for the compartment (equals ambient for zero-pressure envelopes)
     gas_pressure_pa: float = 101325.0
 
@@ -104,6 +114,35 @@ class SimulationState:
     burst: bool = False
     landed: bool = False  # altitude drops back to 0 with downward velocity
     crashed: bool = False  # altitude reaches sea level with high speed
+
+    def __post_init__(self) -> None:
+        """Resolve the initial gas temperature from either absolute T_gas or dT."""
+        ambient_temp_k = atmosphere_temperature(max(0.0, float(self.altitude_m)))
+
+        if self.gas_temperature_k is not None:
+            resolved = float(self.gas_temperature_k)
+            if resolved <= 0.0:
+                raise ValueError(
+                    f"gas_temperature_k must be > 0 K, got {self.gas_temperature_k}"
+                )
+            self.gas_temperature_k = resolved
+            return
+
+        if self.gas_temperature_delta_k is not None:
+            resolved = ambient_temp_k + float(self.gas_temperature_delta_k)
+            if resolved <= 0.0:
+                raise ValueError(
+                    "gas_temperature_delta_k would resolve to "
+                    f"gas_temperature_k <= 0 K (resolved={resolved})"
+                )
+            self.gas_temperature_k = resolved
+            return
+
+        # Default: ambient temperature at the initial altitude.
+        self.gas_temperature_k = ambient_temp_k
+
+        # Type narrowing for the rest of the simulation code.
+        assert self.gas_temperature_k is not None
 
     def total_mass(self) -> float:
         """Total vehicle mass (gas + envelope + payload + remaining ballast)."""
