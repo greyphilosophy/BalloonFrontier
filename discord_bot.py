@@ -131,7 +131,22 @@ def run_simulation(gas_type, gas_mass, gas_temp, payload_mass,
         if alt < -100:
             break
 
-    return telemetry, {"peak_altitude": peak_alt, "burst": burst}
+    flight_time = telemetry[-1]["time"] if telemetry else 0
+    return telemetry, {"peak_altitude": peak_alt, "burst": burst, "time_of_flight": flight_time}
+
+
+def format_score_breakdown(score, peak_alt, payload_count, time_of_flight):
+    """Format the score breakdown string."""
+    alt_pts = int(peak_alt * 1.0)
+    pay_pts = int(payload_count * 500.0)
+    time_pts = int(time_of_flight * 100.0)
+    lines = []
+    lines.append(f"  Altitude: {alt_pts:,} pts")
+    lines.append(f"  Payloads: {pay_pts:,} pts")
+    lines.append(f"  Time: {time_pts:,} pts")
+    lines.append(f"  ─────────────────")
+    lines.append(f"  TOTAL: {int(score):,} pts")
+    return "\n".join(lines)
 
 
 def make_result_embed(gas_name, gas_mass, env_name, payload_name, site_name,
@@ -139,6 +154,7 @@ def make_result_embed(gas_name, gas_mass, env_name, payload_name, site_name,
     """Build result embed for a launch."""
     peak = summary["peak_altitude"]
     burst = summary["burst"]
+    time_of_flight = summary.get("time_of_flight", 0)
     target = 30000
     status = "🟢" if peak >= target else "🟡" if peak >= target * 0.7 else "🔵"
 
@@ -146,16 +162,23 @@ def make_result_embed(gas_name, gas_mass, env_name, payload_name, site_name,
     medal_emoji = get_medal_emoji(peak)
     medal_name = medal_tier_to_string(peak)
 
+    # Score — default payload_count to 1 ("none") if not provided
+    payload_count = 1
+    score = calculate_flight_score(peak, payload_count, time_of_flight)
+
     lines = ["🎈 **Launch Report**\n"]
     lines.append(f"Gas: {gas_name} | Mass: {gas_mass}kg")
     lines.append(f"Envelope: {env_name}")
     lines.append(f"Site: {site_name}\n")
     lines.append(f"Altitude: {status} {peak:,.0f}m / {target:,}m target")
+    lines.append(f"Time of Flight: {time_of_flight:.1f}s")
     lines.append(f"Burst: {'💥 Yes' if burst else '🟢 No'}")
-    if medal_name != "NONE":
-        lines.append(f"Medal: {medal_emoji} **{medal_name}")
-    else:
-        lines.append(f"Medal: ⚪ **None")
+    lines.append(f"Medal: {'⚪' if medal_name == 'NONE' else medal_emoji} **{medal_name}**")
+    lines.append("")
+
+    # Score section
+    lines.append("🏆 **Score Breakdown**")
+    lines.append(format_score_breakdown(score, peak, payload_count, time_of_flight))
     lines.append("")
 
     # Generate ASCII trajectory chart
@@ -169,7 +192,7 @@ def make_result_embed(gas_name, gas_mass, env_name, payload_name, site_name,
     lines.append(chart + "\n")
     # Telemetry
     sampled = telemetry[::1]
-    for r in sampled[:25]:
+    for r in sampled[:15]:
         v_dir = "↑" if r["vel"] > 0 else "↓"
         lines.append(f"⏱ {r['time']:.0f}s  {r['alt']:>8,.0f}m  {v_dir}")
 
@@ -189,6 +212,12 @@ async def on_ready():
     logger.info(f"Balloon Frontier online as {bot.user} ({bot.user.id})")
 
 
+@bot.event
+async def on_message(message):
+    """Process messages so prefix commands (/help, /physics, /launch) fire."""
+    await bot.process_commands(message)
+
+
 # ─── Configurator — stateful menu ─────────────────────────────────
 
 class BalloonConfigurator(discord.ui.View):
@@ -203,8 +232,14 @@ class BalloonConfigurator(discord.ui.View):
             "envelope": "latex",
             "payloads": ["none"],
             "site": "field",
+            # Preset gas fill multiplier mode (Auto/Light/Normal/Heavy)
             "fill_mode": "auto",
+            # Cached computed gas mass (kg) for the current gas+envelope+fill_mode.
+            # Tests (and the UI) expect this to be present in state.
+            "gas_mass": None,
         }
+        # Initialize cached gas mass from defaults.
+        self.state["gas_mass"] = self._compute_gas_mass()
         self._msg = None
 
         # Build and add all menus
@@ -230,6 +265,19 @@ class BalloonConfigurator(discord.ui.View):
         btn = _LaunchButton(self, label, callback_func)
         self.add_item(btn)
         return btn
+
+    def _handle_select(self, interaction, key, value):
+        """Handle a dropdown selection update."""
+        if key == 'payloads':
+            self.state['payloads'] = value
+            return
+
+        # Single-select dropdowns pass a list (discord Select values).
+        self.state[key] = value[0] if value else self.state[key]
+
+        # Cache gas mass when the inputs that affect it change.
+        if key in ('gas', 'envelope', 'fill_mode'):
+            self.state['gas_mass'] = self._compute_gas_mass()
 
     def _compute_gas_mass(self):
         """Compute gas mass based on current fill_mode, envelope, and gas."""
@@ -262,8 +310,11 @@ class BalloonConfigurator(discord.ui.View):
         payload_names = [p[0] for p in payloads]
         payload_mass = sum(p[1] for p in payloads)
 
-        # Compute gas mass dynamically
-        gas_mass = self._compute_gas_mass()
+        # Use cached gas mass so UI state persists across transitions.
+        gas_mass = self.state.get("gas_mass")
+        if gas_mass is None:
+            gas_mass = self._compute_gas_mass()
+            self.state["gas_mass"] = gas_mass
         fill_label = FILL_MODES[s["fill_mode"]]["label"]
 
         lines = ["🎈 **Balloon Configuration**\n"]
@@ -327,8 +378,11 @@ class _LaunchButton(discord.ui.Button):
         payload_names = [p[0] for p in payloads]
         payload_mass = sum(p[1] for p in payloads)
 
-        # Compute gas mass from fill mode
-        gas_mass = self._parent._compute_gas_mass()
+        # Use cached gas mass from the configurator state.
+        gas_mass = self._parent.state.get("gas_mass")
+        if gas_mass is None:
+            gas_mass = self._parent._compute_gas_mass()
+            self._parent.state["gas_mass"] = gas_mass
 
         try:
             tel, summary = run_simulation(
