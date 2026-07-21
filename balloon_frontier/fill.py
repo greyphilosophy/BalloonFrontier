@@ -255,9 +255,9 @@ def get_fill_description(mode: FillMode) -> str:
     """Human-readable description for a fill mode."""
     descs = {
         FillMode.AUTO:   "Auto — optimal fill, safe burst margin",
-        FillMode.LIGHT:  "Light — 20% less gas, slower ascent",
+        FillMode.LIGHT:  "Light — less free lift, slower ascent, higher burst",
         FillMode.NORMAL: "Normal — baseline optimal fill",
-        FillMode.HEAVY:  "Heavy — 20% more gas, faster ascent",
+        FillMode.HEAVY:  "Heavy — more free lift, faster ascent, earlier burst",
         FillMode.MANUAL: "Manual — your choice",
     }
     return descs.get(mode, "Unknown fill mode")
