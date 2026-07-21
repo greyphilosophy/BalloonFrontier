@@ -16,6 +16,7 @@ from balloon_frontier.flight_score import calculate_flight_score
 from balloon_frontier.medal_tier import get_medal_tier, get_medal_emoji, medal_tier_to_string
 from balloon_frontier.fill import calculate_optimal_fill, apply_fill_mode, FillMode
 from balloon_frontier.fill import MULTIPLIER_LIGHT, MULTIPLIER_NORMAL, MULTIPLIER_HEAVY
+from balloon_frontier.launch_sites import LaunchSiteInfo
 
 # ── Latex Balloon Sizes ──────────────────────────────────
 # Realistic weather balloon data (Great Balloon / Scott Balloons)
@@ -43,9 +44,21 @@ PAYLOADS = {
 }
 
 SITES = {
-    "field":   ("Open Field",    288.15, 0.0),
-    "mountain":("Mountain Ridge", 283.15, 500.0),
-    "rooftop": ("Urban Rooftop", 291.15, 0.0),
+    "field": LaunchSiteInfo(
+        name="Open Field",
+        altitude_m=0.0,
+        gas_temperature_k=288.15,
+    ),
+    "mountain": LaunchSiteInfo(
+        name="Mountain Ridge",
+        altitude_m=500.0,
+        gas_temperature_k=283.15,
+    ),
+    "rooftop": LaunchSiteInfo(
+        name="Urban Rooftop",
+        altitude_m=0.0,
+        gas_temperature_k=291.15,
+    ),
 }
 
 # Playable roster (small set calibration update): exclude 21" and 29" from play
@@ -316,7 +329,7 @@ def show_site_menu():
     print("  ─────────────────────────────────────────────")
     for i, key in enumerate(SITE_LIST):
         v = SITES[key]
-        print(f"  {i+1}. {v[0]}")
+        print(f"  {i+1}. {v.name}")
     print()
     idx = get_choice(len(SITE_LIST), "Launch site (1-3)")
     return SITE_LIST[idx] if idx is not None else None
@@ -326,8 +339,8 @@ def show_site_menu():
 
 def run_flight(gas_type, gas_mass, envelope_spec, payload_ids, site_key):
     site_info = SITES[site_key]
-    site_temp_k = site_info[1]
-    terrain_offset_m = site_info[2]
+    site_temp_k = site_info.gas_temperature_at_launch()
+    terrain_offset_m = site_info.altitude_m
 
     env_config = EnvelopeConfig(
         max_volume_m3=envelope_spec["max_vol"],
@@ -471,7 +484,7 @@ def play():
     print(f"  Balloon:  {balloon_spec['name']} latex")
     print(f"  Gas:      {gas_type} ({format_mass_kg(gas_mass)})")
     print(f"  Payloads: {', '.join(PAYLOADS[p][0] for p in payloads)}")
-    print(f"  Site:     {SITES[site_key][0]}")
+    print(f"  Site:     {SITES[site_key].name}")
     print("  ─────────────────────────────────────────────────")
 
     resp = input("  Ready to launch? (y/n) > ").strip().lower()

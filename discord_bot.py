@@ -28,6 +28,7 @@ from balloon_frontier.mission_selection import (
 )
 from balloon_frontier.flight_score import calculate_flight_score
 from balloon_frontier.medal_tier import get_medal_tier, get_medal_emoji, medal_tier_to_string
+from balloon_frontier.launch_sites import LaunchSiteInfo
 
 logger = logging.getLogger("balloon_frontier_bot")
 
@@ -60,9 +61,27 @@ PAYLOAD_OPTIONS = {
 }
 
 SITE_OPTIONS = {
-    "field": ("Open Field", 0, 0, 2.0, "Flat terrain, mild crosswind"),
-    "mountain": ("Mountain Ridge", 1500, -5, 4.0, "Elevated, colder, stronger wind"),
-    "rooftop": ("Urban Rooftop", 50, 3, 3.0, "Warm microclimate, moderate wind"),
+    "field": LaunchSiteInfo(
+        name="Open Field",
+        altitude_m=0.0,
+        temperature_offset_k=0.0,
+        wind_strength=2.0,
+        description="Flat terrain, mild crosswind",
+    ),
+    "mountain": LaunchSiteInfo(
+        name="Mountain Ridge",
+        altitude_m=1500.0,
+        temperature_offset_k=-5.0,
+        wind_strength=4.0,
+        description="Elevated, colder, stronger wind",
+    ),
+    "rooftop": LaunchSiteInfo(
+        name="Urban Rooftop",
+        altitude_m=50.0,
+        temperature_offset_k=3.0,
+        wind_strength=3.0,
+        description="Warm microclimate, moderate wind",
+    ),
 }
 
 # ─── Fill mode presets ────────────────────────────────────────────────
@@ -325,19 +344,20 @@ class BalloonConfigurator(discord.ui.View):
             self.state['gas_mass'] = self._compute_gas_mass()
 
     def _get_site_conditions(self):
-        """Derive launch conditions (altitude, temperature) from the selected site."""
-        site_info = SITE_OPTIONS[self.state["site"]]
-        launch_altitude = site_info[1]
-        gas_temperature = atmosphere_temperature(0.0) + site_info[2]
-        return {"launch_altitude": launch_altitude, "gas_temperature": gas_temperature}
+        """Derive launch conditions (altitude, pressure, temperature) from the selected site."""
+        site = SITE_OPTIONS[self.state["site"]]
+        return site.derive_conditions()
 
     def _get_env_params(self):
         """Build envelope + site params to pass to shared fill functions."""
         env_id = self.state["envelope"]
         site_cond = self._get_site_conditions()
+        # Keep only fields accepted by balloon_frontier.fill.
         return {
             "envelope_type": env_id,
-            **site_cond,
+            "launch_altitude": site_cond.get("launch_altitude"),
+            "launch_pressure": site_cond.get("launch_pressure"),
+            "gas_temperature": site_cond.get("gas_temperature"),
         }
 
     def _compute_gas_mass(self):
@@ -408,7 +428,7 @@ class BalloonConfigurator(discord.ui.View):
         lines.append(f"Fill: {fill_label} → {gas_mass:.3f} kg")
         lines.append(f"Envelope: {env[0]} — {env[1]}m³")
         lines.append(f"Payloads: {', '.join(payload_names)}")
-        lines.append(f"Site: {site[0]}")
+        lines.append(f"Site: {site.name}")
         lines.append(f"Total mass: {gas_mass + env[2] + payload_mass:.1f} kg\n")
         lines.append("Use the dropdowns to configure, then tap Launch.")
         return "\n".join(lines)
@@ -418,7 +438,8 @@ def _make_options(options_dict):
     """Build discord.SelectOption list from a dict."""
     opts = []
     for k, v in options_dict.items():
-        opts.append(discord.SelectOption(value=k, label=v[0], description="select"))
+        label = v.name if hasattr(v, "name") else v[0]
+        opts.append(discord.SelectOption(value=k, label=label, description="select"))
     return opts
 
 
@@ -565,7 +586,7 @@ class _LaunchButton(discord.ui.Button):
             )
             result = make_result_embed(
                 gas_info[0], gas_mass, env_info[0],
-                " + ".join(payload_names), site_info[0],
+                " + ".join(payload_names), site_info.name,
                 tel, summary
             )
             # Truncate if too long
