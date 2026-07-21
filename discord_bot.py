@@ -81,7 +81,7 @@ FILL_MODES = {
 def run_simulation(
     gas_type,
     gas_mass,
-    gas_temp,
+    gas_temperature_k,
     payload_mass,
     drag_coeff,
     envelope_vol,
@@ -103,7 +103,7 @@ def run_simulation(
         pressure = atmosphere_pressure(alt)
         rho_air = atmosphere_density(alt)
 
-        vol = gas_volume(gas_mass, gas_type, gas_temp, pressure)
+        vol = gas_volume(gas_mass, gas_type, gas_temperature_k, pressure)
         burst_vol = envelope_vol * stretch_ratio
 
         if not burst and vol >= burst_vol:
@@ -111,7 +111,7 @@ def run_simulation(
             vol = burst_vol
 
         area = spherical_area(min(vol, burst_vol))
-        F_buoy = buoyant_force(gas_type, gas_mass, gas_temp, alt)
+        F_buoy = buoyant_force(gas_type, gas_mass, gas_temperature_k, alt)
         F_weight = (gas_mass + payload_mass) * G
         F_drag = drag_force(vel, alt, drag_coeff, area)
 
@@ -123,7 +123,7 @@ def run_simulation(
 
         vel += acc * 0.5
         alt += vel * 0.5
-        gas_temp = temp_amb
+        gas_temperature_k = temp_amb
 
         if alt > peak_alt:
             peak_alt = alt
@@ -328,7 +328,7 @@ class BalloonConfigurator(discord.ui.View):
         """Derive launch conditions (altitude, temperature) from the selected site."""
         site_info = SITE_OPTIONS[self.state["site"]]
         launch_altitude = site_info[1]
-        gas_temperature = 288.15 + site_info[2]
+        gas_temperature = atmosphere_temperature(0.0) + site_info[2]
         return {"launch_altitude": launch_altitude, "gas_temperature": gas_temperature}
 
     def _get_env_params(self):
@@ -556,8 +556,10 @@ class _LaunchButton(discord.ui.Button):
                 mission_count=mission_count,
             )
 
+            site_cond = self._parent._get_site_conditions()
+
             tel, summary = run_simulation(
-                state["gas"], gas_mass, 288.15, payload_mass,
+                state["gas"], gas_mass, site_cond["gas_temperature"], payload_mass,
                 env_info[3], env_info[1], env_info[4],
                 mission_assignment=mission_assignment,
             )

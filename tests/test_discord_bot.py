@@ -45,6 +45,43 @@ class TestRunSimulation:
         assert isinstance(tel, list)
         assert isinstance(summary, dict)
 
+    def test_selected_site_temperature_affects_initial_conditions(self):
+        config = BalloonConfigurator()
+
+        # Field: +0°C offset
+        config.state["site"] = "field"
+        field_cond = config._get_site_conditions()
+
+        # Mountain: colder launch site
+        config.state["site"] = "mountain"
+        mountain_cond = config._get_site_conditions()
+
+        assert field_cond["gas_temperature"] != mountain_cond["gas_temperature"]
+
+        # Use the same launch config except for initial gas temperature.
+        tel_field, summary_field = run_simulation(
+            "helium",
+            2.0,
+            field_cond["gas_temperature"],
+            1.0,
+            0.47,
+            10.0,
+            3.0,
+        )
+        tel_mountain, summary_mountain = run_simulation(
+            "helium",
+            2.0,
+            mountain_cond["gas_temperature"],
+            1.0,
+            0.47,
+            10.0,
+            3.0,
+        )
+
+        assert len(tel_field) > 0 and len(tel_mountain) > 0
+        assert abs(tel_field[0]["vel"] - tel_mountain[0]["vel"]) > 1e-6
+        assert abs(summary_field["peak_altitude"] - summary_mountain["peak_altitude"]) > 1e-6
+
     def test_telemetry_has_expected_keys(self):
         tel, _ = run_simulation("helium", 2.0, 288.15, 1.0, 0.47, 10.0, 3.0)
         assert len(tel) > 0

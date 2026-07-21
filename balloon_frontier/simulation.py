@@ -63,6 +63,13 @@ class SimulationState:
     altitude_m: float = 0.0
     velocity_mps: float = 0.0         # positive = ascending
 
+    # Compatibility fields (used by some higher-level game code / tests).
+    # This simulation model is currently strictly 1D vertical-only; these
+    # values are stored for API compatibility and may be used by more
+    # advanced models in the future.
+    terrain_base_altitude_offset_m: float = 0.0
+    wind_enabled: bool = False
+
     # ── Gas compartment ─────────────────────────────────────
     gas_type: str = "helium"
     gas_mass_kg: float = 1.0
