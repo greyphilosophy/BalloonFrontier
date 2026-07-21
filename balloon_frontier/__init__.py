@@ -30,6 +30,7 @@ from .fill import (
     get_auto_fill_mass,
     calculate_max_safe_gas_mass,
     get_fill_description,
+    DEFAULT_BURST_STRETCH_RATIO,
 )
 from .flight_score import calculate_flight_score
 from .medal_tier import MedalTier, get_medal_tier, medal_tier_to_string

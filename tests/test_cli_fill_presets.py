@@ -138,3 +138,91 @@ class TestPresetMultiplierConstants:
 
     def test_multipliers_ordered(self):
         assert MULTIPLIER_LIGHT < MULTIPLIER_NORMAL < MULTIPLIER_HEAVY
+
+
+class TestManualFillBurstStretchClamp:
+    """Verify manual fills are clamped through apply_fill_mode with burst_stretch_ratio."""
+
+    def test_manual_mass_clamped_by_burst_stretch_ratio(self):
+        """An extremely large manual mass should be clamped to the safe limit."""
+        volume = 10.0
+        gas = "helium"
+        burst_ratio = 2.5
+        # Calculate the safe ceiling directly
+        from balloon_frontier.fill import calculate_max_safe_gas_mass
+        safe_max = calculate_max_safe_gas_mass(volume, gas, burst_ratio)
+        # Huge manual mass should be clamped to the safe ceiling
+        result = apply_fill_mode(
+            volume, gas, FillMode.MANUAL, manual_mass_kg=9999.0,
+            burst_stretch_ratio=burst_ratio,
+        )
+        assert result == safe_max
+
+    def test_manual_mass_below_safe_range_unchanged(self):
+        """A small manual mass stays as-is."""
+        volume = 10.0
+        gas = "helium"
+        burst_ratio = 2.5
+        small_mass = 0.001
+        result = apply_fill_mode(
+            volume, gas, FillMode.MANUAL, manual_mass_kg=small_mass,
+            burst_stretch_ratio=burst_ratio,
+        )
+        assert result == small_mass
+
+    def test_manual_mass_above_safe_range_clamped(self):
+        """A manual mass well above the safe limit is clamped down."""
+        volume = 10.0
+        gas = "helium"
+        burst_ratio = 2.5
+        from balloon_frontier.fill import calculate_max_safe_gas_mass
+        safe_max = calculate_max_safe_gas_mass(volume, gas, burst_ratio)
+        result = apply_fill_mode(
+            volume, gas, FillMode.MANUAL, manual_mass_kg=50.0,
+            burst_stretch_ratio=burst_ratio,
+        )
+        # 50.0 kg is way above the safe ceiling
+        assert result == safe_max
+
+    def test_manual_clamp_differs_by_burst_ratio(self):
+        """Different burst_stretch_ratios produce different clamp ceilings."""
+        volume = 10.0
+        gas = "helium"
+        huge_mass = 1000.0
+        low_burst = 2.0
+        high_burst = 3.0
+        result_low = apply_fill_mode(
+            volume, gas, FillMode.MANUAL, manual_mass_kg=huge_mass,
+            burst_stretch_ratio=low_burst,
+        )
+        result_high = apply_fill_mode(
+            volume, gas, FillMode.MANUAL, manual_mass_kg=huge_mass,
+            burst_stretch_ratio=high_burst,
+        )
+        assert result_low < result_high
+
+    def test_manual_clamp_uses_same_safe_logic_as_auto_modes(self):
+        """The clamp ceiling for MANUAL matches calculate_max_safe_gas_mass."""
+        volume = 10.0
+        gas = "helium"
+        burst_ratio = 2.3
+        from balloon_frontier.fill import calculate_max_safe_gas_mass
+        safe_max = calculate_max_safe_gas_mass(volume, gas, burst_ratio)
+        # MANUAL with huge mass should hit the same ceiling
+        manual_result = apply_fill_mode(
+            volume, gas, FillMode.MANUAL, manual_mass_kg=9999.0,
+            burst_stretch_ratio=burst_ratio,
+        )
+        assert manual_result == safe_max
+
+    def test_auto_modes_also_use_burst_stretch_ratio(self):
+        """AUTO/LIGHT/NORMAL/HEAVY modes pass burst_stretch_ratio through."""
+        volume = 10.0
+        gas = "helium"
+        for mode in [FillMode.AUTO, FillMode.LIGHT, FillMode.NORMAL, FillMode.HEAVY]:
+            low = apply_fill_mode(volume, gas, mode, burst_stretch_ratio=2.0)
+            high = apply_fill_mode(volume, gas, mode, burst_stretch_ratio=3.0)
+            # Higher burst ratio = higher ceiling, but shouldn't increase mass
+            # when the raw mass is below the ceiling anyway.
+            assert low > 0
+            assert high > 0

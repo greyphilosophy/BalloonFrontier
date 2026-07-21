@@ -198,7 +198,8 @@ class TestAutoFillIntegration:
         mass = apply_fill_mode(10.0, "helium", FillMode.AUTO)
         base = calculate_optimal_fill(10.0, "helium")
         assert mass > 0
-        assert mass <= base  # Auto should be at or below safe max
+        # Auto multiplier is 1.0, so mass equals base (not clamped by safe ceiling)
+        assert mass == base
 
     def test_apply_fill_mode_light(self):
         mass = apply_fill_mode(10.0, "helium", FillMode.LIGHT)
@@ -286,10 +287,45 @@ class TestAutoFillIntegration:
                 m = get_auto_fill_mass(10.0, gas, mode)
                 assert m > 0
 
-    def test_safe_mass_below_optimal(self):
+    def test_safe_mass_above_optimal_with_dynamic_formula(self):
+        """Dynamic formula makes safe_max > base, so presets aren't clamped."""
         base = calculate_optimal_fill(10.0, "helium")
         safe = calculate_max_safe_gas_mass(10.0, "helium")
-        assert safe < base
+        # safe = base * 2.5 * 0.6 = base * 1.5
+        assert safe > base
+
+    def test_dynamic_formula_calculation(self):
+        """Verify the dynamic formula: safe = base * burst_stretch_ratio * SAFETY_MARGIN."""
+        base = calculate_optimal_fill(10.0, "helium")
+        safe = calculate_max_safe_gas_mass(10.0, "helium")
+        expected = round(base * 2.5 * 0.6, 6)
+        assert abs(safe - expected) < 0.0001
+
+    def test_presets_yield_distinct_masses(self):
+        """Light, Normal/Auto, and Heavy should produce different masses."""
+        light = apply_fill_mode(10.0, "helium", FillMode.LIGHT)
+        normal = apply_fill_mode(10.0, "helium", FillMode.NORMAL)
+        heavy = apply_fill_mode(10.0, "helium", FillMode.HEAVY)
+        auto = apply_fill_mode(10.0, "helium", FillMode.AUTO)
+        # Auto = Normal
+        assert auto == normal
+        # Light < Normal < Heavy
+        assert light < normal < heavy
+
+    def test_different_burst_ratios_change_safe_ceiling(self):
+        """Higher burst_stretch_ratio raises the safe ceiling."""
+        safe_2 = calculate_max_safe_gas_mass(10.0, "helium", burst_stretch_ratio=2.0)
+        safe_3 = calculate_max_safe_gas_mass(10.0, "helium", burst_stretch_ratio=3.0)
+        assert safe_2 < safe_3
+
+    def test_presets_unaffected_by_ceiling_when_below(self):
+        """Preset masses shouldn't change when the ceiling is well above them."""
+        volume = 10.0
+        gas = "helium"
+        for mode in [FillMode.LIGHT, FillMode.NORMAL]:
+            m1 = apply_fill_mode(volume, gas, mode, burst_stretch_ratio=2.0)
+            m2 = apply_fill_mode(volume, gas, mode, burst_stretch_ratio=3.0)
+            assert m1 == m2
 
 
 # ─── Package exports ─────────────────────────────────────────────
