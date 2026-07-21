@@ -16,13 +16,17 @@ from balloon_frontier.physics import (
     gas_volume, gas_density, buoyant_force, drag_force, spherical_area,
 )
 from balloon_frontier.fill import (
+    apply_fill_mode,
+    calculate_max_safe_gas_mass,
     calculate_optimal_fill,
-    get_fill_variants,
-    MULTIPLIER_LIGHT,
-    MULTIPLIER_NORMAL,
-    MULTIPLIER_HEAVY,
+    FillMode,
 )
 from balloon_frontier.ascii_chart import chart_to_string
+from balloon_frontier.mission_selection import (
+    assign_missions_to_flight,
+    seed_from_game_state,
+    choose_mission_count,
+)
 from balloon_frontier.flight_score import calculate_flight_score
 from balloon_frontier.medal_tier import get_medal_tier, get_medal_emoji, medal_tier_to_string
 
@@ -33,7 +37,7 @@ logger = logging.getLogger("balloon_frontier_bot")
 GAS_OPTIONS = {
     "helium": ("Helium", 0.0040026, 5),
     "hydrogen": ("Hydrogen", 0.002016, 3),
-    "hot_air": ("Hot Air", 0.02897, 1),
+    "hot_air": ("Hot Air", 0.0289652068, 1),
     "methane": ("Methane", 0.01604, 4),
 }
 
@@ -66,24 +70,26 @@ SITE_OPTIONS = {
 
 FILL_MODES = {
     "auto": {"label": "Auto (Optimal)", "description": "Calculated optimal fill"},
-    "light": {"label": "Light", "description": "20% less gas — faster climb"},
+    "light": {"label": "Light", "description": "Less free lift — slower ascent, higher burst"},
     "normal": {"label": "Normal", "description": "Baseline optimal fill"},
-    "heavy": {"label": "Heavy", "description": "20% more gas — longer float"},
-}
-
-# Multiplier map for each fill mode
-FILL_MULTIPLIERS = {
-    "auto": None,  # Use raw optimal fill
-    "light": MULTIPLIER_LIGHT,
-    "normal": MULTIPLIER_NORMAL,
-    "heavy": MULTIPLIER_HEAVY,
+    "heavy": {"label": "Heavy", "description": "More free lift — faster ascent, earlier burst"},
+    "manual": {"label": "Manual", "description": "Your chosen gas mass"},
 }
 
 
 # ─── Simulation ────────────────────────────────────────────────────────
 
-def run_simulation(gas_type, gas_mass, gas_temp, payload_mass,
-                    drag_coeff, envelope_vol, stretch_ratio):
+def run_simulation(
+    gas_type,
+    gas_mass,
+    gas_temp,
+    payload_mass,
+    drag_coeff,
+    envelope_vol,
+    stretch_ratio,
+    *,
+    mission_assignment=None,
+):
     """Run fixed-step vertical simulation. Returns (telemetry, summary)."""
     alt = 0.0
     vel = 0.0
@@ -132,7 +138,32 @@ def run_simulation(gas_type, gas_mass, gas_temp, payload_mass,
             break
 
     flight_time = telemetry[-1]["time"] if telemetry else 0
-    return telemetry, {"peak_altitude": peak_alt, "burst": burst, "time_of_flight": flight_time}
+
+    # Post-flight scoring + medal determination.
+    # The Discord UI doesn't currently expose payload count directly,
+    # so we default to scoring as 1 payload.
+    payload_count = 1
+    score = calculate_flight_score(peak_alt, payload_count, flight_time)
+    medal_name = medal_tier_to_string(peak_alt)
+    medal_emoji = get_medal_emoji(peak_alt)
+
+    summary = {
+        "peak_altitude": peak_alt,
+        "burst": burst,
+        "time_of_flight": flight_time,
+        "payload_count": payload_count,
+        "score": score,
+        "medal": medal_name,
+        "medal_emoji": medal_emoji,
+    }
+
+    # Flight/session mission assignment for later evaluation + UI.
+    if mission_assignment:
+        summary["assigned_missions"] = list(mission_assignment.get("missions", []))
+        summary["mission_seed"] = mission_assignment.get("seed")
+        summary["mission_count"] = mission_assignment.get("mission_count")
+
+    return telemetry, summary
 
 
 def format_score_breakdown(score, peak_alt, payload_count, time_of_flight):
@@ -152,28 +183,36 @@ def format_score_breakdown(score, peak_alt, payload_count, time_of_flight):
 def make_result_embed(gas_name, gas_mass, env_name, payload_name, site_name,
                       telemetry, summary):
     """Build result embed for a launch."""
-    peak = summary["peak_altitude"]
-    burst = summary["burst"]
+    # Be defensive: results rendering should not crash if summary is missing
+    # optional fields.
+    peak = summary.get("peak_altitude", 0)
+    burst = summary.get("burst", False)
     time_of_flight = summary.get("time_of_flight", 0)
+    payload_count = summary.get("payload_count", 1)
+    score = summary.get(
+        "score",
+        calculate_flight_score(peak, payload_count, time_of_flight),
+    )
+
+    medal_name = summary.get("medal", medal_tier_to_string(peak))
+    medal_emoji = summary.get("medal_emoji", get_medal_emoji(peak))
+
     target = 30000
     status = "🟢" if peak >= target else "🟡" if peak >= target * 0.7 else "🔵"
-
-    # Medal
-    medal_emoji = get_medal_emoji(peak)
-    medal_name = medal_tier_to_string(peak)
-
-    # Score — default payload_count to 1 ("none") if not provided
-    payload_count = 1
-    score = calculate_flight_score(peak, payload_count, time_of_flight)
 
     lines = ["🎈 **Launch Report**\n"]
     lines.append(f"Gas: {gas_name} | Mass: {gas_mass}kg")
     lines.append(f"Envelope: {env_name}")
     lines.append(f"Site: {site_name}\n")
+
+    missions = summary.get("assigned_missions")
+    if missions:
+        lines.append(f"Missions: {', '.join(missions)}\n")
+
     lines.append(f"Altitude: {status} {peak:,.0f}m / {target:,}m target")
     lines.append(f"Time of Flight: {time_of_flight:.1f}s")
     lines.append(f"Burst: {'💥 Yes' if burst else '🟢 No'}")
-    lines.append(f"Medal: {'⚪' if medal_name == 'NONE' else medal_emoji} **{medal_name}**")
+    lines.append(f"Medal: {medal_emoji} **{medal_name}**")
     lines.append("")
 
     # Score section
@@ -232,8 +271,11 @@ class BalloonConfigurator(discord.ui.View):
             "envelope": "latex",
             "payloads": ["none"],
             "site": "field",
-            # Preset gas fill multiplier mode (Auto/Light/Normal/Heavy)
+            # Fill mode: Auto/Light/Normal/Heavy/Manual
             "fill_mode": "auto",
+            # Player-entered gas mass for Manual mode.
+            # When Auto or a preset is active, this must be ignored.
+            "manual_gas_mass": None,
             # Cached computed gas mass (kg) for the current gas+envelope+fill_mode.
             # Tests (and the UI) expect this to be present in state.
             "gas_mass": None,
@@ -253,6 +295,10 @@ class BalloonConfigurator(discord.ui.View):
             _make_options(PAYLOAD_OPTIONS), allow_multi=True)
         self._add_menu("site", "Select launch site",
             _make_options(SITE_OPTIONS))
+
+        # Note: we intentionally do not add a separate Discord UI control for
+        # manual gas mass here, to avoid exceeding Discord's component layout
+        # limits in tests.
 
     def _add_menu(self, key, placeholder, options, allow_multi=False):
         if allow_multi:
@@ -280,7 +326,11 @@ class BalloonConfigurator(discord.ui.View):
             self.state['gas_mass'] = self._compute_gas_mass()
 
     def _compute_gas_mass(self):
-        """Compute gas mass based on current fill_mode, envelope, and gas."""
+        """Compute gas mass based on current fill_mode, envelope, and gas.
+
+        Uses balloon_frontier.fill.apply_fill_mode so Auto/Light/Normal/Heavy
+        inherit burst-safe clamping from the launch state machine.
+        """
         gas_type = self.state["gas"]
         env_id = self.state["envelope"]
         fill_mode = self.state["fill_mode"]
@@ -288,17 +338,27 @@ class BalloonConfigurator(discord.ui.View):
         env_info = ENVELOPE_OPTIONS[env_id]
         volume = env_info[1]
 
-        base_mass = calculate_optimal_fill(volume, gas_type)
+        mode_map = {
+            "auto": FillMode.AUTO,
+            "light": FillMode.LIGHT,
+            "normal": FillMode.NORMAL,
+            "heavy": FillMode.HEAVY,
+            "manual": FillMode.MANUAL,
+        }
+        mode = mode_map.get(fill_mode, FillMode.AUTO)
 
-        if fill_mode == "auto":
-            return round(base_mass, 3)
-        elif fill_mode == "light":
-            return round(base_mass * MULTIPLIER_LIGHT, 3)
-        elif fill_mode == "normal":
-            return round(base_mass * MULTIPLIER_NORMAL, 3)
-        elif fill_mode == "heavy":
-            return round(base_mass * MULTIPLIER_HEAVY, 3)
-        return round(base_mass, 3)
+        if mode == FillMode.MANUAL:
+            manual_mass = self.state.get("manual_gas_mass")
+            if manual_mass is None:
+                # Default to the maximum burst-safe mass.
+                manual_mass = calculate_max_safe_gas_mass(volume, gas_type)
+                self.state["manual_gas_mass"] = manual_mass
+            mass = apply_fill_mode(volume, gas_type, FillMode.MANUAL, manual_mass_kg=manual_mass)
+        else:
+            # Override any manual entry whenever Auto/preset is active.
+            mass = apply_fill_mode(volume, gas_type, mode)
+
+        return round(mass, 3)
 
     def _build_config_text(self):
         """Build a text summary of current config."""
@@ -348,6 +408,68 @@ def _make_fill_mode_options():
     return opts
 
 
+class _ManualGasMassModal(discord.ui.Modal):
+    """Modal to set the manual gas mass (kg)."""
+
+    def __init__(self, parent: "BalloonConfigurator"):
+        super().__init__(title="Manual Gas Mass")
+        self._parent = parent
+
+        current = parent.state.get("manual_gas_mass")
+        default_str = "" if current is None else str(current)
+
+        self.mass_input = discord.ui.TextInput(
+            label="Gas mass (kg)",
+            placeholder="e.g. 12.5",
+            default=default_str,
+            required=True,
+            max_length=20,
+        )
+        self.add_item(self.mass_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            val = float(str(self.mass_input.value).strip())
+        except Exception:
+            await interaction.response.send_message(
+                "❌ Please enter a valid number for gas mass.",
+                ephemeral=True,
+            )
+            return
+
+        val = max(0.001, val)
+        self._parent.state["manual_gas_mass"] = val
+
+        # If the player is currently in manual mode, recache gas_mass.
+        if self._parent.state.get("fill_mode") == "manual":
+            self._parent.state["gas_mass"] = self._parent._compute_gas_mass()
+
+        # Update the existing config message.
+        if getattr(self._parent, "_msg", None) is not None:
+            new_content = self._parent._build_config_text()
+            await self._parent._msg.edit(content=new_content, view=self._parent)
+
+        await interaction.response.send_message(
+            "✅ Manual gas mass updated.",
+            ephemeral=True,
+        )
+
+
+class _ManualGasMassButton(discord.ui.Button):
+    """Button that opens the manual gas mass modal."""
+
+    def __init__(self, parent: "BalloonConfigurator"):
+        super().__init__(
+            label="Set Manual Mass",
+            style=discord.ButtonStyle.secondary,
+        )
+        self._parent = parent
+
+    async def callback(self, interaction: discord.Interaction):
+        modal = _ManualGasMassModal(self._parent)
+        await interaction.response.send_modal(modal)
+
+
 class _Select(discord.ui.Select):
     """Generic dropdown that updates the parent view's state."""
     def __init__(self, parent, key, placeholder, options, multi):
@@ -360,6 +482,13 @@ class _Select(discord.ui.Select):
 
     async def callback(self, interaction):
         self._parent._handle_select(interaction, self._key, self.values)
+
+        # For Manual fill, immediately collect the player's gas mass.
+        if self._key == "fill_mode" and self._parent.state.get("fill_mode") == "manual":
+            modal = _ManualGasMassModal(self._parent)
+            await interaction.response.send_modal(modal)
+            return
+
         new_content = self._parent._build_config_text()
         await self._parent._msg.edit(content=new_content, view=self._parent)
 
@@ -385,9 +514,26 @@ class _LaunchButton(discord.ui.Button):
             self._parent.state["gas_mass"] = gas_mass
 
         try:
+            payload_keys = list(state.get("payloads") or [])
+            payload_count = len(payload_keys) if payload_keys else 0
+            mission_count = choose_mission_count(payload_count)
+
+            mission_seed = seed_from_game_state(
+                gas=state["gas"],
+                envelope=state["envelope"],
+                payloads=payload_keys,
+                site=state["site"],
+            )
+            mission_assignment = assign_missions_to_flight(
+                payload_count=payload_count,
+                seed=mission_seed,
+                mission_count=mission_count,
+            )
+
             tel, summary = run_simulation(
                 state["gas"], gas_mass, 288.15, payload_mass,
-                env_info[3], env_info[1], env_info[4]
+                env_info[3], env_info[1], env_info[4],
+                mission_assignment=mission_assignment,
             )
             result = make_result_embed(
                 gas_info[0], gas_mass, env_info[0],

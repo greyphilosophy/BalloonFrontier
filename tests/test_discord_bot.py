@@ -56,6 +56,33 @@ class TestRunSimulation:
         assert "peak_altitude" in summary
         assert "burst" in summary
 
+    def test_summary_includes_score_and_medal_fields(self):
+        _, summary = run_simulation("helium", 2.0, 288.15, 1.0, 0.47, 10.0, 3.0)
+        assert "payload_count" in summary
+        assert "score" in summary
+        assert "medal" in summary
+        assert "medal_emoji" in summary
+
+    def test_make_result_embed_handles_missing_optional_fields(self):
+        tel, summary = run_simulation("helium", 2.0, 288.15, 1.0, 0.47, 10.0, 3.0)
+        # Remove keys that are optional in post-flight rendering.
+        partial_summary = {
+            "peak_altitude": summary.get("peak_altitude", 0),
+            "time_of_flight": summary.get("time_of_flight", 0),
+        }
+        result = make_result_embed(
+            "Helium",
+            2.0,
+            "Latex",
+            "None",
+            "Open Field",
+            tel,
+            partial_summary,
+        )
+        assert isinstance(result, str)
+        assert "Score Breakdown" in result
+        assert "Medal:" in result
+
     def test_peak_altitude_is_positive(self):
         _, summary = run_simulation("helium", 2.0, 288.15, 1.0, 0.47, 10.0, 3.0)
         assert summary["peak_altitude"] > 0

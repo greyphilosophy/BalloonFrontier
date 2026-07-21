@@ -37,9 +37,9 @@ from balloon_frontier.physics import (
 # ── Public constants ─────────────────────────────────────────────────
 
 # Fill level multipliers (relative to base optimal mass)
-MULTIPLIER_LIGHT: float = 0.8   # 20% less gas — higher climb rate, shorter flight
+MULTIPLIER_LIGHT: float = 0.8   # 20% less gas — less free lift, slower ascent, higher burst
 MULTIPLIER_NORMAL: float = 1.0  # Baseline optimal fill
-MULTIPLIER_HEAVY: float = 1.2   # 20% more gas — longer float, slower ascent
+MULTIPLIER_HEAVY: float = 1.2   # 20% more gas — more free lift, faster ascent, earlier burst
 MULTIPLIER_AUTO: float = 1.0    # Auto = Normal (uses optimal baseline)
 
 # Fill mode names mapped to multipliers
@@ -150,9 +150,9 @@ class FillMode(Enum):
     clamped to a burst-safe range.
     """
     AUTO   = auto()  # Auto-optimised fill (alias for NORMAL)
-    LIGHT  = auto()  # 20% less gas — faster climb, shorter flight
+    LIGHT  = auto()  # 20% less gas — less free lift, slower ascent, higher burst
     NORMAL = auto()  # Baseline optimal fill
-    HEAVY  = auto()  # 20% more gas — longer float, slower ascent
+    HEAVY  = auto()  # 20% more gas — more free lift, faster ascent, earlier burst
     MANUAL = auto()  # Player-specified exact mass
 
     def get_multiplier(self) -> float:
@@ -220,9 +220,9 @@ def get_fill_description(mode: FillMode) -> str:
     """Human-readable description for a fill mode."""
     descs = {
         FillMode.AUTO:   "Auto — optimal fill, safe burst margin",
-        FillMode.LIGHT:  "Light — 20% less gas, faster climb",
+        FillMode.LIGHT:  "Light — 20% less gas, slower ascent",
         FillMode.NORMAL: "Normal — baseline optimal fill",
-        FillMode.HEAVY:  "Heavy — 20% more gas, longer float",
+        FillMode.HEAVY:  "Heavy — 20% more gas, faster ascent",
         FillMode.MANUAL: "Manual — your choice",
     }
     return descs.get(mode, "Unknown fill mode")

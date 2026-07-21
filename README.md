@@ -25,7 +25,7 @@ python3 cli_game.py
 ```
 
 ### Game Flow
-1. **Select Balloon Size**: 21" to 150" latex weather balloons
+1. **Select Balloon Size**: 36" to 150" latex weather balloons (21" & 29" retired from gameplay due to insufficient lift)
 2. **Choose Gas Type**: Helium, Hydrogen, or Hot Air
 3. **Set Gas Mass**: Enter fill weight in kg
 4. **Select Payloads**: Camera, Radio, Battery Pack, etc.
@@ -44,6 +44,8 @@ python3 cli_game.py
 | 70"  | 200g | 25.0m³     | 150–3000      |
 | 100" | 400g | 75.0m³     | 400–7000      |
 | 150" | 700g | 250.0m³    | 1000–15000    |
+
+Note: 21" and 29" are excluded from the playable roster (cli_game.PLAYABLE_BALLOON_LIST) because their max lift cannot support even the light payloads required by gameplay.
 
 ### Payloads
 
@@ -105,7 +107,7 @@ The simulation uses:
 |-----|-----------|-------------------|
 | Helium | ~1.05 kg | 0.0040026 |
 | Hydrogen | ~1.05 kg | 0.002016 |
-| Hot Air | ~0.22 kg | 0.02897 |
+| Hot Air | ~0.22 kg | 0.0289652068 |
 | Methane | ~1.04 kg | 0.01604 |
 
 ## Tests

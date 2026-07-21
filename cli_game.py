@@ -22,8 +22,8 @@ from balloon_frontier.fill import MULTIPLIER_LIGHT, MULTIPLIER_NORMAL, MULTIPLIE
 BALLOON_SIZES = {
     "s21":  {"name": '21"',   "mass_kg": 0.025,  "max_vol": 0.6,  "burst": 2.3, "fill_g": (10, 120)},
     "s29":  {"name": '29"',   "mass_kg": 0.040,  "max_vol": 1.5,  "burst": 2.3, "fill_g": (20, 250)},
-    "s36":  {"name": '36"',   "mass_kg": 0.060,  "max_vol": 3.5,  "burst": 2.3, "fill_g": (30, 500)},
-    "s45":  {"name": '45"',   "mass_kg": 0.085,  "max_vol": 6.0,  "burst": 2.2, "fill_g": (50, 1000)},
+    "s36":  {"name": '36"',   "mass_kg": 0.060,  "max_vol": 3.5,  "burst": 2.3, "fill_g": (30, 1158)},
+    "s45":  {"name": '45"',   "mass_kg": 0.085,  "max_vol": 6.0,  "burst": 2.2, "fill_g": (50, 1163)},
     "s55":  {"name": '55"',   "mass_kg": 0.110,  "max_vol": 10.0, "burst": 2.2, "fill_g": (80, 1500)},
     "s70":  {"name": '70"',   "mass_kg": 0.200,  "max_vol": 25.0, "burst": 2.2, "fill_g": (150, 3000)},
     "s100": {"name": '100"',  "mass_kg": 0.400,  "max_vol": 75.0, "burst": 2.1, "fill_g": (400, 7000)},
@@ -43,12 +43,15 @@ PAYLOADS = {
 }
 
 SITES = {
-    "field":   ("Open Field",    288.15),
-    "mountain":("Mountain Ridge", 283.15),
-    "rooftop": ("Urban Rooftop", 291.15),
+    "field":   ("Open Field",    288.15, 0.0),
+    "mountain":("Mountain Ridge", 283.15, 500.0),
+    "rooftop": ("Urban Rooftop", 291.15, 0.0),
 }
 
-BALLOON_LIST = list(BALLOON_SIZES.keys())
+# Playable roster (small set calibration update): exclude 21" and 29" from play
+# while keeping them available in BALLOON_SIZES for other uses/debug.
+PLAYABLE_BALLOON_LIST = [k for k in BALLOON_SIZES.keys() if k not in ("s21", "s29")]
+BALLOON_LIST = PLAYABLE_BALLOON_LIST
 PAYLOAD_LIST = list(PAYLOADS.keys())
 SITE_LIST = list(SITES.keys())
 
@@ -104,6 +107,23 @@ def format_mass_kg(mass_kg):
         return f"{mass_kg:.2f} kg"
 
 
+def format_kg_compact(mass_kg: float) -> str:
+    """Compact kg number formatting for UI ranges.
+
+    Examples:
+      - 0.03 -> "0.03"
+      - 0.5  -> "0.5"
+    """
+    abs_val = abs(mass_kg)
+    if abs_val < 0.1:
+        s = f"{mass_kg:.2f}"
+    elif abs_val < 1.0:
+        s = f"{mass_kg:.1f}"
+    else:
+        s = f"{mass_kg:.2f}"
+    return s.rstrip("0").rstrip(".")
+
+
 def show_fill_presets(balloon_key, gas_type):
     """Show fill mode selection UI with presets and auto option.
     
@@ -151,19 +171,30 @@ def show_fill_presets(balloon_key, gas_type):
             idx = int(raw) - 1
             if 0 <= idx < len(FILL_PRESETS):
                 selected = FILL_PRESETS[idx]
-                
+
                 if selected["mode"] == FillMode.MANUAL:
                     fill_range = balloon_spec["fill_g"]
                     safe_mid = (fill_range[0] + fill_range[1]) / 2 / 1000
-                    print(f"  Safe fill range: {fill_range[0]}–{fill_range[1]}g")
-                    print(f"  Preset masses for reference:")
+
+                    g_low, g_high = fill_range
+                    kg_low = g_low / 1000
+                    kg_high = g_high / 1000
+
+                    print(
+                        f"  Safe fill: {g_low}–{g_high}g "
+                        f"({format_kg_compact(kg_low)}–{format_kg_compact(kg_high)} kg)"
+                    )
+
+                    print("  Preset masses for reference:")
                     for ref in FILL_PRESETS:
                         if ref["mode"] != FillMode.MANUAL:
                             ref_mass = preset_masses[ref["mode"]]
                             print(f"    {ref['label']}: {format_mass_kg(ref_mass)}")
-                    
+
                     gas_mass = get_number(
-                        f"Gas mass (kg) [default {safe_mid:.3f}]", safe_mid, min_val=0.001
+                        f"Gas mass (kg) [default {safe_mid:.3f}]",
+                        safe_mid,
+                        min_val=0.001,
                     )
                     if gas_mass is None:
                         return None, None
@@ -188,7 +219,7 @@ def show_balloon_menu():
         low, high = s["fill_g"]
         print(f"  {i+1}. {s['name']:<10s} {s['mass_kg']*1000:>5.0f}g  {s['max_vol']:>6.1f}m³  {low:>5}-{high:>5}g")
     print()
-    idx = get_choice(len(BALLOON_LIST), "Balloon size (1-8)")
+    idx = get_choice(len(BALLOON_LIST), f"Balloon size (1-{len(BALLOON_LIST)})")
     return BALLOON_LIST[idx] if idx is not None else None
 
 
@@ -243,7 +274,11 @@ def show_site_menu():
 
 # ── Simulation ───────────────────────────────────────────
 
-def run_flight(gas_type, gas_mass, envelope_spec, payload_ids):
+def run_flight(gas_type, gas_mass, envelope_spec, payload_ids, site_key):
+    site_info = SITES[site_key]
+    site_temp_k = site_info[1]
+    terrain_offset_m = site_info[2]
+
     env_config = EnvelopeConfig(
         max_volume_m3=envelope_spec["max_vol"],
         burst_stretch_ratio=envelope_spec["burst"],
@@ -258,12 +293,21 @@ def run_flight(gas_type, gas_mass, envelope_spec, payload_ids):
         gas_mass_kg=gas_mass,
         payload_mass_kg=payload_mass,
         envelope=env_config,
+        # alt is absolute above sea level; for an elevated launch site,
+        # start the balloon at the site's ground elevation.
+        altitude_m=terrain_offset_m,
+        # This tells the physics engine what "ground" is when deciding
+        # landing/crash events.
+        terrain_base_altitude_offset_m=terrain_offset_m,
+        gas_temperature_k=site_temp_k,
     )
+    initial_altitude_m = state.altitude_m
     tel = run_simulation(state, dt=0.1, total_time_s=300, max_steps=5000)
     if not tel:
         return [], {
             "peak_altitude": 0, "burst": True, "landed": False,
             "crashed": False, "time_of_flight": 0, "final_alt": 0,
+            "initial_altitude_m": initial_altitude_m,
             "payload_count": len(payload_ids), "score": 0, "medal": "None",
             "medal_emoji": "⚪",
         }
@@ -277,6 +321,7 @@ def run_flight(gas_type, gas_mass, envelope_spec, payload_ids):
         "peak_altitude": peak, "burst": last["burst"],
         "landed": last["landed"], "crashed": last["crashed"],
         "time_of_flight": time_of_flight, "final_alt": last["altitude_m"],
+        "initial_altitude_m": initial_altitude_m,
         "payload_count": payload_count, "score": score,
         "medal": tier.name, "medal_emoji": get_medal_emoji(peak),
     }
@@ -286,7 +331,7 @@ def show_results(envelope_spec, gas_type, gas_mass, payload_ids, summary):
     print("\n  ════════════════════════════════════════════════════")
     print("  🎈 FLIGHT RESULTS")
     print("  ════════════════════════════════════════════════════")
-    peak = summary["peak_altitude"]
+    peak = summary.get("peak_altitude", 0)
     target = 30000
     if peak >= target:
         status = "🟢 TARGET REACHED"
@@ -296,7 +341,11 @@ def show_results(envelope_spec, gas_type, gas_mass, payload_ids, summary):
         status = "🔵 KEEPING GOING"
     print(f"  Peak Altitude: {peak:>10,.0f} m  ({status})")
     print(f"  Target:        {target:>10,} m")
-    print(f"  Time:          {summary['time_of_flight']:>6.1f} s")
+    initial_altitude_m = summary.get("initial_altitude_m", 0)
+    print(f"  Initial Alt:  {initial_altitude_m:>10,.0f} m")
+
+    time_of_flight = summary.get("time_of_flight", 0)
+    print(f"  Time:          {time_of_flight:>6.1f} s")
 
     # ── Medal ───────────────────────────────────────────
     medal = summary.get("medal", "None")
@@ -308,11 +357,15 @@ def show_results(envelope_spec, gas_type, gas_mass, payload_ids, summary):
     payload_count = summary.get("payload_count", 0)
     print(f"  Score:         {score:>.2f}")
     print(f"  (Alt: {peak:,.0f} × 1.0 + {payload_count} payloads × 500 + time)")
-    if summary["burst"]:
+    burst = summary.get("burst", False)
+    crashed = summary.get("crashed", False)
+    landed = summary.get("landed", False)
+
+    if burst:
         print("  💥 BURST — envelope burst!")
-    elif summary["crashed"]:
+    elif crashed:
         print("  🏁 Landed — CRASHED")
-    elif summary["landed"]:
+    elif landed:
         print("  🏁 Landed safely!")
     else:
         print("  📈 Still climbing after 5 minutes!")
