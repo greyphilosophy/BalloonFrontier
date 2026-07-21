@@ -117,6 +117,16 @@ class SimulationState:
 
     def __post_init__(self) -> None:
         """Resolve the initial gas temperature from either absolute T_gas or dT."""
+        # Reject ambiguous input: both absolute and delta specified.
+        if (
+            self.gas_temperature_k is not None
+            and self.gas_temperature_delta_k is not None
+        ):
+            raise ValueError(
+                "Specify either gas_temperature_k or "
+                "gas_temperature_delta_k, not both"
+            )
+
         ambient_temp_k = atmosphere_temperature(max(0.0, float(self.altitude_m)))
 
         if self.gas_temperature_k is not None:

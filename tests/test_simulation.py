@@ -638,3 +638,12 @@ class TestTemperatureDrivenBuoyancy:
         )
         net_lift = F_buoy - s.total_mass() * G
         assert net_lift > 0.0
+
+    def test_absolute_and_delta_temperature_are_mutually_exclusive(self):
+        """Supplying both gas_temperature_k and gas_temperature_delta_k
+        should raise a ValueError rather than silently using only the absolute."""
+        with pytest.raises(ValueError, match="either"):
+            SimulationState(
+                gas_temperature_k=300.0,
+                gas_temperature_delta_k=65.0,
+            )
