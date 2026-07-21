@@ -324,11 +324,28 @@ class BalloonConfigurator(discord.ui.View):
         if key in ('gas', 'envelope', 'fill_mode'):
             self.state['gas_mass'] = self._compute_gas_mass()
 
+    def _get_site_conditions(self):
+        """Derive launch conditions (altitude, temperature) from the selected site."""
+        site_info = SITE_OPTIONS[self.state["site"]]
+        launch_altitude = site_info[1]
+        gas_temperature = 288.15 + site_info[2]
+        return {"launch_altitude": launch_altitude, "gas_temperature": gas_temperature}
+
+    def _get_env_params(self):
+        """Build envelope + site params to pass to shared fill functions."""
+        env_id = self.state["envelope"]
+        site_cond = self._get_site_conditions()
+        return {
+            "envelope_type": env_id,
+            **site_cond,
+        }
+
     def _compute_gas_mass(self):
         """Compute gas mass based on current fill_mode, envelope, and gas.
 
-        Uses balloon_frontier.fill.apply_fill_mode so Auto/Light/Normal/Heavy
-        inherit burst-safe clamping from the launch state machine.
+        Routes envelope_type and site-derived conditions (altitude, temperature)
+        into apply_fill_mode() / calculate_max_safe_gas_mass() so the shared
+        calculation uses envelope-specific safe-fill presets.
         """
         gas_type = self.state["gas"]
         env_id = self.state["envelope"]
@@ -336,6 +353,9 @@ class BalloonConfigurator(discord.ui.View):
 
         env_info = ENVELOPE_OPTIONS[env_id]
         volume = env_info[1]
+
+        # Pass envelope + site context to the shared fill functions.
+        env_params = self._get_env_params()
 
         mode_map = {
             "auto": FillMode.AUTO,
@@ -349,13 +369,20 @@ class BalloonConfigurator(discord.ui.View):
         if mode == FillMode.MANUAL:
             manual_mass = self.state.get("manual_gas_mass")
             if manual_mass is None:
-                # Default to the maximum burst-safe mass.
-                manual_mass = calculate_max_safe_gas_mass(volume, gas_type)
+                # Default to the maximum burst-safe mass (with envelope params).
+                manual_mass = calculate_max_safe_gas_mass(
+                    volume, gas_type, **env_params
+                )
                 self.state["manual_gas_mass"] = manual_mass
-            mass = apply_fill_mode(volume, gas_type, FillMode.MANUAL, manual_mass_kg=manual_mass)
+            mass = apply_fill_mode(
+                volume, gas_type, FillMode.MANUAL,
+                manual_mass_kg=manual_mass, **env_params
+            )
         else:
             # Override any manual entry whenever Auto/preset is active.
-            mass = apply_fill_mode(volume, gas_type, mode)
+            mass = apply_fill_mode(
+                volume, gas_type, mode, **env_params
+            )
 
         return round(mass, 3)
 
