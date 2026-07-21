@@ -90,9 +90,9 @@ def get_number(prompt, default, min_val=0.01):
 
 FILL_PRESETS = [
     {"mode": FillMode.AUTO,   "label": "Auto",   "desc": "Optimal fill, safe burst margin"},
-    {"mode": FillMode.LIGHT,  "label": "Light",  "desc": "20% less gas — faster climb"},
+    {"mode": FillMode.LIGHT,  "label": "Light",  "desc": "20% less gas — slower ascent"},
     {"mode": FillMode.NORMAL, "label": "Normal", "desc": "Baseline optimal fill"},
-    {"mode": FillMode.HEAVY, "label": "Heavy",  "desc": "20% more gas — longer float"},
+    {"mode": FillMode.HEAVY, "label": "Heavy",  "desc": "20% more gas — faster ascent"},
     {"mode": FillMode.MANUAL, "label": "Manual", "desc": "Specify exact gas mass"},
 ]
 
@@ -198,7 +198,14 @@ def show_fill_presets(balloon_key, gas_type):
                     )
                     if gas_mass is None:
                         return None, None
-                    return FillMode.MANUAL, gas_mass
+                    # Route through apply_fill_mode so the burst-stretch safety clamp
+                    # is applied consistently with other fill modes.
+                    clamped = apply_fill_mode(
+                        max_vol, gas_type, FillMode.MANUAL,
+                        manual_mass_kg=gas_mass,
+                        burst_stretch_ratio=balloon_spec["burst"],
+                    )
+                    return FillMode.MANUAL, clamped
                 else:
                     mass = apply_fill_mode(max_vol, gas_type, selected["mode"])
                     print(f"  Selected: {selected['label']} → {format_mass_kg(mass)}")

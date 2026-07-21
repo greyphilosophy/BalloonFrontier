@@ -50,9 +50,19 @@ FILL_MODE_MULTIPLIERS = {
     "heavy": MULTIPLIER_HEAVY,
 }
 
-# Safety factor: auto-fill masses never exceed this fraction of burst limit.
-# 0.6 = auto-fill stays at 60% of the burst volume headroom.
-BURST_SAFETY_FRACTION: float = 0.6
+# Safety margin for dynamic burst-safe volume calculation.
+# The safe fill mass is calculated as:
+#   safe_volume = nominal_volume * burst_stretch_ratio * SAFETY_MARGIN
+# A value of 0.6 means the safety limit sits at 60% of the burst volume,
+# not 60% of the nominal volume. This allows Light/Normal/Heavy presets
+# to produce distinct masses because the ceiling is much higher.
+SAFETY_MARGIN: float = 0.6
+
+# Legacy alias for backward compatibility
+BURST_SAFETY_FRACTION: float = SAFETY_MARGIN
+
+# Default burst stretch ratio (used when the caller doesn't specify one)
+DEFAULT_BURST_STRETCH_RATIO: float = 2.5
 
 # ── Public enums ─────────────────────────────────────────────────
 
@@ -169,16 +179,31 @@ class FillMode(Enum):
 
 # ── Auto-fill integration ─────────────────────────────────────────
 
-def get_auto_fill_mass(volume_m3: float, gas_type: str, mode: FillMode) -> float:
+def get_auto_fill_mass(
+    volume_m3: float,
+    gas_type: str,
+    mode: FillMode,
+    burst_stretch_ratio: float = DEFAULT_BURST_STRETCH_RATIO,
+) -> float:
     """Calculate fill mass from an auto-fill mode (Light/Normal/Heavy/Auto).
 
     The returned mass is guaranteed to be burst-safe: it never exceeds
     the safe fraction of the burst volume limit.
 
+    The safety limit uses a dynamic calculation:
+        safe_volume = nominal_volume * burst_stretch_ratio * SAFETY_MARGIN
+        safe_mass = mass(safe_volume) = optimal_mass * burst_stretch_ratio * SAFETY_MARGIN
+
+    This replaces the flat BURST_SAFETY_FRACTION clamp, allowing
+    Light/Normal/Heavy/Auto presets to differentiate properly.
+
     Args:
         volume_m3: Envelope nominal volume.
         gas_type: Gas type string.
         mode: Fill mode (AUTO, LIGHT, NORMAL, or HEAVY).
+        burst_stretch_ratio: Ratio of burst volume to nominal volume
+            (e.g. 2.5 means the balloon can stretch to 250% before bursting).
+            Defaults to DEFAULT_BURST_STRETCH_RATIO.
 
     Returns:
         Gas mass in kg, clamped to the burst-safe range.
@@ -193,27 +218,37 @@ def get_auto_fill_mass(volume_m3: float, gas_type: str, mode: FillMode) -> float
     multiplier = mode.get_multiplier()
     raw_mass = base * multiplier
 
-    # Clamp to burst-safe range.
-    safe_max = calculate_max_safe_gas_mass(volume_m3, gas_type)
+    # Clamp to burst-safe range (dynamic calculation).
+    safe_max = calculate_max_safe_gas_mass(volume_m3, gas_type, burst_stretch_ratio)
     return round(min(raw_mass, safe_max), 6)
 
 
-def calculate_max_safe_gas_mass(volume_m3: float, gas_type: str) -> float:
+def calculate_max_safe_gas_mass(
+    volume_m3: float,
+    gas_type: str,
+    burst_stretch_ratio: float = DEFAULT_BURST_STRETCH_RATIO,
+) -> float:
     """Calculate the maximum gas mass that stays within the burst-safe zone.
 
-    Uses the burst safety fraction (60% of optimal fill) so that even
-    with thermal expansion during ascent, the balloon doesn't burst
-    instantaneously.
+    Uses the dynamic burst volume calculation:
+        safe_volume = volume * burst_stretch_ratio * SAFETY_MARGIN
+        safe_mass = optimal_mass * burst_stretch_ratio * SAFETY_MARGIN
+
+    This means the safety limit is a fraction of the *burst volume*,
+    not the nominal volume, so different presets can produce distinct
+    masses.
 
     Args:
         volume_m3: Envelope nominal volume.
         gas_type: Gas type string.
+        burst_stretch_ratio: Ratio of burst volume to nominal volume.
+            Defaults to DEFAULT_BURST_STRETCH_RATIO.
 
     Returns:
         Maximum safe gas mass in kg.
     """
     base = calculate_optimal_fill(volume_m3, gas_type)
-    return round(base * BURST_SAFETY_FRACTION, 6)
+    return round(base * burst_stretch_ratio * SAFETY_MARGIN, 6)
 
 
 def get_fill_description(mode: FillMode) -> str:
@@ -228,10 +263,17 @@ def get_fill_description(mode: FillMode) -> str:
     return descs.get(mode, "Unknown fill mode")
 
 
-def apply_fill_mode(volume_m3: float, gas_type: str, mode: FillMode, manual_mass_kg: float = None) -> float:
+def apply_fill_mode(
+    volume_m3: float,
+    gas_type: str,
+    mode: FillMode,
+    manual_mass_kg: float = None,
+    burst_stretch_ratio: float = DEFAULT_BURST_STRETCH_RATIO,
+) -> float:
     """Apply a fill mode to get the final gas mass for the launch state machine.
 
-    When mode is MANUAL, uses the provided `manual_mass_kg`.
+    When mode is MANUAL, uses the provided `manual_mass_kg` clamped to the
+    burst-safe range derived from `burst_stretch_ratio`.
     When mode is AUTO/LIGHT/NORMAL/HEAVY, calculates and clamps the mass.
 
     This is the single entry point the launch sequence should call to
@@ -242,6 +284,8 @@ def apply_fill_mode(volume_m3: float, gas_type: str, mode: FillMode, manual_mass
         gas_type: Gas type string.
         mode: Selected fill mode.
         manual_mass_kg: Player-specified mass (only used when mode == MANUAL).
+        burst_stretch_ratio: Ratio of burst volume to nominal volume.
+            Defaults to DEFAULT_BURST_STRETCH_RATIO.
 
     Returns:
         Final gas mass in kg for the simulation state.
@@ -249,9 +293,9 @@ def apply_fill_mode(volume_m3: float, gas_type: str, mode: FillMode, manual_mass
     if mode == FillMode.MANUAL:
         if manual_mass_kg is None:
             # Fall back to safe auto-normal if the player hit "Manual" but didn't type a value
-            return get_auto_fill_mass(volume_m3, gas_type, FillMode.NORMAL)
+            return get_auto_fill_mass(volume_m3, gas_type, FillMode.NORMAL, burst_stretch_ratio)
         # Clamp manual mass to burst-safe range
-        safe_max = calculate_max_safe_gas_mass(volume_m3, gas_type)
+        safe_max = calculate_max_safe_gas_mass(volume_m3, gas_type, burst_stretch_ratio)
         return round(min(max(manual_mass_kg, 0.001), safe_max), 6)
     else:
-        return get_auto_fill_mass(volume_m3, gas_type, mode)
+        return get_auto_fill_mass(volume_m3, gas_type, mode, burst_stretch_ratio)
