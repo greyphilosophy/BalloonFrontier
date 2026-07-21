@@ -7,7 +7,7 @@ auto-fill modes and burst-safe clamping.
 import pytest
 from balloon_frontier.fill import (
     apply_fill_mode, calculate_max_safe_gas_mass, calculate_optimal_fill,
-    FillMode, BURST_SAFETY_FRACTION,
+    FillMode,
 )
 from balloon_frontier.simulation import SimulationState, EnvelopeConfig, run_simulation
 
@@ -59,7 +59,7 @@ class TestBurstPrevention:
         """With dynamic formula, safe_max = base * burst_stretch_ratio * SAFETY_MARGIN.
 
         For default burst_stretch_ratio=2.5 and SAFETY_MARGIN=0.6,
-        safe_max = base * 1.5, which is well above the old BURST_SAFETY_FRACTION.
+        safe_max = base * 1.5.
         """
         base = calculate_optimal_fill(10.0, "helium")
         safe = calculate_max_safe_gas_mass(10.0, "helium")

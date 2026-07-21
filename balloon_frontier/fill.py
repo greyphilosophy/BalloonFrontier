@@ -58,9 +58,6 @@ FILL_MODE_MULTIPLIERS = {
 # to produce distinct masses because the ceiling is much higher.
 SAFETY_MARGIN: float = 0.6
 
-# Legacy alias for backward compatibility
-BURST_SAFETY_FRACTION: float = SAFETY_MARGIN
-
 # Default burst stretch ratio (used when the caller doesn't specify one)
 DEFAULT_BURST_STRETCH_RATIO: float = 2.5
 
@@ -190,12 +187,11 @@ def get_auto_fill_mass(
     The returned mass is guaranteed to be burst-safe: it never exceeds
     the safe fraction of the burst volume limit.
 
-    The safety limit uses a dynamic calculation:
+    The safety limit uses a dynamic calculation based on the burst stretch ratio:
         safe_volume = nominal_volume * burst_stretch_ratio * SAFETY_MARGIN
-        safe_mass = mass(safe_volume) = optimal_mass * burst_stretch_ratio * SAFETY_MARGIN
+        safe_mass = optimal_mass * burst_stretch_ratio * SAFETY_MARGIN
 
-    This replaces the flat BURST_SAFETY_FRACTION clamp, allowing
-    Light/Normal/Heavy/Auto presets to differentiate properly.
+    This allows Light/Normal/Heavy/Auto presets to differentiate properly.
 
     Args:
         volume_m3: Envelope nominal volume.

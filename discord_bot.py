@@ -18,7 +18,6 @@ from balloon_frontier.physics import (
 from balloon_frontier.fill import (
     apply_fill_mode,
     calculate_max_safe_gas_mass,
-    calculate_optimal_fill,
     FillMode,
 )
 from balloon_frontier.ascii_chart import chart_to_string
@@ -490,7 +489,7 @@ class _Select(discord.ui.Select):
             return
 
         new_content = self._parent._build_config_text()
-        await self._parent._msg.edit(content=new_content, view=self._parent)
+        await interaction.response.edit_message(content=new_content, view=self._parent)
 
 
 class _LaunchButton(discord.ui.Button):
