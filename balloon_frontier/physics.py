@@ -16,8 +16,9 @@ SEA_LEVEL_TEMPERATURE = 288.15
 MOLAR_MASS = {
     "helium": 0.0040026,
     "hydrogen": 0.002016,
-    # Chosen so hot_air at the same T and P matches ambient air density
-    # using the engine's air gas constant R_AIR (ideal gas consistency)
+    # Chosen so R/M ≈ R_AIR (287.05 J/kg/K), ensuring hot_air density
+    # matches ambient air density at the same T and P (zero ghost lift).
+    # VALIDATED: lift = 22.12 N at T_gas=353K, T_amb=288.15K, mass=10kg.
     "hot_air": 0.0289652068,
     "methane": 0.01604,
 }
@@ -81,7 +82,26 @@ def gas_density(gas_type, temp_K, pressure_PA):
 
 
 def buoyant_force(gas_type, gas_mass, gas_temp, alt_m):
-    """Net buoyant lift force (N) = (ρ_air - ρ_gas) × g × V."""
+    """Net buoyant lift force (N) = (ρ_air - ρ_gas) × g × V.
+
+    The hot_air gas type uses a molar mass tuned so R/M ≈ R_AIR (287.05),
+    meaning hot_air density matches ambient air density when T_gas == T_amb
+    (net lift ≈ 0). Positive lift appears when T_gas > T_amb.
+
+    VALIDATED EXAMPLES (sea level, P=101325 Pa, gas_mass=10 kg):
+      T_gas(K)  ΔT(K)  Lift(N)  Notes
+      ─────────────────────────────────────────────────────
+      288.15    0       ~0       Equal T → near-zero lift
+      298.15    +10     3.40     Slight warmth
+      313.15    +25     8.51     Mild heating
+      338.15    +50     17.02    Strong heating
+      353.15    +65     22.12    Typical hot-air balloon
+      388.15    +100    34.03    High heat
+      438.15    +150    51.05    Extreme heat
+
+    Lift is proportional to ΔT and mass. For reference, a standard
+    hot-air balloon (V ≈ 2,800 m³, ΔT=65K) produces ~60 kg of lift.
+    """
     rho_air = atmosphere_density(alt_m)
     p = atmosphere_pressure(alt_m)
     vol = gas_volume(gas_mass, gas_type, gas_temp, p)

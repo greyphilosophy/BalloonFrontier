@@ -88,7 +88,7 @@ class TestGasLaws:
 
     def test_hydrogen_volume_at_stp(self):
         """1 kg hydrogen at STP ≈ 11.7 m³."""
-        v = gas_volume(1.0, "hydrogen", SEA_LEVEL_TEMPERATURE, SEA_LEVEL_PRESSURE)
+        v = gas_volume(1.0, "hydrogen", 288.15, 101325.0)
         assert 11.0 < v < 13.0
 
     def test_volume_inversely_proportional_to_pressure(self):
@@ -246,3 +246,110 @@ class TestEdgeCases:
     def test_small_gas_mass(self):
         v = gas_volume(0.001, "helium", 288.15, 101325.0)
         assert v > 0
+
+
+# ─── Buoyancy Regression Tests ───────────────────────────────────
+
+class TestBuoyancyRegression:
+    """Regression tests for the near-zero lift bug and expected buoyancy.
+
+    BUG HISTORY: The hot_air molar mass was tuned so that
+    `R / MOLAR_MASS_hot_air == R_AIR`. Before the fix, a slightly-off
+    molar mass caused a non-zero density mismatch when gas temperature
+    equaled ambient temperature, producing spurious "ghost lift."
+
+    These tests verify:
+    (1) T_gas == T_amb => net buoyancy ≈ 0 (within tolerance)
+    (2) T_gas == T_amb + 65K => positive lift
+    (3) Density changes monotonically with temperature at constant pressure
+
+    TOLERANCES:
+    - DENSITY_TOL = 1e-6 kg/m³: float-precision threshold at sea level
+      for matching R_AIR constants.
+    - BUOYANCY_TOL = 1e-6 N: near-zero force threshold for 10kg gas mass.
+    - POSITIVE_LIFT_MIN = 0.1 N: minimum expected lift at +65K delta
+      for 10kg hot_air gas at sea level.
+    """
+
+    DENSITY_TOL = 1e-6
+    BUOYANCY_TOL = 1e-6
+    POSITIVE_LIFT_MIN = 0.1
+
+    def test_near_zero_density_mismatch_at_equal_temps(self):
+        """T_gas == T_amb => hot_air density matches ambient density."""
+        T = SEA_LEVEL_TEMPERATURE  # 288.15K
+        P = SEA_LEVEL_PRESSURE     # 101325 Pa
+
+        rho_gas = gas_density("hot_air", T, P)
+        rho_air = atmosphere_density(0)
+
+        assert abs(rho_gas - rho_air) < self.DENSITY_TOL, (
+            f"hot_air rho={rho_gas} vs ambient rho={rho_air} (delta={abs(rho_gas - rho_air)})"
+        )
+
+    def test_near_zero_lift_at_equal_temps(self):
+        """T_gas == T_amb => buoyant force ≈ 0 for hot_air."""
+        T = SEA_LEVEL_TEMPERATURE  # 288.15K
+
+        force = buoyant_force("hot_air", 10.0, T, 0.0)
+
+        assert abs(force) < self.BUOYANCY_TOL, (
+            f"Buoyant force {force} N should be ~0 at equal T"
+        )
+
+    def test_near_zero_lift_at_multiple_altitudes(self):
+        """Near-zero lift holds at various altitudes when T_gas == T_amb."""
+        for alt in [0, 5000, 10000, 15000, 20000]:
+            T = atmosphere_temperature(alt)
+            force = buoyant_force("hot_air", 10.0, T, alt)
+            assert abs(force) < self.BUOYANCY_TOL, (
+                f"At {alt}m: force={force} N, T={T}K"
+            )
+
+    def test_positive_lift_at_plus_65k(self):
+        """T_gas = T_amb + 65K => buoyant force > 0 for hot_air."""
+        T_amb = SEA_LEVEL_TEMPERATURE  # 288.15K
+        T_gas = T_amb + 65             # 353.15K
+
+        force = buoyant_force("hot_air", 10.0, T_gas, 0.0)
+
+        assert force > self.POSITIVE_LIFT_MIN, (
+            f"Expected >{self.POSITIVE_LIFT_MIN} N lift at +65K, got {force} N"
+        )
+
+    def test_hot_air_density_below_ambient_at_plus_65k(self):
+        """Hot air at +65K should be less dense than ambient."""
+        T_amb = SEA_LEVEL_TEMPERATURE
+        T_gas = T_amb + 65
+        P = SEA_LEVEL_PRESSURE
+
+        rho_gas = gas_density("hot_air", T_gas, P)
+        rho_air = atmosphere_density(0)
+
+        assert rho_gas < rho_air, (
+            f"Hot air rho={rho_gas} should be < ambient rho={rho_air}"
+        )
+
+    def test_density_decreases_with_temperature(self):
+        """Density monotonically decreases as T increases at constant pressure.
+
+        At constant pressure, rho ∝ 1/T for an ideal gas. A +65K delta
+        should produce a ~18.4% density drop.
+        """
+        T_low = SEA_LEVEL_TEMPERATURE       # 288.15K
+        T_high = SEA_LEVEL_TEMPERATURE + 65 # 353.15K
+        P = SEA_LEVEL_PRESSURE
+
+        rho_low = gas_density("hot_air", T_low, P)
+        rho_high = gas_density("hot_air", T_high, P)
+
+        assert rho_high < rho_low, (
+            f"rho_high={rho_high} should be < rho_low={rho_low}"
+        )
+
+        # Verify ideal gas law proportionality: rho_high/rho_low ≈ T_low/T_high
+        expected_ratio = T_low / T_high  # ~0.816
+        actual_ratio = rho_high / rho_low
+        assert abs(actual_ratio - expected_ratio) < 0.01, (
+            f"Density ratio {actual_ratio} vs expected {expected_ratio} (~1% tol)"
+        )
