@@ -1,6 +1,11 @@
 """Balloon Frontier - Simulation Engine
 
-Implements the deterministic fixed-step vertical balloon simulation.
+Implements a deterministic fixed-step balloon simulation.
+
+The core model integrates vertical motion (buoyancy + vertical drag + weight).
+Optionally, when `wind_enabled=True`, it also integrates a 1D horizontal drift
+using aerodynamic drag against the relative air velocity in the x direction.
+
 Reference: GDD Sections 6.1, 6.4, 6.5, 6.8, 16.
 
 Uses semi-implicit Euler integration with configurable time step.
@@ -42,6 +47,7 @@ class EnvelopeConfig:
         envelope_absorptivity: Solar absorptivity (0–1) of the envelope material.
         envelope_emissivity: IR emissivity (0–1) of the envelope material.
     """
+
     max_volume_m3: float = 10.0
     burst_stretch_ratio: float = 2.5
     drag_coefficient: float = 0.47
@@ -54,21 +60,20 @@ class EnvelopeConfig:
 
 @dataclass
 class SimulationState:
-    """Mutable state for one balloon vehicle during a simulation tick.
+    """Mutable state for one balloon vehicle during a simulation tick."""
 
-    This mirrors the VehicleState and GasCompartmentState from GDD §13.3,
-    simplified for vertical-only flight.
-    """
     # ── Position / Kinematics ────────────────────────────────
     altitude_m: float = 0.0
-    velocity_mps: float = 0.0         # positive = ascending
+    velocity_mps: float = 0.0  # positive = ascending
+
+    # Horizontal drift (east-west). Only affected when wind_enabled=True.
+    x_m: float = 0.0
+    vx_mps: float = 0.0
 
     # Compatibility fields (used by some higher-level game code / tests).
-    # This simulation model is currently strictly 1D vertical-only; these
-    # values are stored for API compatibility and may be used by more
-    # advanced models in the future.
     terrain_base_altitude_offset_m: float = 0.0
     wind_enabled: bool = False
+    wind_site_id: str = "field"
 
     # ── Gas compartment ─────────────────────────────────────
     gas_type: str = "helium"
@@ -102,6 +107,7 @@ class SimulationState:
 
     def total_mass(self) -> float:
         """Total vehicle mass (gas + envelope + payload + remaining ballast)."""
+
         ballast = max(0.0, self.ballast_mass_kg - self.ballast_released_kg)
         return self.gas_mass_kg + self.envelope.mass_kg + self.payload_mass_kg + ballast
 
@@ -109,14 +115,13 @@ class SimulationState:
 def _compute_forces(state: SimulationState) -> tuple:
     """Compute the vertical forces acting on the balloon.
 
-    Returns: (F_buoyancy, F_weight, F_drag, net_vertical_force) in Newtons.
+    Returns:
+        (F_buoyancy, F_weight, F_drag_vertical, net_vertical_force, area_m2)
 
-    Physics model:
-    - Gas volume is computed from ideal gas law
-    - For zero-pressure envelopes, displaced volume is min(ideal_volume, max_volume)
-    - Buoyancy scales with displaced volume
-    - Drag opposes velocity direction
+    Where:
+        - Drag uses drag_force(v, alt, Cd, area) with area derived from displaced volume.
     """
+
     # Gas volume — ideal gas law
     P_amb = atmosphere_pressure(max(0.0, state.altitude_m))
     gas_vol = gas_volume(
@@ -125,6 +130,7 @@ def _compute_forces(state: SimulationState) -> tuple:
         state.gas_temperature_k,
         P_amb,
     )
+
     # Determine displaced volume based on envelope type:
     # - Contained (latex/superpressure): gas volume IS the displaced volume
     # - Zero-pressure: gas vents at max_volume, displaced = min(ideal, max)
@@ -142,19 +148,20 @@ def _compute_forces(state: SimulationState) -> tuple:
     F_weight = state.total_mass() * G
 
     # Drag — uses spherical_area based on displaced volume
-    area = spherical_area(displaced_vol)
+    area_m2 = spherical_area(displaced_vol)
     F_drag = drag_force(
         state.velocity_mps,
         max(0.0, state.altitude_m),
         state.envelope.drag_coefficient,
-        area,
+        area_m2,
     )
+
     # Drag opposes motion
     drag_sign = -1.0 if state.velocity_mps > 0 else (1.0 if state.velocity_mps < 0 else 0.0)
     F_drag_vertical = F_drag * drag_sign
 
     F_net = F_buoy + F_drag_vertical - F_weight
-    return F_buoy, F_weight, F_drag_vertical, F_net
+    return F_buoy, F_weight, F_drag_vertical, F_net, area_m2
 
 
 def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
@@ -166,15 +173,51 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
 
     Returns a dict of intermediate values for telemetry.
     """
+
     # ── 1. Compute forces at current state ──────────────────
-    F_buoy, F_weight, F_drag, F_net = _compute_forces(state)
+    altitude_m0 = float(state.altitude_m)
+    time_s0 = float(state.time_s)
+
+    F_buoy, F_weight, F_drag_vertical, F_net, area_m2 = _compute_forces(state)
+
+    # Horizontal drag (wind-relative air velocity in x direction)
+    if state.wind_enabled:
+        from balloon_frontier.wind import wind_vector
+
+        wind_vx_mps, _wind_vy_mps = wind_vector(
+            altitude_m0,
+            time_s=time_s0,
+            site_id=state.wind_site_id,
+        )
+    else:
+        wind_vx_mps = 0.0
+
+    v_rel_x_mps = float(state.vx_mps - wind_vx_mps)
+
+    # drag_force returns a magnitude based on v^2.
+    F_drag_x_mag = drag_force(
+        v_rel_x_mps,
+        max(0.0, altitude_m0),
+        state.envelope.drag_coefficient,
+        area_m2,
+    )
+
+    # Drag opposes *relative* horizontal motion.
+    drag_x_sign = -1.0 if v_rel_x_mps > 0 else (1.0 if v_rel_x_mps < 0 else 0.0)
+    F_drag_x = F_drag_x_mag * drag_x_sign
 
     # ── 2. Update velocity (semi-implicit Euler) ───────────
     if state.total_mass() > 0:
-        acceleration = F_net / state.total_mass()
+        acceleration_y = F_net / state.total_mass()
+        acceleration_x = F_drag_x / state.total_mass()
     else:
-        acceleration = 0.0
-    state.velocity_mps += acceleration * dt
+        acceleration_y = 0.0
+        acceleration_x = 0.0
+
+    state.vx_mps += acceleration_x * dt
+    state.x_m += state.vx_mps * dt
+
+    state.velocity_mps += acceleration_y * dt
 
     # ── 3. Update altitude ─────────────────────────────────
     state.altitude_m += state.velocity_mps * dt
@@ -192,6 +235,7 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
         P_amb,
     )
     area = spherical_area(gas_vol_before)
+
     heat_flows = calculate_balloon_heat_flows(
         altitude_m=max(0.0, state.altitude_m),
         gas_temp_K=state.gas_temperature_k,
@@ -204,6 +248,7 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
         heater_power_watts=0.0,
         equipment_heat_watts=0.0,
     )
+
     state.gas_temperature_k = gas_temperature_update(
         gas_type=state.gas_type,
         gas_mass_kg=state.gas_mass_kg,
@@ -236,9 +281,12 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
         state.burst = True
 
     # ── 7. Landing / Crash detection ───────────────────────
-    # Landing: altitude drops below zero while descending
-    if state.altitude_m <= 0.0 and state.velocity_mps < 0.0:
-        state.altitude_m = 0.0
+    ground_alt_m = float(state.terrain_base_altitude_offset_m)
+    relative_alt_m = state.altitude_m - ground_alt_m
+
+    # Landing: relative altitude drops to/below 0 while descending
+    if relative_alt_m <= 0.0 and state.velocity_mps < 0.0:
+        state.altitude_m = ground_alt_m
         state.landed = True
         if abs(state.velocity_mps) > 15.0:
             state.crashed = True
@@ -253,10 +301,36 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
         state.gas_temperature_k,
         atmosphere_pressure(max(0.0, state.altitude_m)),
     )
-    F_buoy_after, F_weight_after, F_drag_after, F_net_after = _compute_forces(state)
+
+    F_buoy_after, F_weight_after, F_drag_after, F_net_after, area_after_m2 = _compute_forces(state)
+
+    # Horizontal drag for telemetry snapshot
+    if state.wind_enabled:
+        from balloon_frontier.wind import wind_vector
+
+        wind_vx_mps_after, _wind_vy_mps_after = wind_vector(
+            float(state.altitude_m),
+            time_s=float(state.time_s),
+            site_id=state.wind_site_id,
+        )
+    else:
+        wind_vx_mps_after = 0.0
+
+    v_rel_x_after_mps = float(state.vx_mps - wind_vx_mps_after)
+    F_drag_x_mag_after = drag_force(
+        v_rel_x_after_mps,
+        max(0.0, float(state.altitude_m)),
+        state.envelope.drag_coefficient,
+        area_after_m2,
+    )
+
+    drag_x_sign_after = -1.0 if v_rel_x_after_mps > 0 else (1.0 if v_rel_x_after_mps < 0 else 0.0)
+    F_drag_x_after = F_drag_x_mag_after * drag_x_sign_after
 
     telemetry = {
         "time_s": state.time_s,
+        "x_m": state.x_m,
+        "vx_mps": state.vx_mps,
         "altitude_m": state.altitude_m,
         "velocity_mps": state.velocity_mps,
         "gas_volume_m3": gas_vol_current,
@@ -266,6 +340,7 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
         "buoyancy_N": F_buoy_after,
         "weight_N": F_weight_after,
         "drag_N": F_drag_after,
+        "drag_x_N": F_drag_x_after,
         "gas_mass_kg": state.gas_mass_kg,
         "total_mass_kg": state.total_mass(),
         "burst": state.burst,
@@ -286,6 +361,7 @@ def run_simulation(
 
     The simulation stops early if the balloon bursts, lands, or crashes.
     """
+
     telemetry = []
     step = 0
     while step * dt < total_time_s and step < max_steps:
