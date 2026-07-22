@@ -189,8 +189,15 @@ def run_simulation(
         wind_site_id="field",
     )
 
-    # Run with the full physics engine (150s = 2.5 minutes of sim).
-    tel_full = run_full_simulation(state, dt=0.1, total_time_s=150.0, max_steps=10000)
+    # Run with the full physics engine. Time limit depends on whether missions are active.
+    # Missions may require up to 12 hours (43200s) of flight time.
+    if mission_assignment:
+        # Check if any mission needs long flight time
+        max_time = 43200.0  # 12 hours default for mission launches
+        # We can adjust this based on mission difficulty if needed
+        tel_full = run_full_simulation(state, dt=0.1, total_time_s=max_time, max_steps=int(max_time / 0.1))
+    else:
+        tel_full = run_full_simulation(state, dt=0.1, total_time_s=150.0, max_steps=10000)
 
     if not tel_full:
         return [], {
@@ -674,7 +681,7 @@ class _LaunchButton(discord.ui.Button):
                 weather_impacts=weather_impacts,
             )
 
-            payload_display = " + ".join(payload_names)
+            payload_display = ", ".join(payload_names)
             if payload_keys and "none" not in payload_keys:
                 pass  # keep as is
             elif payload_keys == ["none"]:

@@ -70,12 +70,24 @@ def evaluate_and_update_progression(
             continue
 
         mission = get_mission(mission_id)
+        def _map_objective(obj):
+            # Map mission JSON params dict to evaluator's expected target_value
+            p = obj.params or {}
+            if obj.type == "reach_altitude":
+                return {"type": obj.type, "target_value": p.get("minimum_m", 0), "weight": 1.0}
+            elif obj.type == "float_duration":
+                return {"type": obj.type, "target_value": p.get("duration_hours", 0), "weight": 1.0}
+            elif obj.type == "station_keep":
+                return {"type": obj.type, "target_value": p.get("altitude_m", 0), "weight": 1.0}
+            elif obj.type == "capture_photo":
+                return {"type": obj.type, "target_value": 1.0, "weight": 1.0}
+            elif obj.type == "recover_data":
+                return {"type": obj.type, "target_value": 1.0, "weight": 1.0}
+            return {"type": obj.type, "target_value": 0, "weight": 1.0}
+
         mission_config = {
             "id": mission.id,
-            "objectives": [
-                {"type": o.type, "params": o.params, "weight": 1.0}
-                for o in mission.objectives
-            ],
+            "objectives": [_map_objective(o) for o in mission.objectives],
         }
 
         result = evaluate_flight(telemetry, mission_config, payloads)

@@ -59,9 +59,9 @@ def evaluate_flight(
     total_weight = 0.0
     weighted_score = 0.0
 
-    peak_altitude = max(t["altitude_m"] for t in telemetry)
+    peak_altitude = max(t.get("altitude_m", t.get("alt", 0)) for t in telemetry)
     final_step = telemetry[-1]
-    flight_duration = telemetry[-1].get("time_s", 0)
+    flight_duration = telemetry[-1].get("time_s", telemetry[-1].get("time", 0))
     burst = final_step.get("burst", False)
 
     for obj_config in mission_config.get("objectives", []):
@@ -102,7 +102,7 @@ def evaluate_flight(
             target_alt = target
             in_range_steps = sum(
                 1 for t in telemetry
-                if abs(t["altitude_m"] - target_alt) <= 500
+                if abs(t.get("altitude_m", t.get("alt", 0)) - target_alt) <= 500
             )
             max_steps = len(telemetry)
             fraction = in_range_steps / max_steps if max_steps > 0 else 0
