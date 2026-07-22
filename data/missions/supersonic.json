@@ -1,0 +1,15 @@
+{
+    "id": "supersonic",
+    "title": "Supersonic Test",
+    "description": "An aerospace company is testing new supersonic vehicle designs and needs high-altitude wind profile data. Their sensors require a massive payload — battery, flight computer, and custom instrumentation. This mission will test whether your envelope choice can handle the weight at extreme altitude.",
+    "launch_site": "mountain",
+    "budget": 10000,
+    "required_payloads": ["battery", "flight_computer", "weather_sensor"],
+    "objectives": [
+        {"type": "reach_altitude", "params": {"minimum_m": 40000}},
+        {"type": "float_duration", "params": {"target_hours": 8}},
+        {"type": "station_keep", "params": {"target_altitude_m": 35000}},
+        {"type": "recover_data", "params": {"required": true}}
+    ],
+    "difficulty": 4
+}

@@ -1,0 +1,15 @@
+{
+    "id": "desert_dreamer",
+    "title": "Desert Dreamer",
+    "description": "A documentary team wants to film a balloon crossing the Sahara at 10km altitude. The heat at ground level makes launch tricky — temperatures soar past 45°C. You'll need to account for the thermal dynamics of hot air rising through the desert atmosphere.",
+    "launch_site": "field",
+    "budget": 3500,
+    "required_payloads": ["camera", "battery"],
+    "objectives": [
+        {"type": "reach_altitude", "params": {"minimum_m": 10000}},
+        {"type": "capture_photo", "params": {"target_id": "desert_surface", "minimum_quality": 0.5}},
+        {"type": "float_duration", "params": {"target_hours": 2}},
+        {"type": "recover_data", "params": {"required": true}}
+    ],
+    "difficulty": 2
+}

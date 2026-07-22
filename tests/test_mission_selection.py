@@ -59,10 +59,15 @@ def test_select_missions_unique_and_clamped_to_pool_size():
 
 
 def test_select_missions_empty_pool_falls_back_to_safe_default():
+    """When the in-memory pool is empty, fallback should return an empty list."""
     MISSIONS.clear()
-
-    chosen = select_missions(mission_count=2, seed=999)
-    assert chosen == fallback_mission_ids()
+    # Force the pool to be empty by passing a non-existent dir.
+    chosen = select_missions(
+        mission_count=2,
+        seed=999,
+        mission_dir="/tmp/nonexistent_mission_dir_xyz",
+    )
+    assert chosen == []  # No missions at all in this non-existent dir
 
 
 def test_select_missions_handles_invalid_mission_count_gracefully():

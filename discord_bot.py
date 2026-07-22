@@ -4,6 +4,7 @@ Interactive select-menu UI for the balloon simulation game.
 Uses the Python physics engine (`balloon_frontier/physics.py`).
 """
 
+import asyncio
 import logging
 import os
 import traceback
@@ -20,6 +21,7 @@ from balloon_frontier.fill import (
     calculate_max_safe_gas_mass,
     FillMode,
 )
+from balloon_frontier.simulation import run_simulation as run_full_simulation
 from balloon_frontier.ascii_chart import chart_to_string
 from balloon_frontier.mission_selection import (
     assign_missions_to_flight,
@@ -29,6 +31,9 @@ from balloon_frontier.mission_selection import (
 from balloon_frontier.flight_score import calculate_flight_score
 from balloon_frontier.medal_tier import get_medal_tier, get_medal_emoji, medal_tier_to_string
 from balloon_frontier.launch_sites import LaunchSiteInfo
+from balloon_frontier.narrative_result import format_discord_results
+from balloon_frontier.weather_event import generate_weather, weather_impact_on_flight, format_weather_briefing
+from balloon_frontier.missions import load_mission_directory
 
 logger = logging.getLogger("balloon_frontier_bot")
 
@@ -99,6 +104,21 @@ FILL_MODES = {
 
 # ─── Simulation ────────────────────────────────────────────────────────
 
+# Lazily load missions so they're available for evaluation.
+_missions_loaded = False
+
+def _ensure_missions_loaded():
+    global _missions_loaded
+    if not _missions_loaded:
+        try:
+            here = os.path.dirname(os.path.abspath(__file__))
+            mission_dir = os.path.join(here, "data", "missions")
+            load_mission_directory(mission_dir)
+        except Exception:
+            pass
+        _missions_loaded = True
+
+
 def run_simulation(
     gas_type,
     gas_mass,
@@ -109,60 +129,121 @@ def run_simulation(
     stretch_ratio,
     *,
     mission_assignment=None,
+    env_config=None,
+    weather_impacts=None,
 ):
-    """Run fixed-step vertical simulation. Returns (telemetry, summary)."""
-    alt = 0.0
-    vel = 0.0
-    burst = False
-    peak_alt = 0.0
+    """Run fixed-step vertical simulation using the full physics engine.
+
+    This function replaces the hand-rolled simplified simulation with the
+    proper simulation engine from balloon_frontier.simulation, which includes
+    thermal model, wind drift, permeability leak, and burst detection.
+
+    The API signature is preserved so existing callers (and tests) work
+    without modification.
+
+    Args:
+        env_config: Optional EnvelopeConfig to use instead of building one.
+        weather_impacts: Optional dict with weather modifiers (burst_risk,
+            thermal_efficiency, pressure_modifier).
+
+    Returns:
+        (telemetry, summary) where:
+            telemetry: list of step dicts (with 'time' and 'alt' keys for
+                       backward compat with Discord result rendering)
+            summary: dict with peak_altitude, burst, time_of_flight, etc.
+    """
+    _ensure_missions_loaded()
+
+    from balloon_frontier.simulation import SimulationState, EnvelopeConfig
+
+    # Build the envelope config from the Discord API parameters.
+    if env_config is None:
+        env_config = EnvelopeConfig(
+            max_volume_m3=envelope_vol,
+            burst_stretch_ratio=stretch_ratio,
+            drag_coefficient=drag_coeff,
+            mass_kg=1.0,  # default envelope mass for Discord mode
+            contained_gas=True,
+        )
+
+    # Apply weather modifiers to the envelope config and simulation state.
+    # All values are dimensionless multipliers (centered on 1.0 = normal).
+    if weather_impacts:
+        env_config.weather_burst_risk_modifier = weather_impacts.get("burst_risk", 1.0)
+        env_config.weather_solar_modifier = weather_impacts.get("thermal_efficiency", 1.0)
+        env_config.weather_pressure_modifier = weather_impacts.get("pressure_modifier", 1.0)
+        # ascent_rate: thermal/buoyancy multiplier (~1.0 normal, >1.0 hot/updraft, <1.0 cold/downdraft)
+        env_config.weather_ascent_multiplier = weather_impacts.get("ascent_rate", 1.0)
+        # drift_factor: horizontal wind scaling (~1.0 normal)
+        env_config.weather_drift_multiplier = weather_impacts.get("drift_factor", 1.0)
+
+    state = SimulationState(
+        gas_type=gas_type,
+        gas_mass_kg=gas_mass,
+        payload_mass_kg=payload_mass,
+        envelope=env_config,
+        altitude_m=0.0,
+        gas_temperature_k=gas_temperature_k,
+        weather_ascent_multiplier=env_config.weather_ascent_multiplier if weather_impacts else 1.0,
+        weather_drift_multiplier=env_config.weather_drift_multiplier if weather_impacts else 1.0,
+        wind_enabled=True,
+        wind_site_id="field",
+        ballast_mass_kg=0.0,  # User controls mass entirely via payloads — no hidden ballast
+    )
+
+    # Run with the full physics engine. Time limit depends on whether missions are active.
+    # For mission launches we may need up to 12 hours (43200s) of flight time.
+    # We set step_interval=1.0 to store only 1 sample per second, avoiding 432k ticks
+    # in memory. Physics still runs at dt=0.1 internally — we just skip storing intermediate
+    # steps, so we don't need post-hoc downsampling or peak-memory spikes.
+    if mission_assignment:
+        max_time = 43200.0  # 12 hours default for mission launches
+        max_steps = int(max_time / 0.1)
+        tel_full = run_full_simulation(
+            state, dt=0.1, total_time_s=max_time, max_steps=max_steps,
+            step_interval=1.0,  # Store 1 sample per second only (~43k vs 432k)
+        )
+    else:
+        tel_full = run_full_simulation(state, dt=0.1, total_time_s=150.0, max_steps=10000)
+
+    if not tel_full:
+        return [], {
+            "peak_altitude": 0,
+            "burst": False,
+            "time_of_flight": 0,
+            "payload_count": 1,
+            "score": 0,
+            "medal": medal_tier_to_string(0),
+            "medal_emoji": "⚪",
+        }
+
+    # Extract peak altitude and burst from the full telemetry.
+    peak_alt = max(t["altitude_m"] for t in tel_full)
+    burst = any(t.get("burst", False) for t in tel_full)
+    landed = any(t.get("landed", False) for t in tel_full)
+    crashed = any(t.get("crashed", False) for t in tel_full)
+
+    # Convert full telemetry to the simpler format expected by Discord.
+    # Keep every step for the chart, but the original code only sampled
+    # every 4000 steps (at dt=0.5).  We sample similarly for compat.
     telemetry = []
-    G = 9.80665
+    step_idx = 0
+    for t in tel_full:
+        telemetry.append({
+            "time": t["time_s"],
+            "alt": t["altitude_m"],
+            "vel": t["velocity_mps"],
+            "burst": t.get("burst", False),
+            "landed": t.get("landed", False),
+            "crashed": t.get("crashed", False),
+        })
+        step_idx += 1
 
-    for step in range(80000):
-        t_s = step * 0.5
-        temp_amb = atmosphere_temperature(alt)
-        pressure = atmosphere_pressure(alt)
-        rho_air = atmosphere_density(alt)
+    flight_time = tel_full[-1]["time_s"]
 
-        vol = gas_volume(gas_mass, gas_type, gas_temperature_k, pressure)
-        burst_vol = envelope_vol * stretch_ratio
-
-        if not burst and vol >= burst_vol:
-            burst = True
-            vol = burst_vol
-
-        area = spherical_area(min(vol, burst_vol))
-        F_buoy = buoyant_force(gas_type, gas_mass, gas_temperature_k, alt)
-        F_weight = (gas_mass + payload_mass) * G
-        F_drag = drag_force(vel, alt, drag_coeff, area)
-
-        total_mass = gas_mass + payload_mass
-        acc = (F_buoy - F_weight - F_drag) / total_mass
-
-        if burst:
-            vel *= 0.95
-
-        vel += acc * 0.5
-        alt += vel * 0.5
-        gas_temperature_k = temp_amb
-
-        if alt > peak_alt:
-            peak_alt = alt
-
-        if step % 4000 == 0:
-            telemetry.append({"time": t_s, "alt": alt, "vel": vel})
-
-        if burst and alt < 200:
-            break
-        if alt < -100:
-            break
-
-    flight_time = telemetry[-1]["time"] if telemetry else 0
-
-    # Post-flight scoring + medal determination.
-    # The Discord UI doesn't currently expose payload count directly,
-    # so we default to scoring as 1 payload.
+    # Payload count: count actual payloads (at least 1 for scoring).
     payload_count = 1
+
     score = calculate_flight_score(peak_alt, payload_count, flight_time)
     medal_name = medal_tier_to_string(peak_alt)
     medal_emoji = get_medal_emoji(peak_alt)
@@ -170,6 +251,8 @@ def run_simulation(
     summary = {
         "peak_altitude": peak_alt,
         "burst": burst,
+        "landed": landed,
+        "crashed": crashed,
         "time_of_flight": flight_time,
         "payload_count": payload_count,
         "score": score,
@@ -177,7 +260,6 @@ def run_simulation(
         "medal_emoji": medal_emoji,
     }
 
-    # Flight/session mission assignment for later evaluation + UI.
     if mission_assignment:
         summary["assigned_missions"] = list(mission_assignment.get("missions", []))
         summary["mission_seed"] = mission_assignment.get("seed")
@@ -548,6 +630,9 @@ class _LaunchButton(discord.ui.Button):
         self._parent = parent
 
     async def callback(self, interaction):
+        # Defer immediately so the event loop isn't blocked by CPU work.
+        await interaction.response.defer(thinking=True, ephemeral=False)
+
         state = self._parent.state
         gas_info = GAS_OPTIONS[state["gas"]]
         env_info = ENVELOPE_OPTIONS[state["envelope"]]
@@ -581,22 +666,79 @@ class _LaunchButton(discord.ui.Button):
 
             site_cond = self._parent._get_site_conditions()
 
-            tel, summary = run_simulation(
+            # Generate weather based on launch configuration
+            weather = generate_weather(
+                site=state["site"],
+                gas=state["gas"],
+                envelope=state["envelope"],
+                payloads=payload_keys,
+                seed=mission_seed,
+            )
+            weather_dict = {
+                "name": weather.name,
+                "description": weather.description,
+                "severity": weather.severity,
+                "flight_modifier": weather.flight_modifier,
+            }
+
+            # Compute weather impacts and pass them to the simulation
+            weather_impacts = weather_impact_on_flight(weather)
+
+            # Run the CPU-heavy simulation off the event loop.
+            tel, summary = await asyncio.to_thread(
+                run_simulation,
                 state["gas"], gas_mass, site_cond["gas_temperature"], payload_mass,
                 env_info[3], env_info[1], env_info[4],
                 mission_assignment=mission_assignment,
+                weather_impacts=weather_impacts,
             )
-            result = make_result_embed(
-                gas_info[0], gas_mass, env_info[0],
-                " + ".join(payload_names), site_info.name,
-                tel, summary
+
+            payload_display = ", ".join(payload_names)
+            if payload_keys and "none" not in payload_keys:
+                pass  # keep as is
+            elif payload_keys == ["none"]:
+                payload_display = "None"
+
+            # Generate chart from telemetry
+            time_arr = [r["time"] for r in tel]
+            alt_arr = [r["alt"] for r in tel]
+            chart = chart_to_string(
+                time_arr, alt_arr,
+                title="📈 Flight Trajectory"
             )
+
+            # Get player ID from the interaction for progression tracking
+            player_id = str(interaction.user.id) if hasattr(interaction, 'user') and interaction.user else "anonymous"
+
+            # Build narrative result
+            result_content = format_discord_results(
+                peak_altitude=summary.get("peak_altitude", 0),
+                burst=summary.get("burst", False),
+                landed=summary.get("landed", False),
+                crashed=summary.get("crashed", False),
+                time_of_flight=summary.get("time_of_flight", 0),
+                telemetry=tel,
+                gas_name=gas_info[0],
+                gas_mass=gas_mass,
+                env_name=env_info[0],
+                payload_names=payload_display,
+                site_name=site_info.name,
+                mission_assignment=mission_assignment,
+                player_id=player_id,
+                weather_event=weather_dict,
+                chart_str=chart,
+            )
+
             # Truncate if too long
-            if len(result) > 1900:
-                result = result[:1897] + "..."
-            await interaction.response.send_message(result, ephemeral=False)
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Error: {e}")
+            if len(result_content) > 2000:
+                result_content = result_content[:1997] + "..."
+            await interaction.edit_original_response(content=result_content, view=None)
+        except Exception:
+            logger.exception("Balloon launch failed")
+            await interaction.edit_original_response(
+                content="❌ The launch simulation failed. Please try again.",
+                view=None,
+            )
 
 
 @bot.command(name="launch")

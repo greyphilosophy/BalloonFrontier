@@ -27,6 +27,7 @@ from balloon_frontier.physics import (
     spherical_area,
     burst_volume,
     G,
+    R_AIR,
 )
 from balloon_frontier.thermal import calculate_balloon_heat_flows, gas_temperature_update
 
@@ -56,6 +57,12 @@ class EnvelopeConfig:
     contained_gas: bool = False
     envelope_absorptivity: float = 0.5
     envelope_emissivity: float = 0.8
+    # Weather modifiers — applied at runtime by the weather system.
+    weather_burst_risk_modifier: float = 1.0  # multiplier on burst probability
+    weather_solar_modifier: float = 1.0       # multiplier on solar heating
+    weather_pressure_modifier: float = 1.0    # ambient pressure scale factor
+    weather_ascent_multiplier: float = 1.0    # ascent_rate: thermal/buoyancy multiplier
+    weather_drift_multiplier: float = 1.0     # drift_factor: horizontal wind scaling
 
 
 @dataclass
@@ -74,6 +81,10 @@ class SimulationState:
     terrain_base_altitude_offset_m: float = 0.0
     wind_enabled: bool = False
     wind_site_id: str = "field"
+
+    # ── Weather modifiers (applied at runtime by the weather system) ──
+    weather_ascent_multiplier: float = 1.0  # ascent_rate from weather_impact (~1.0)
+    weather_drift_multiplier: float = 1.0   # drift_factor from weather_impact (~1.0)
 
     # ── Gas compartment ─────────────────────────────────────
     gas_type: str = "helium"
@@ -171,13 +182,17 @@ def _compute_forces(state: SimulationState) -> tuple:
         - Drag uses drag_force(v, alt, Cd, area) with area derived from displaced volume.
     """
 
-    # Gas volume — ideal gas law
+    # Get weather pressure scale (may differ from 1.0 due to pressure anomalies)
+    pressure_scale = getattr(state.envelope, 'weather_pressure_modifier', 1.0)
+
+    # Gas volume — ideal gas law with weather-modified pressure
     P_amb = atmosphere_pressure(max(0.0, state.altitude_m))
+    P_amb_effective = P_amb * pressure_scale
     gas_vol = gas_volume(
         state.gas_mass_kg,
         state.gas_type,
         state.gas_temperature_k,
-        P_amb,
+        P_amb_effective,
     )
 
     # Determine displaced volume based on envelope type:
@@ -188,9 +203,11 @@ def _compute_forces(state: SimulationState) -> tuple:
     else:
         displaced_vol = min(gas_vol, state.envelope.max_volume_m3)
 
-    # Buoyancy on displaced volume
-    rho_air = atmosphere_density(max(0.0, state.altitude_m))
-    rho_gas = gas_density(state.gas_type, state.gas_temperature_k, P_amb)
+    # Buoyancy on displaced volume — both ambient air and gas use effective pressure
+    # so the pressure_scale modifies them consistently (R_AIR * T_amb).
+    T_amb = atmosphere_temperature(max(0.0, state.altitude_m))
+    rho_air = P_amb_effective / (R_AIR * T_amb)
+    rho_gas = gas_density(state.gas_type, state.gas_temperature_k, P_amb_effective)
     F_buoy = (rho_air - rho_gas) * G * displaced_vol
 
     # Weight
@@ -230,16 +247,20 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     F_buoy, F_weight, F_drag_vertical, F_net, area_m2 = _compute_forces(state)
 
     # Horizontal drag (wind-relative air velocity in x direction)
-    if state.wind_enabled:
-        from balloon_frontier.wind import wind_vector
+    # Scale the existing site wind vector by drift_factor (dimensionless modifier ~1.0)
+    weather_drift_mult = getattr(state, 'weather_drift_multiplier', 1.0)
+    from balloon_frontier.wind import wind_vector
 
+    wind_vx_mps = 0.0
+    if state.wind_enabled:
         wind_vx_mps, _wind_vy_mps = wind_vector(
             altitude_m0,
             time_s=time_s0,
             site_id=state.wind_site_id,
         )
-    else:
-        wind_vx_mps = 0.0
+    # Always apply drift scaling (even without site wind, this enables drift_factor)
+    if weather_drift_mult != 1.0:
+        wind_vx_mps *= weather_drift_mult
 
     v_rel_x_mps = float(state.vx_mps - wind_vx_mps)
 
@@ -254,6 +275,12 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     # Drag opposes *relative* horizontal motion.
     drag_x_sign = -1.0 if v_rel_x_mps > 0 else (1.0 if v_rel_x_mps < 0 else 0.0)
     F_drag_x = F_drag_x_mag * drag_x_sign
+
+    # ── Weather: read modifiers from state ─────────────────
+    weather_pressure_scale = getattr(state.envelope, 'weather_pressure_modifier', 1.0)
+    weather_solar_mod = getattr(state.envelope, 'weather_solar_modifier', 1.0)
+    weather_burst_mod = getattr(state.envelope, 'weather_burst_risk_modifier', 1.0)
+    weather_drift_mult = getattr(state, 'weather_drift_multiplier', 1.0)
 
     # ── 2. Update velocity (semi-implicit Euler) ───────────
     if state.total_mass() > 0:
@@ -273,6 +300,7 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
 
     # ── 4. Gas leakage (permeability model) ────────────────
     P_amb = atmosphere_pressure(max(0.0, state.altitude_m))
+    P_amb_effective = P_amb * weather_pressure_scale  # Apply pressure scale
     leak_fraction = state.envelope.permeability * dt
     state.gas_mass_kg *= max(0.0001, 1.0 - leak_fraction)
 
@@ -281,16 +309,17 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
         state.gas_mass_kg,
         state.gas_type,
         state.gas_temperature_k,
-        P_amb,
+        P_amb_effective,
     )
     area = spherical_area(gas_vol_before)
 
+    # Apply solar heating modifier from weather
     heat_flows = calculate_balloon_heat_flows(
         altitude_m=max(0.0, state.altitude_m),
         gas_temp_K=state.gas_temperature_k,
         gas_mass_kg=state.gas_mass_kg,
         gas_type=state.gas_type,
-        envelope_absorptivity=state.envelope.envelope_absorptivity,
+        envelope_absorptivity=state.envelope.envelope_absorptivity * weather_solar_mod,
         envelope_emissivity=state.envelope.envelope_emissivity,
         envelope_area_m2=area,
         envelope_mass_kg=state.envelope.mass_kg,
@@ -313,7 +342,7 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
             state.gas_mass_kg,
             state.gas_type,
             state.gas_temperature_k,
-            P_amb,
+            P_amb_effective,
         )
         if gas_vol > state.envelope.max_volume_m3:
             state.gas_mass_kg = state.gas_mass_kg * state.envelope.max_volume_m3 / gas_vol
@@ -323,9 +352,10 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
         state.gas_mass_kg,
         state.gas_type,
         state.gas_temperature_k,
-        P_amb,
+        P_amb_effective,
     )
-    burst_vol_limit = state.envelope.max_volume_m3 * state.envelope.burst_stretch_ratio
+    # Apply weather burst risk modifier — hazardous conditions lower the effective burst threshold
+    burst_vol_limit = state.envelope.max_volume_m3 * state.envelope.burst_stretch_ratio / weather_burst_mod
     if state.envelope.contained_gas and gas_vol_after >= burst_vol_limit:
         state.burst = True
 
@@ -353,7 +383,7 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
 
     F_buoy_after, F_weight_after, F_drag_after, F_net_after, area_after_m2 = _compute_forces(state)
 
-    # Horizontal drag for telemetry snapshot
+    # Horizontal drag for telemetry snapshot (same drift scaling)
     if state.wind_enabled:
         from balloon_frontier.wind import wind_vector
 
@@ -362,6 +392,7 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
             time_s=float(state.time_s),
             site_id=state.wind_site_id,
         )
+        wind_vx_mps_after *= weather_drift_mult  # Apply same drift scaling to telemetry
     else:
         wind_vx_mps_after = 0.0
 
@@ -405,19 +436,27 @@ def run_simulation(
     dt: float = 0.1,
     total_time_s: float = 60.0,
     max_steps: int = 10000,
+    step_interval: Optional[float] = None,  # Store only every N seconds (default: store every step)
 ) -> List[dict]:
     """Run the simulation for total_time_s seconds and return telemetry list.
 
     The simulation stops early if the balloon bursts, lands, or crashes.
+    step_interval limits output frequency for long runs (e.g. 1.0 = 1 sample/s)
+    so we don't store hundreds of thousands of ticks.
     """
 
     telemetry = []
     step = 0
+    next_sample = 0.0
     while step * dt < total_time_s and step < max_steps:
         if state.burst or state.landed or state.crashed:
             break
         tick = simulation_step(state, dt)
-        telemetry.append(tick)
+        # Only append to telemetry if we've reached the next sample interval
+        if step_interval is None or tick["time_s"] >= next_sample:
+            telemetry.append(tick)
+            if step_interval is not None:
+                next_sample += step_interval
         step += 1
 
     return telemetry

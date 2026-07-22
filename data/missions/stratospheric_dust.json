@@ -1,0 +1,15 @@
+{
+    "id": "stratospheric_dust",
+    "title": "Stratospheric Dust",
+    "description": "After a major volcanic eruption, atmospheric scientists need to track the spread of stratospheric aerosols. They need samples from 20-25km where the dust layer is thickest. The balloon must carry multiple sensors and survive long enough to map the plume's trajectory.",
+    "launch_site": "field",
+    "budget": 6000,
+    "required_payloads": ["weather_sensor", "flight_computer"],
+    "objectives": [
+        {"type": "reach_altitude", "params": {"minimum_m": 25000}},
+        {"type": "station_keep", "params": {"target_altitude_m": 22500}},
+        {"type": "float_duration", "params": {"target_hours": 3}},
+        {"type": "recover_data", "params": {"required": true}}
+    ],
+    "difficulty": 3
+}

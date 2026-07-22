@@ -1,10 +1,11 @@
 """Tests for the Balloon Frontier Discord bot — commands, on_message, and simulation."""
 
+import os
 import sys
 
 import pytest
 
-sys.path.insert(0, "/home/greyphilosophy/projects/BalloonFrontier")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from discord_bot import (
     bot, run_simulation, make_result_embed, BalloonConfigurator,
@@ -226,11 +227,11 @@ class TestOnMessageDispatchBug:
 
     def test_source_file_exists(self):
         import os
-        path = "/home/greyphilosophy/projects/BalloonFrontier/discord_bot.py"
+        path = os.path.join(os.path.dirname(__file__), "..", "discord_bot.py")
         assert os.path.exists(path), "discord_bot.py should exist"
 
     def test_on_message_exists_in_source(self):
-        source = open("/home/greyphilosophy/projects/BalloonFrontier/discord_bot.py").read()
+        source = open(os.path.join(os.path.dirname(__file__), "..", "discord_bot.py")).read()
         assert "def on_message" in source, "on_message handler should be defined"
 
     def test_on_message_calls_process_commands(self):
@@ -239,7 +240,7 @@ class TestOnMessageDispatchBug:
         internal dispatcher never fires for prefix commands. This means
         /help, /physics, /launch are silently swallowed.
         """
-        source = open("/home/greyphilosophy/projects/BalloonFrontier/discord_bot.py").read()
+        source = open(os.path.join(os.path.dirname(__file__), "..", "discord_bot.py")).read()
         assert "process_commands" in source, (
             "on_message must call 'await bot.process_commands(message)' "
             "for slash-prefixed commands to dispatch"
@@ -264,7 +265,7 @@ class TestBotSafety:
         assert bot.intents.guilds
 
     def test_token_env_var_name(self):
-        source = open("/home/greyphilosophy/projects/BalloonFrontier/discord_bot.py").read()
+        source = open(os.path.join(os.path.dirname(__file__), "..", "discord_bot.py")).read()
         assert "DISCORD_BF_TOKEN" in source or "DISCORD_TOKEN" in source
 
     def test_bot_has_registered_commands(self):

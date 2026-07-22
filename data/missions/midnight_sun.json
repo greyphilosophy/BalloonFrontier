@@ -1,0 +1,14 @@
+{
+    "id": "midnight_sun",
+    "title": "Midnight Sun",
+    "description": "During the Arctic summer, the sun never sets — providing continuous solar heating for the balloon but also creating thermal instability. A research consortium needs measurements during this unique condition. Launch at midnight when the thermal chaos peaks.",
+    "launch_site": "mountain",
+    "budget": 4500,
+    "required_payloads": ["weather_sensor", "heater"],
+    "objectives": [
+        {"type": "reach_altitude", "params": {"minimum_m": 22000}},
+        {"type": "float_duration", "params": {"target_hours": 5}},
+        {"type": "recover_data", "params": {"required": true}}
+    ],
+    "difficulty": 3
+}

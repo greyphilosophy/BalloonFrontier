@@ -1,0 +1,15 @@
+{
+    "id": "ocean_survey",
+    "title": "Ocean Survey",
+    "description": "Marine biologists need to monitor ocean surface temperature from altitude while tracking marine mammal migrations. A camera payload is essential. Launch from a coastal site with sea breeze conditions — the wind will carry your balloon over the survey area.",
+    "launch_site": "rooftop",
+    "budget": 5000,
+    "required_payloads": ["camera", "weather_sensor"],
+    "objectives": [
+        {"type": "reach_altitude", "params": {"minimum_m": 8000}},
+        {"type": "capture_photo", "params": {"target_id": "ocean_surface", "minimum_quality": 0.6}},
+        {"type": "float_duration", "params": {"target_hours": 3}},
+        {"type": "recover_data", "params": {"required": true}}
+    ],
+    "difficulty": 1
+}

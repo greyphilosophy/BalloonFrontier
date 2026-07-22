@@ -1,0 +1,13 @@
+{
+    "id": "sky_high_competition",
+    "title": "Sky High Competition",
+    "description": "The annual Stratosphere Cup competition is here! Your rival team is launching from the same field. Highest altitude wins — no payloads, no finesse, just raw lift. The crowd is watching, the press is recording, and the trophy goes to whoever touches 35km first.",
+    "launch_site": "field",
+    "budget": 8000,
+    "required_payloads": [],
+    "objectives": [
+        {"type": "reach_altitude", "params": {"minimum_m": 35000}},
+        {"type": "recover_data", "params": {"required": false}}
+    ],
+    "difficulty": 2
+}

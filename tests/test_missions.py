@@ -145,7 +145,9 @@ class TestMissionFromDataDir:
 
     def test_sounding_01_loads(self):
         MISSIONS.clear()
-        load_mission_directory("/home/greyphilosophy/projects/BalloonFrontier/data/missions/")
+        import os
+        data_dir = os.path.join(os.path.dirname(__file__), "..", "data", "missions")
+        load_mission_directory(data_dir)
         assert "sounding_01" in MISSIONS
         m = MISSIONS["sounding_01"]
         assert m.id == "sounding_01"

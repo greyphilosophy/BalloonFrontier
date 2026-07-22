@@ -1,0 +1,15 @@
+{
+    "id": "meteorology_final",
+    "title": "Meteorology Final",
+    "description": "After years of successful launches, a national weather service trusts you with their most critical mission: a complete vertical atmospheric profile from sea level to the mesosphere. This data will feed into national forecasting models. The reputation of everyone involved is on the line.",
+    "launch_site": "field",
+    "budget": 15000,
+    "required_payloads": ["weather_sensor", "flight_computer", "battery"],
+    "objectives": [
+        {"type": "reach_altitude", "params": {"minimum_m": 45000}},
+        {"type": "station_keep", "params": {"target_altitude_m": 30000}},
+        {"type": "float_duration", "params": {"target_hours": 12}},
+        {"type": "recover_data", "params": {"required": true}}
+    ],
+    "difficulty": 5
+}
