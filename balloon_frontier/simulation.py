@@ -436,19 +436,27 @@ def run_simulation(
     dt: float = 0.1,
     total_time_s: float = 60.0,
     max_steps: int = 10000,
+    step_interval: Optional[float] = None,  # Store only every N seconds (default: store every step)
 ) -> List[dict]:
     """Run the simulation for total_time_s seconds and return telemetry list.
 
     The simulation stops early if the balloon bursts, lands, or crashes.
+    step_interval limits output frequency for long runs (e.g. 1.0 = 1 sample/s)
+    so we don't store hundreds of thousands of ticks.
     """
 
     telemetry = []
     step = 0
+    next_sample = 0.0
     while step * dt < total_time_s and step < max_steps:
         if state.burst or state.landed or state.crashed:
             break
         tick = simulation_step(state, dt)
-        telemetry.append(tick)
+        # Only append to telemetry if we've reached the next sample interval
+        if step_interval is None or tick["time_s"] >= next_sample:
+            telemetry.append(tick)
+            if step_interval is not None:
+                next_sample += step_interval
         step += 1
 
     return telemetry

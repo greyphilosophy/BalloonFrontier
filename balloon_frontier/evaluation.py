@@ -106,7 +106,7 @@ def evaluate_flight(
             )
             max_steps = len(telemetry)
             fraction = in_range_steps / max_steps if max_steps > 0 else 0
-            obj = Objective("station_keep", max_steps, fraction, weight)
+            obj = Objective("station_keep", 1.0, fraction, weight)
             notes.append(f"Station kept: {in_range_steps} steps")
 
         else:
