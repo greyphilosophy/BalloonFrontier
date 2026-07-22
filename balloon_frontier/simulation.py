@@ -27,6 +27,7 @@ from balloon_frontier.physics import (
     spherical_area,
     burst_volume,
     G,
+    R_AIR,
 )
 from balloon_frontier.thermal import calculate_balloon_heat_flows, gas_temperature_update
 
@@ -202,9 +203,10 @@ def _compute_forces(state: SimulationState) -> tuple:
     else:
         displaced_vol = min(gas_vol, state.envelope.max_volume_m3)
 
-    # Buoyancy on displaced volume — atmospheric density uses unmodified pressure
-    # (weather pressure affects gas density but not the ambient air density profile)
-    rho_air = atmosphere_density(max(0.0, state.altitude_m))
+    # Buoyancy on displaced volume — both ambient air and gas use effective pressure
+    # so the pressure_scale modifies them consistently (R_AIR * T_amb).
+    T_amb = atmosphere_temperature(max(0.0, state.altitude_m))
+    rho_air = P_amb_effective / (R_AIR * T_amb)
     rho_gas = gas_density(state.gas_type, state.gas_temperature_k, P_amb_effective)
     F_buoy = (rho_air - rho_gas) * G * displaced_vol
 
@@ -247,17 +249,18 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     # Horizontal drag (wind-relative air velocity in x direction)
     # Scale the existing site wind vector by drift_factor (dimensionless modifier ~1.0)
     weather_drift_mult = getattr(state, 'weather_drift_multiplier', 1.0)
-    if state.wind_enabled:
-        from balloon_frontier.wind import wind_vector
+    from balloon_frontier.wind import wind_vector
 
+    wind_vx_mps = 0.0
+    if state.wind_enabled:
         wind_vx_mps, _wind_vy_mps = wind_vector(
             altitude_m0,
             time_s=time_s0,
             site_id=state.wind_site_id,
         )
-        wind_vx_mps *= weather_drift_mult  # Scale by weather drift modifier
-    else:
-        wind_vx_mps = 0.0
+    # Always apply drift scaling (even without site wind, this enables drift_factor)
+    if weather_drift_mult != 1.0:
+        wind_vx_mps *= weather_drift_mult
 
     v_rel_x_mps = float(state.vx_mps - wind_vx_mps)
 
@@ -279,12 +282,6 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     weather_burst_mod = getattr(state.envelope, 'weather_burst_risk_modifier', 1.0)
     weather_ascent_mult = getattr(state, 'weather_ascent_multiplier', 1.0)
     weather_drift_mult = getattr(state, 'weather_drift_multiplier', 1.0)
-
-    # Apply ascent multiplier to vertical velocity as a thermal/buoyancy effect
-    # ~1.0 = normal, >1.0 = hot/updraft, <1.0 = cold/downdraft
-    # Scale is modest to avoid dominating the physics engine
-    if abs(weather_ascent_mult - 1.0) > 1e-6:
-        state.velocity_mps *= weather_ascent_mult
 
     # ── 2. Update velocity (semi-implicit Euler) ───────────
     if state.total_mass() > 0:
