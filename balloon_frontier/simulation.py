@@ -246,7 +246,7 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
 
     # Horizontal drag (wind-relative air velocity in x direction)
     # Scale the existing site wind vector by drift_factor (dimensionless modifier ~1.0)
-    drift_mult = getattr(state, 'weather_drift_multiplier', 1.0)
+    weather_drift_mult = getattr(state, 'weather_drift_multiplier', 1.0)
     if state.wind_enabled:
         from balloon_frontier.wind import wind_vector
 
@@ -255,7 +255,7 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
             time_s=time_s0,
             site_id=state.wind_site_id,
         )
-        wind_vx_mps *= drift_mult  # Scale by weather drift modifier
+        wind_vx_mps *= weather_drift_mult  # Scale by weather drift modifier
     else:
         wind_vx_mps = 0.0
 
