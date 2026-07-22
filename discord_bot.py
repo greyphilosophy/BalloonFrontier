@@ -165,14 +165,16 @@ def run_simulation(
             contained_gas=True,
         )
 
-    # Apply weather modifiers to the envelope config and simulation state
+    # Apply weather modifiers to the envelope config and simulation state.
+    # All values are dimensionless multipliers (centered on 1.0 = normal).
     if weather_impacts:
         env_config.weather_burst_risk_modifier = weather_impacts.get("burst_risk", 1.0)
         env_config.weather_solar_modifier = weather_impacts.get("thermal_efficiency", 1.0)
         env_config.weather_pressure_modifier = weather_impacts.get("pressure_modifier", 1.0)
-        # Weather-driven wind effects (m/s)
-        env_config.weather_wind_vy_mps = weather_impacts.get("ascent_rate", 0.0) * 0.3  # updraft/downdraft scale
-        env_config.weather_wind_vx_mps = weather_impacts.get("drift_factor", 1.0) * 5.0  # horizontal wind scale
+        # ascent_rate: thermal/buoyancy multiplier (~1.0 normal, >1.0 hot/updraft, <1.0 cold/downdraft)
+        env_config.weather_ascent_multiplier = weather_impacts.get("ascent_rate", 1.0)
+        # drift_factor: horizontal wind scaling (~1.0 normal)
+        env_config.weather_drift_multiplier = weather_impacts.get("drift_factor", 1.0)
 
     state = SimulationState(
         gas_type=gas_type,
@@ -181,10 +183,8 @@ def run_simulation(
         envelope=env_config,
         altitude_m=0.0,
         gas_temperature_k=gas_temperature_k,
-        # Pass weather-driven wind and pressure into the simulation state
-        weather_wind_vx_mps=env_config.weather_wind_vx_mps if weather_impacts else 0.0,
-        weather_wind_vy_mps=env_config.weather_wind_vy_mps if weather_impacts else 0.0,
-        weather_pressure_scale=env_config.weather_pressure_modifier if weather_impacts else 1.0,
+        weather_ascent_multiplier=env_config.weather_ascent_multiplier if weather_impacts else 1.0,
+        weather_drift_multiplier=env_config.weather_drift_multiplier if weather_impacts else 1.0,
     )
 
     # Run with the full physics engine (150s = 2.5 minutes of sim).
