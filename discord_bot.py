@@ -185,6 +185,8 @@ def run_simulation(
         gas_temperature_k=gas_temperature_k,
         weather_ascent_multiplier=env_config.weather_ascent_multiplier if weather_impacts else 1.0,
         weather_drift_multiplier=env_config.weather_drift_multiplier if weather_impacts else 1.0,
+        wind_enabled=True,
+        wind_site_id="default",
     )
 
     # Run with the full physics engine (150s = 2.5 minutes of sim).

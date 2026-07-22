@@ -280,7 +280,6 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     weather_pressure_scale = getattr(state.envelope, 'weather_pressure_modifier', 1.0)
     weather_solar_mod = getattr(state.envelope, 'weather_solar_modifier', 1.0)
     weather_burst_mod = getattr(state.envelope, 'weather_burst_risk_modifier', 1.0)
-    weather_ascent_mult = getattr(state, 'weather_ascent_multiplier', 1.0)
     weather_drift_mult = getattr(state, 'weather_drift_multiplier', 1.0)
 
     # ── 2. Update velocity (semi-implicit Euler) ───────────
