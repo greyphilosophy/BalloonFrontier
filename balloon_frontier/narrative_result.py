@@ -57,6 +57,8 @@ def evaluate_and_update_progression(
             - new_unlocks: list of envelope names unlocked
             - player_state: current PlayerState
     """
+    from balloon_frontier.progression import PlayerRegistry
+
     player = PlayerRegistry.get_or_create(player_id)
     all_mission_results = []
     total_weighted_score = 0.0

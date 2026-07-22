@@ -187,6 +187,7 @@ def run_simulation(
         weather_drift_multiplier=env_config.weather_drift_multiplier if weather_impacts else 1.0,
         wind_enabled=True,
         wind_site_id="field",
+        ballast_mass_kg=0.0,  # User controls mass entirely via payloads — no hidden ballast
     )
 
     # Run with the full physics engine. Time limit depends on whether missions are active.

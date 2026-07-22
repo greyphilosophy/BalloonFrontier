@@ -98,8 +98,10 @@ class TestSimulationGameplay:
 
     def test_more_gas_mass_gives_more_lift(self):
         """Adding more helium makes the balloon rise higher."""
-        sum_low = run_simulation("helium", 1.0, 288.15, 1.0, 0.47, 10.0, 3.0)[1]
-        sum_high = run_simulation("helium", 5.0, 288.15, 1.0, 0.47, 10.0, 3.0)[1]
+        # Use a large envelope so burst isn't the limiting factor.
+        # Keep payload modest so both gas masses produce lift without 5kg ballast.
+        sum_low = run_simulation("helium", 0.5, 288.15, 1.0, 0.47, 30.0, 3.0)[1]
+        sum_high = run_simulation("helium", 2.0, 288.15, 1.0, 0.47, 30.0, 3.0)[1]
         assert sum_high["peak_altitude"] > sum_low["peak_altitude"]
 
     def test_telemetry_is_monotonically_indexed_by_time(self):
