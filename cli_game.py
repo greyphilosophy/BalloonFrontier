@@ -395,6 +395,19 @@ def show_results(envelope_spec, gas_type, gas_mass, payload_ids, summary):
     print("  🎈 FLIGHT RESULTS")
     print("  ════════════════════════════════════════════════════")
     peak = summary.get("peak_altitude", 0)
+    initial_altitude_m = summary.get("initial_altitude_m", 0)
+    time_of_flight = summary.get("time_of_flight", 0)
+
+    # If the balloon never left the launch pad, report it as too heavy
+    if peak == 0 and time_of_flight < 1.0:
+        print("  ⚖️  TOO HEAVY — payload exceeded lift capacity!")
+        print(f"  Balloon:      {envelope_spec['name']} latex")
+        print(f"  Gas:          {gas_type} ({format_mass_kg(gas_mass)})")
+        print(f"  Payloads:     {', '.join(PAYLOADS[p][0] for p in payload_ids)}")
+        print(f"  Total mass:   {gas_mass + sum(PAYLOADS[p][1] for p in payload_ids):.3f} kg")
+        print("  💡 Try a larger balloon, less payload, or more gas.\n")
+        return
+
     target = 30000
     if peak >= target:
         status = "🟢 TARGET REACHED"
@@ -404,10 +417,8 @@ def show_results(envelope_spec, gas_type, gas_mass, payload_ids, summary):
         status = "🔵 KEEPING GOING"
     print(f"  Peak Altitude: {peak:>10,.0f} m  ({status})")
     print(f"  Target:        {target:>10,} m")
-    initial_altitude_m = summary.get("initial_altitude_m", 0)
     print(f"  Initial Alt:  {initial_altitude_m:>10,.0f} m")
 
-    time_of_flight = summary.get("time_of_flight", 0)
     print(f"  Time:          {time_of_flight:>6.1f} s")
 
     # ── Medal ───────────────────────────────────────────
