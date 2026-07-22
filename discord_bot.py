@@ -191,12 +191,24 @@ def run_simulation(
     )
 
     # Run with the full physics engine. Time limit depends on whether missions are active.
-    # Missions may require up to 12 hours (43200s) of flight time.
+    # For mission launches we may need up to 12 hours (43200s) of flight time.
+    # To avoid blocking the Discord callback with 432k+ sync steps, we throttle
+    # telemetry output to 1 step per second of simulated time in the output,
+    # but still simulate every 0.1s internally so physics remain accurate.
     if mission_assignment:
-        # Check if any mission needs long flight time
         max_time = 43200.0  # 12 hours default for mission launches
-        # We can adjust this based on mission difficulty if needed
-        tel_full = run_full_simulation(state, dt=0.1, total_time_s=max_time, max_steps=int(max_time / 0.1))
+        max_steps = int(max_time / 0.1)
+        tel_full = run_full_simulation(state, dt=0.1, total_time_s=max_time, max_steps=max_steps)
+        # Downsample telemetry: keep only 1 sample per second for the callback/response
+        # This reduces output from 432k steps to ~43k, and we'll further sample for charting below
+        if tel_full:
+            downsampled = []
+            step_idx = 0
+            for t in tel_full:
+                if step_idx == 0 or (t.get("time_s", 0) - (downsampled[-1].get("time_s", 0) if downsampled else 0)) >= 1.0:
+                    downsampled.append(t)
+                step_idx += 1
+            tel_full = downsampled
     else:
         tel_full = run_full_simulation(state, dt=0.1, total_time_s=150.0, max_steps=10000)
 

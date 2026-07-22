@@ -74,13 +74,14 @@ def evaluate_and_update_progression(
         mission = get_mission(mission_id)
         def _map_objective(obj):
             # Map mission JSON params dict to evaluator's expected target_value
+            # Note: mission JSONs use target_hours and target_altitude_m
             p = obj.params or {}
             if obj.type == "reach_altitude":
                 return {"type": obj.type, "target_value": p.get("minimum_m", 0), "weight": 1.0}
             elif obj.type == "float_duration":
-                return {"type": obj.type, "target_value": p.get("duration_hours", 0), "weight": 1.0}
+                return {"type": obj.type, "target_value": p.get("target_hours", 0), "weight": 1.0}
             elif obj.type == "station_keep":
-                return {"type": obj.type, "target_value": p.get("altitude_m", 0), "weight": 1.0}
+                return {"type": obj.type, "target_value": p.get("target_altitude_m", 0), "weight": 1.0}
             elif obj.type == "capture_photo":
                 return {"type": obj.type, "target_value": 1.0, "weight": 1.0}
             elif obj.type == "recover_data":
@@ -325,7 +326,7 @@ def format_discord_results(
     mission_result = None
     if mission_assignment and mission_assignment.get("missions"):
         mission_ids = mission_assignment["missions"]
-        payload_list = payload_names.lower().split(",") if payload_names else ["none"]
+        payload_list = [p.strip() for p in payload_names.replace(" + ", ",").lower().split(",")] if payload_names else ["none"]
 
         mission_result = evaluate_and_update_progression(
             telemetry=telemetry,
