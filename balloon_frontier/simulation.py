@@ -56,6 +56,10 @@ class EnvelopeConfig:
     contained_gas: bool = False
     envelope_absorptivity: float = 0.5
     envelope_emissivity: float = 0.8
+    # Weather modifiers — applied at runtime by the weather system.
+    weather_burst_risk_modifier: float = 1.0  # multiplier on burst probability
+    weather_solar_modifier: float = 1.0       # multiplier on solar heating
+    weather_pressure_modifier: float = 1.0    # multiplier on initial gas pressure
 
 
 @dataclass
@@ -285,12 +289,15 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     )
     area = spherical_area(gas_vol_before)
 
+    # Apply solar heating modifier from weather
+    solar_mod = getattr(state.envelope, 'weather_solar_modifier', 1.0)
+
     heat_flows = calculate_balloon_heat_flows(
         altitude_m=max(0.0, state.altitude_m),
         gas_temp_K=state.gas_temperature_k,
         gas_mass_kg=state.gas_mass_kg,
         gas_type=state.gas_type,
-        envelope_absorptivity=state.envelope.envelope_absorptivity,
+        envelope_absorptivity=state.envelope.envelope_absorptivity * solar_mod,
         envelope_emissivity=state.envelope.envelope_emissivity,
         envelope_area_m2=area,
         envelope_mass_kg=state.envelope.mass_kg,
@@ -325,7 +332,9 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
         state.gas_temperature_k,
         P_amb,
     )
-    burst_vol_limit = state.envelope.max_volume_m3 * state.envelope.burst_stretch_ratio
+    # Apply weather burst risk modifier — hazardous conditions lower the effective burst threshold
+    burst_risk_mod = getattr(state.envelope, 'weather_burst_risk_modifier', 1.0)
+    burst_vol_limit = state.envelope.max_volume_m3 * state.envelope.burst_stretch_ratio / burst_risk_mod
     if state.envelope.contained_gas and gas_vol_after >= burst_vol_limit:
         state.burst = True
 

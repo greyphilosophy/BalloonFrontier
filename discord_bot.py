@@ -128,6 +128,8 @@ def run_simulation(
     stretch_ratio,
     *,
     mission_assignment=None,
+    env_config=None,
+    weather_impacts=None,
 ):
     """Run fixed-step vertical simulation using the full physics engine.
 
@@ -137,6 +139,11 @@ def run_simulation(
 
     The API signature is preserved so existing callers (and tests) work
     without modification.
+
+    Args:
+        env_config: Optional EnvelopeConfig to use instead of building one.
+        weather_impacts: Optional dict with weather modifiers (burst_risk,
+            thermal_efficiency, pressure_modifier).
 
     Returns:
         (telemetry, summary) where:
@@ -149,19 +156,26 @@ def run_simulation(
     from balloon_frontier.simulation import SimulationState, EnvelopeConfig
 
     # Build the envelope config from the Discord API parameters.
-    env = EnvelopeConfig(
-        max_volume_m3=envelope_vol,
-        burst_stretch_ratio=stretch_ratio,
-        drag_coefficient=drag_coeff,
-        mass_kg=1.0,  # default envelope mass for Discord mode
-        contained_gas=True,
-    )
+    if env_config is None:
+        env_config = EnvelopeConfig(
+            max_volume_m3=envelope_vol,
+            burst_stretch_ratio=stretch_ratio,
+            drag_coefficient=drag_coeff,
+            mass_kg=1.0,  # default envelope mass for Discord mode
+            contained_gas=True,
+        )
+
+    # Apply weather modifiers to the envelope config
+    if weather_impacts:
+        env_config.weather_burst_risk_modifier = weather_impacts.get("burst_risk", 1.0)
+        env_config.weather_solar_modifier = weather_impacts.get("thermal_efficiency", 1.0)
+        env_config.weather_pressure_modifier = weather_impacts.get("pressure_modifier", 1.0)
 
     state = SimulationState(
         gas_type=gas_type,
         gas_mass_kg=gas_mass,
         payload_mass_kg=payload_mass,
-        envelope=env,
+        envelope=env_config,
         altitude_m=0.0,
         gas_temperature_k=gas_temperature_k,
     )
@@ -641,10 +655,14 @@ class _LaunchButton(discord.ui.Button):
                 "flight_modifier": weather.flight_modifier,
             }
 
+            # Compute weather impacts and pass them to the simulation
+            weather_impacts = weather_impact_on_flight(weather)
+
             tel, summary = run_simulation(
                 state["gas"], gas_mass, site_cond["gas_temperature"], payload_mass,
                 env_info[3], env_info[1], env_info[4],
                 mission_assignment=mission_assignment,
+                weather_impacts=weather_impacts,
             )
 
             payload_display = " + ".join(payload_names)
@@ -687,9 +705,12 @@ class _LaunchButton(discord.ui.Button):
             if len(result_content) > 2000:
                 result_content = result_content[:1997] + "..."
             await interaction.response.send_message(result_content, ephemeral=False)
-        except Exception as e:
-            import traceback
-            await interaction.response.send_message(f"❌ Error: {e}\n```{traceback.format_exc()}```")
+        except Exception:
+            logger.exception("Balloon launch failed")
+            await interaction.response.send_message(
+                "❌ The launch simulation failed. Please try again.",
+                ephemeral=True,
+            )
 
 
 @bot.command(name="launch")

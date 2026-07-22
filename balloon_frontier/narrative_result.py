@@ -95,27 +95,16 @@ def evaluate_and_update_progression(
         total_weighted_score += score * 1.0
         total_weight += 1.0
 
-        # Update player progression
-        mission_result = {
-            "id": mission.id,
-            "objectives": [
-                {"type": o.type, "params": o.params, "weight": 1.0}
-                for o in mission.objectives
-            ],
-        }
-        eval_result = evaluate_flight(telemetry, mission_result, payloads)
-        rep_gain = min(int(eval_result.score / 33), 2)
-        budget_earned = int(budget_reward * eval_result.score / 100)
-        total_rep_gain += rep_gain
-        total_budget_earned += budget_earned
-
-        player.reputation += rep_gain
-        player.budget += budget_earned
-        player.total_flights += 1
-        if eval_result.is_success:
-            player.successful_flights += 1
-        if mission_id not in player.missions_completed:
-            player.missions_completed.append(mission_id)
+        # Update player progression — only reward for successful missions.
+        if result.is_success:
+            rep_gain = min(int(score / 33), 2)
+            budget_earned = int(budget_reward * score / 100)
+            total_rep_gain += rep_gain
+            total_budget_earned += budget_earned
+            player.reputation += rep_gain
+            player.budget += budget_earned
+            if mission_id not in player.missions_completed:
+                player.missions_completed.append(mission_id)
 
         # Check envelope unlocks
         for env in ENVELOPES:
@@ -124,14 +113,21 @@ def evaluate_and_update_progression(
                     player.unlocked_envelopes.append(env.id)
                     new_unlocks.append(env.name)
 
-    # Save state
+    # Save state (use PlayerRegistry.flush_all to save the player by player_id)
     try:
-        player.save()
+        from balloon_frontier.progression import PlayerRegistry
+        PlayerRegistry.flush_all()
     except Exception:
         pass
 
     overall_score = (total_weighted_score / total_weight) if total_weight > 0 else 0
     overall_success = overall_score >= 60
+
+    # Count this as one launch (not one per mission).
+    player.total_flights += 1
+    # Increment successful_flights only if overall mission evaluation was successful.
+    if overall_success:
+        player.successful_flights += 1
 
     return {
         "missions": all_mission_results,

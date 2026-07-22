@@ -76,13 +76,24 @@ def list_unlocked_envelopes(reputation: int, budget: int) -> List[EnvelopeUnlock
 class PlayerState:
     """Tracks a player's progression state."""
 
-    def __init__(self):
+    def __init__(self, player_id: str = ""):
+        self._player_id = player_id
         self.reputation: int = 0
         self.budget: int = 100
         self.unlocked_envelopes: List[str] = []
         self.total_flights: int = 0
         self.successful_flights: int = 0
         self.missions_completed: List[str] = []
+
+    @property
+    def player_id(self) -> str:
+        """Return the player identifier."""
+        return self._player_id
+
+    @player_id.setter
+    def player_id(self, value: str):
+        """Set the player identifier and update save path."""
+        self._player_id = value
 
     def earn_from_mission(self, mission_id: str, score: float, budget_reward: int = 100) -> dict:
         """Process mission completion and update player state."""
@@ -118,9 +129,17 @@ class PlayerState:
             "new_unlocks": new_unlocks,
         }
 
-    def save(self, path: str = "~/.balloon_frontier/save.json"):
-        """Save player state to JSON."""
-        save_path = Path(path).expanduser()
+    def save(self, path: Optional[str] = None):
+        """Save player state to JSON.
+
+        Args:
+            path: Optional path. If None, saves to ~/.balloon_frontier/{player_id}.json
+        """
+        if path is None:
+            # Use a player-specific save file.
+            save_path = Path.home() / ".balloon_frontier" / f"{self._player_id}.json"
+        else:
+            save_path = Path(path).expanduser()
         save_path.parent.mkdir(parents=True, exist_ok=True)
         save_path.write_text(json.dumps({
             "reputation": self.reputation,
@@ -132,9 +151,25 @@ class PlayerState:
         }))
 
     @classmethod
-    def load(cls, path: str = "~/.balloon_frontier/save.json") -> "PlayerState":
-        """Load player state from JSON."""
-        save_path = Path(path).expanduser()
+    def load(cls, path_or_player_id: Optional[str] = None, path: Optional[str] = None) -> "PlayerState":
+        """Load player state from JSON.
+
+        Args:
+            path_or_player_id: Explicit file path, or player_id for auto-path.
+            path: Alias for path_or_player_id (for clarity).
+
+        When path_or_player_id is an existing file path, it is used directly.
+        Otherwise it is treated as a player_id and resolved to
+        ~/.balloon_frontier/{player_id}.json.
+        """
+        if path is not None:
+            save_path = Path(path).expanduser()
+        elif path_or_player_id is not None and Path(path_or_player_id).expanduser().exists():
+            save_path = Path(path_or_player_id).expanduser()
+        elif path_or_player_id is not None:
+            save_path = Path.home() / ".balloon_frontier" / f"{path_or_player_id}.json"
+        else:
+            return cls()
         if save_path.exists():
             data = json.loads(save_path.read_text())
             p = cls()
@@ -144,14 +179,27 @@ class PlayerState:
         return cls()
 
 class PlayerRegistry:
-    """Simple in-memory player registry."""
+    """Simple in-memory player registry with per-player file persistence."""
     _players: Dict[str, PlayerState] = {}
+    _save_dir = Path.home() / ".balloon_frontier"
 
     @classmethod
     def get_or_create(cls, player_id: str) -> PlayerState:
         if player_id not in cls._players:
-            cls._players[player_id] = PlayerState()
+            # Try to load from disk first.
+            player_state = PlayerState.load(player_id)
+            player_state._player_id = player_id
+            cls._players[player_id] = player_state
         return cls._players[player_id]
+
+    @classmethod
+    def flush_all(cls) -> int:
+        """Save all in-memory player states to disk. Returns count saved."""
+        count = 0
+        for player_id, state in cls._players.items():
+            state.save()  # Uses player-specific path when path=None
+            count += 1
+        return count
 
     @classmethod
     def list_players(cls) -> Dict[str, PlayerState]:
