@@ -1,0 +1,14 @@
+{
+    "id": "ozone_layer",
+    "title": "Ozone Layer",
+    "description": "An environmental NGO needs to verify ozone concentration at different stratospheric altitudes. They've commissioned a specialized sensor suite that requires both camera (for UV imaging) and flight computer (for data logging). The mission is critical for their advocacy campaign.",
+    "launch_site": "rooftop",
+    "budget": 5500,
+    "required_payloads": ["camera", "flight_computer"],
+    "objectives": [
+        {"type": "reach_altitude", "params": {"minimum_m": 28000}},
+        {"type": "capture_photo", "params": {"target_id": "uv_spectra", "minimum_quality": 0.5}},
+        {"type": "recover_data", "params": {"required": true}}
+    ],
+    "difficulty": 2
+}

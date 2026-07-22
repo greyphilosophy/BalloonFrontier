@@ -1,0 +1,14 @@
+{
+    "id": "polar_night",
+    "title": "Polar Night",
+    "description": "A climate research station at 70°N needs continuous atmospheric monitoring through the polar night. Temperatures will drop to -30°C at launch. The station has been waiting months for favorable wind patterns — this is their only window.",
+    "launch_site": "mountain",
+    "budget": 3000,
+    "required_payloads": ["weather_sensor", "battery"],
+    "objectives": [
+        {"type": "reach_altitude", "params": {"minimum_m": 20000}},
+        {"type": "float_duration", "params": {"target_hours": 6}},
+        {"type": "recover_data", "params": {"required": true}}
+    ],
+    "difficulty": 3
+}

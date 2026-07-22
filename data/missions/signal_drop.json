@@ -1,0 +1,14 @@
+{
+    "id": "signal_drop",
+    "title": "Signal Drop",
+    "description": "Emergency services need a temporary communications relay at 25km altitude to bridge a gap between search-and-rescue teams spread across a remote mountain range. The relay must stay active long enough for ground teams to coordinate. Every minute of flight saves hours on the ground.",
+    "launch_site": "mountain",
+    "budget": 4000,
+    "required_payloads": ["radio", "battery"],
+    "objectives": [
+        {"type": "reach_altitude", "params": {"minimum_m": 25000}},
+        {"type": "float_duration", "params": {"target_hours": 2}},
+        {"type": "recover_data", "params": {"required": true}}
+    ],
+    "difficulty": 2
+}

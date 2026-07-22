@@ -1,0 +1,14 @@
+{
+    "id": "space_tourism_promo",
+    "title": "Space Tourism Promo",
+    "description": "A luxury space tourism company wants a cinematic promotional video from the edge of space. They've hired your services and expect nothing less than 40km with crystal-clear footage. Their reputation depends on this — and so does your next contract.",
+    "launch_site": "rooftop",
+    "budget": 12000,
+    "required_payloads": ["camera"],
+    "objectives": [
+        {"type": "reach_altitude", "params": {"minimum_m": 40000}},
+        {"type": "capture_photo", "params": {"target_id": "stars", "minimum_quality": 0.8}},
+        {"type": "recover_data", "params": {"required": true}}
+    ],
+    "difficulty": 4
+}

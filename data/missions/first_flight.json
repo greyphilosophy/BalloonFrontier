@@ -1,0 +1,13 @@
+{
+    "id": "first_flight",
+    "title": "First Flight",
+    "description": "Your very first launch! Prove you can get a balloon off the ground and back. A small science group in town needs a test payload to verify their new sensor array. Keep it simple, keep it safe.",
+    "launch_site": "field",
+    "budget": 500,
+    "required_payloads": [],
+    "objectives": [
+        {"type": "reach_altitude", "params": {"minimum_m": 10000}},
+        {"type": "recover_data", "params": {"required": true}}
+    ],
+    "difficulty": 1
+}

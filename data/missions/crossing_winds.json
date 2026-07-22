@@ -1,0 +1,15 @@
+{
+    "id": "crossing_winds",
+    "title": "Crossing Winds",
+    "description": "A geography documentary crew needs footage from a balloon crossing three different wind shear zones. The challenge: launch at dawn when wind patterns shift every few hours. The camera must survive turbulence and the flight computer must navigate between wind layers.",
+    "launch_site": "field",
+    "budget": 7000,
+    "required_payloads": ["camera", "flight_computer"],
+    "objectives": [
+        {"type": "reach_altitude", "params": {"minimum_m": 20000}},
+        {"type": "capture_photo", "params": {"target_id": "wind_shear", "minimum_quality": 0.6}},
+        {"type": "float_duration", "params": {"target_hours": 4}},
+        {"type": "recover_data", "params": {"required": true}}
+    ],
+    "difficulty": 3
+}

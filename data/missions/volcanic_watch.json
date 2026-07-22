@@ -1,0 +1,15 @@
+{
+    "id": "volcanic_watch",
+    "title": "Volcanic Watch",
+    "description": "An active volcano is showing signs of erupting. Emergency services need real-time ash cloud data from 15-20km altitude. Your balloon must carry sensitive instrumentation and survive the unpredictable launch conditions. A helicopter is waiting on standby for data recovery.",
+    "launch_site": "mountain",
+    "budget": 6500,
+    "required_payloads": ["weather_sensor", "flight_computer"],
+    "objectives": [
+        {"type": "reach_altitude", "params": {"minimum_m": 20000}},
+        {"type": "float_duration", "params": {"target_hours": 4}},
+        {"type": "station_keep", "params": {"target_altitude_m": 17500}},
+        {"type": "recover_data", "params": {"required": true}}
+    ],
+    "difficulty": 3
+}

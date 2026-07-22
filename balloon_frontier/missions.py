@@ -16,6 +16,7 @@ class Objective:
     """A single mission objective."""
     type: str  # "reach_altitude", "capture_photo", "recover_data", etc.
     params: dict = field(default_factory=dict)
+    description: str = ""
 
 @dataclass 
 class Mission:

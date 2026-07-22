@@ -1,0 +1,14 @@
+{
+    "id": "aurora_chase",
+    "title": "Aurora Chase",
+    "description": "An astrophotography group wants to capture the aurora borealis from above the cloud layer. They need a camera at 12-15km altitude where the aurora appears as a green curtain against the black sky. Launch at sunset and time the flight for peak activity.",
+    "launch_site": "mountain",
+    "budget": 3000,
+    "required_payloads": ["camera"],
+    "objectives": [
+        {"type": "reach_altitude", "params": {"minimum_m": 12000}},
+        {"type": "capture_photo", "params": {"target_id": "aurora", "minimum_quality": 0.7}},
+        {"type": "recover_data", "params": {"required": true}}
+    ],
+    "difficulty": 1
+}

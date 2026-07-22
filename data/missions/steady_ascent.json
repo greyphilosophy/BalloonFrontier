@@ -1,0 +1,13 @@
+{
+    "id": "steady_ascent",
+    "title": "Steady Ascent",
+    "description": "A university research group needs you to carry their atmospheric sampling equipment to 15km. They've been watching your progress and want to see if you can handle a bit more challenge. The sensors must survive the descent — they cost more than your first envelope!",
+    "launch_site": "field",
+    "budget": 800,
+    "required_payloads": ["weather_sensor"],
+    "objectives": [
+        {"type": "reach_altitude", "params": {"minimum_m": 15000}},
+        {"type": "recover_data", "params": {"required": true}}
+    ],
+    "difficulty": 1
+}
