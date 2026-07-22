@@ -4,6 +4,7 @@ Interactive select-menu UI for the balloon simulation game.
 Uses the Python physics engine (`balloon_frontier/physics.py`).
 """
 
+import asyncio
 import logging
 import os
 import traceback
@@ -629,6 +630,9 @@ class _LaunchButton(discord.ui.Button):
         self._parent = parent
 
     async def callback(self, interaction):
+        # Defer immediately so the event loop isn't blocked by CPU work.
+        await interaction.response.defer(thinking=True, ephemeral=False)
+
         state = self._parent.state
         gas_info = GAS_OPTIONS[state["gas"]]
         env_info = ENVELOPE_OPTIONS[state["envelope"]]
@@ -680,7 +684,9 @@ class _LaunchButton(discord.ui.Button):
             # Compute weather impacts and pass them to the simulation
             weather_impacts = weather_impact_on_flight(weather)
 
-            tel, summary = run_simulation(
+            # Run the CPU-heavy simulation off the event loop.
+            tel, summary = await asyncio.to_thread(
+                run_simulation,
                 state["gas"], gas_mass, site_cond["gas_temperature"], payload_mass,
                 env_info[3], env_info[1], env_info[4],
                 mission_assignment=mission_assignment,
@@ -726,12 +732,12 @@ class _LaunchButton(discord.ui.Button):
             # Truncate if too long
             if len(result_content) > 2000:
                 result_content = result_content[:1997] + "..."
-            await interaction.response.send_message(result_content, ephemeral=False)
+            await interaction.edit_original_response(content=result_content, view=None)
         except Exception:
             logger.exception("Balloon launch failed")
-            await interaction.response.send_message(
-                "❌ The launch simulation failed. Please try again.",
-                ephemeral=True,
+            await interaction.edit_original_response(
+                content="❌ The launch simulation failed. Please try again.",
+                view=None,
             )
 
 
