@@ -15,6 +15,8 @@ Reference: GDD Sections 14.2, 17, 20, 21.
 
 from __future__ import annotations
 
+import logging
+
 from typing import Dict, List, Optional, Tuple
 
 from .missions import get_mission, MISSIONS
@@ -113,13 +115,6 @@ def evaluate_and_update_progression(
                     player.unlocked_envelopes.append(env.id)
                     new_unlocks.append(env.name)
 
-    # Save state (use PlayerRegistry.flush_all to save the player by player_id)
-    try:
-        from balloon_frontier.progression import PlayerRegistry
-        PlayerRegistry.flush_all()
-    except Exception:
-        pass
-
     overall_score = (total_weighted_score / total_weight) if total_weight > 0 else 0
     overall_success = overall_score >= 60
 
@@ -128,6 +123,13 @@ def evaluate_and_update_progression(
     # Increment successful_flights only if overall mission evaluation was successful.
     if overall_success:
         player.successful_flights += 1
+
+    # Save state (use PlayerRegistry.flush_all to save the player by player_id)
+    try:
+        from balloon_frontier.progression import PlayerRegistry
+        PlayerRegistry.flush_all()
+    except Exception:
+        logging.exception("Failed to save player progression")
 
     return {
         "missions": all_mission_results,

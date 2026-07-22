@@ -59,7 +59,9 @@ class EnvelopeConfig:
     # Weather modifiers — applied at runtime by the weather system.
     weather_burst_risk_modifier: float = 1.0  # multiplier on burst probability
     weather_solar_modifier: float = 1.0       # multiplier on solar heating
-    weather_pressure_modifier: float = 1.0    # multiplier on initial gas pressure
+    weather_pressure_modifier: float = 1.0    # multiplier on ambient pressure
+    weather_wind_vx_mps: float = 0.0         # horizontal wind from weather
+    weather_wind_vy_mps: float = 0.0         # vertical wind (updraft/downdraft)
 
 
 @dataclass
@@ -78,6 +80,11 @@ class SimulationState:
     terrain_base_altitude_offset_m: float = 0.0
     wind_enabled: bool = False
     wind_site_id: str = "field"
+
+    # ── Weather modifiers (applied at runtime by the weather system) ──
+    weather_wind_vx_mps: float = 0.0     # horizontal wind speed from weather
+    weather_wind_vy_mps: float = 0.0     # vertical wind (updraft/downdraft)
+    weather_pressure_scale: float = 1.0  # ambient pressure multiplier
 
     # ── Gas compartment ─────────────────────────────────────
     gas_type: str = "helium"
@@ -259,10 +266,25 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     drag_x_sign = -1.0 if v_rel_x_mps > 0 else (1.0 if v_rel_x_mps < 0 else 0.0)
     F_drag_x = F_drag_x_mag * drag_x_sign
 
+    # ── Weather: apply wind-driven drift and updraft forces ──
+    weather_wind_vx_mps = getattr(state, 'weather_wind_vx_mps', 0.0)
+    weather_wind_vy_mps = getattr(state, 'weather_wind_vy_mps', 0.0)
+    weather_pressure_scale = getattr(state, 'weather_pressure_scale', 1.0)
+
+    if weather_wind_vx_mps != 0.0:
+        # Horizontal wind adds drag force coupling
+        wind_diff_x = state.vx_mps - weather_wind_vx_mps
+        F_wind_x = -0.5 * atmosphere_density(max(0.0, altitude_m0)) * wind_diff_x * abs(wind_diff_x) \
+                   * state.envelope.drag_coefficient * area_m2 * 0.05
+        F_drag_x += F_wind_x
+
     # ── 2. Update velocity (semi-implicit Euler) ───────────
     if state.total_mass() > 0:
         acceleration_y = F_net / state.total_mass()
         acceleration_x = F_drag_x / state.total_mass()
+        # Apply updraft/downdraft as vertical acceleration (scaled to avoid spike)
+        if weather_wind_vy_mps != 0.0:
+            acceleration_y += weather_wind_vy_mps * 0.3 / max(dt, 0.1)
     else:
         acceleration_y = 0.0
         acceleration_x = 0.0
@@ -277,6 +299,7 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
 
     # ── 4. Gas leakage (permeability model) ────────────────
     P_amb = atmosphere_pressure(max(0.0, state.altitude_m))
+    P_amb *= weather_pressure_scale  # Apply pressure scale
     leak_fraction = state.envelope.permeability * dt
     state.gas_mass_kg *= max(0.0001, 1.0 - leak_fraction)
 
