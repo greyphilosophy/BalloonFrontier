@@ -260,8 +260,40 @@ class TestBurstDetection:
         # Zero-pressure: gas gets vented, no burst
         assert not result_zp["burst"]
 
-    def test_burst_does_not_end_flight_mid_air(self):
-        """A burst should vent gas and the balloon should still descend to land."""
+    def test_pressure_valve_vents_without_forcing_landing(self):
+        """A pressure valve should vent gas and continue flight until ground contact."""
+        env = EnvelopeConfig(
+            max_volume_m3=10.0,
+            burst_stretch_ratio=1.1,
+            mass_kg=1.0,
+            contained_gas=True,
+        )
+        state = SimulationState(
+            gas_mass_kg=10.0,
+            gas_type="helium",
+            payload_mass_kg=10.0,
+            ballast_mass_kg=0.0,
+            envelope=env,
+            has_pressure_valve=True,
+        )
+
+        first_tick = simulation_step(state, dt=0.1)
+        assert first_tick["burst"] is False
+        assert first_tick["landed"] is False
+        assert state.landed is False
+        # Valve vents gas toward neutral buoyancy → gas mass decreases
+        assert state.gas_mass_kg < 10.0, (
+            "Valve did not vent gas on burst-threshold tick"
+        )
+
+        telemetry = run_simulation(state, dt=0.1, total_time_s=300.0, max_steps=5000)
+        assert telemetry
+        assert any(tick.get("burst") for tick in telemetry) is False
+        assert telemetry[-1]["landed"] is True
+
+    def test_zero_pressure_balloon_does_not_burst_from_overflow(self):
+        """Zero-pressure balloons vent excess gas, so they don't typically burst
+        from volume expansion alone."""
         env = EnvelopeConfig(
             max_volume_m3=10.0,
             burst_stretch_ratio=2.5,

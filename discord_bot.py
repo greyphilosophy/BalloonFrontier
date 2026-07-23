@@ -56,15 +56,16 @@ ENVELOPE_OPTIONS = {
 }
 
 PAYLOAD_OPTIONS = {
-    "camera": ("Camera", 1.5, 500),
-    "radio": ("Radio Repeater", 2.0, 800),
-    "weather_sensor": ("Weather Sensor", 0.8, 1200),
-    "battery": ("Battery Pack", 3.0, 1000),
-    "heater": ("Heater", 2.5, 750),
-    "ballast": ("Ballast (Sand)", 15.0, 300),
-    "parachute": ("Parachute", 2.0, 600),
-    "flight_computer": ("Flight Computer", 1.2, 2000),
-    "none": ("None", 0.0, 100),
+    "camera": ("Camera", 1.5, 500, False),
+    "radio": ("Radio Repeater", 2.0, 800, False),
+    "weather_sensor": ("Weather Sensor", 0.8, 1200, False),
+    "battery": ("Battery Pack", 3.0, 1000, False),
+    "heater": ("Heater", 2.5, 750, False),
+    "ballast": ("Ballast (Sand)", 15.0, 300, False),
+    "parachute": ("Parachute", 2.0, 600, False),
+    "flight_computer": ("Flight Computer", 1.2, 2000, False),
+    "valve": ("Pressure Valve", 0.3, 250, True),  # Prevents bursting by venting gas
+    "none": ("None", 1.0, 100, False),
 }
 
 SITE_OPTIONS = {
@@ -131,6 +132,7 @@ def run_simulation(
     mission_assignment=None,
     env_config=None,
     weather_impacts=None,
+    has_pressure_valve=False,  # Valve prevents burst by venting gas
 ):
     """Run fixed-step vertical simulation using the full physics engine.
 
@@ -189,6 +191,7 @@ def run_simulation(
         wind_enabled=True,
         wind_site_id="field",
         ballast_mass_kg=0.0,  # User controls mass entirely via payloads — no hidden ballast
+        has_pressure_valve=has_pressure_valve,  # Valve prevents burst by venting gas
     )
 
     # Run with the full physics engine. Time limit depends on whether missions are active.
@@ -359,10 +362,37 @@ async def on_message(message):
     await bot.process_commands(message)
 
 
-# ─── Configurator — stateful menu ─────────────────────────────────
+# ─── Configurator — step-by-step interactive walkthrough ──────────
+
+# Step enumeration (used in button styles)
+class _Step:
+    CHOOSE_GAS = 0
+    CHOOSE_ENVELOPE = 1
+    CHOOSE_FILL = 2
+    CHOOSE_PAYLOADS = 3
+    CHOOSE_SITE = 4
+    REVIEW_LAUNCH = 5
+
 
 class BalloonConfigurator(discord.ui.View):
-    """View with select menus + launch button."""
+    """Interactive walkthrough: numbered buttons per step, then review + launch."""
+
+    STEPS = [
+        _Step.CHOOSE_GAS,
+        _Step.CHOOSE_ENVELOPE,
+        _Step.CHOOSE_FILL,
+        _Step.CHOOSE_PAYLOADS,
+        _Step.CHOOSE_SITE,
+        _Step.REVIEW_LAUNCH,
+    ]
+    STEP_LABELS = [
+        "Gas Type",
+        "Envelope",
+        "Fill Mode",
+        "Payloads",
+        "Launch Site",
+        "Review & Launch",
+    ]
 
     # ── Interaction check ────────────────────────────────────────
     # discord.py's Item._run_checks calls self._parent._run_checks() to walk
@@ -375,67 +405,199 @@ class BalloonConfigurator(discord.ui.View):
     # ── Initialization ───────────────────────────────────────────
     def __init__(self):
         super().__init__(timeout=300)
-
-        # Initialize config state
         self.state = {
             "gas": "helium",
             "envelope": "latex",
             "payloads": ["none"],
             "site": "field",
-            # Fill mode: Auto/Light/Normal/Heavy/Manual
             "fill_mode": "auto",
-            # Player-entered gas mass for Manual mode.
-            # When Auto or a preset is active, this must be ignored.
             "manual_gas_mass": None,
-            # Cached computed gas mass (kg) for the current gas+envelope+fill_mode.
-            # Tests (and the UI) expect this to be present in state.
             "gas_mass": None,
         }
-        # Initialize cached gas mass from defaults.
         self.state["gas_mass"] = self._compute_gas_mass()
+        self._current_step = _Step.CHOOSE_GAS
         self._msg = None
+        self._next_btn = None
 
-        # Build and add menus + Launch button.
-        # Discord View grid allows max 5 components per row.
-        # We use 4 dropdowns + 1 Launch button = 5 total.
-        # Fill mode is handled via the gas_type selection (each gas type
-        # has a default fill mode), keeping the UI clean.
-        self._add_menu("gas", "Select gas type",
-            _make_options(GAS_OPTIONS))
-        self._add_menu("envelope", "Select envelope",
-            _make_options(ENVELOPE_OPTIONS))
-        self._add_menu("payloads", "Select payloads",
-            _make_options(PAYLOAD_OPTIONS), allow_multi=True)
-        self._add_menu("site", "Select launch site",
-            _make_options(SITE_OPTIONS))
+        # Buttons that persist across all steps.
+        self.add_item(_BackButton(self))
 
-        # Add the Launch button to fire the simulation
-        self._add_button("🚀 Launch", None)
+        # Build step-specific buttons.
+        self.build_buttons()
 
-    def _add_menu(self, key, placeholder, options, allow_multi=False):
-        if allow_multi:
-            menu = _Select(self, key, placeholder, options, multi=True)
+    # ── Step rendering ────────────────────────────────────────────
+
+    async def _send_step(self, interaction=None):
+        """Update the message with the current step."""
+        if interaction is not None:
+            try:
+                await interaction.response.edit_message(
+                    content=self._step_content(), view=self,
+                )
+            except discord.errors.NotFound:
+                pass
         else:
-            menu = _Select(self, key, placeholder, options, multi=False)
-        self.add_item(menu)
+            if self._msg is not None:
+                try:
+                    await self._msg.edit(content=self._step_content(), view=self)
+                except discord.errors.NotFound:
+                    pass
+        # Remember the message for future updates.
+        if interaction is not None and interaction.message is not None:
+            self._msg = interaction.message
 
-    def _add_button(self, label, callback_func):
-        btn = _LaunchButton(self, label, callback_func)
-        self.add_item(btn)
-        return btn
+    def _step_content(self) -> str:
+        step = self._current_step
+        if step == _Step.REVIEW_LAUNCH:
+            return self._build_config_text()
 
-    def _handle_select(self, interaction, key, value):
-        """Handle a dropdown selection update."""
-        if key == 'payloads':
-            self.state['payloads'] = value
-            return
+        label = self.STEP_LABELS[step]
+        lines = [
+            f"🔧 **Balloon Configuration**\n",
+            f"**Step {step + 1}/{len(self.STEPS)}:** {label}\n",
+        ]
 
-        # Single-select dropdowns pass a list (discord Select values).
-        self.state[key] = value[0] if value else self.state[key]
+        if step == _Step.CHOOSE_GAS:
+            for i, (k, v) in enumerate(GAS_OPTIONS.items(), 1):
+                lines.append(f"{i}  {v[0]}  (ρ={v[1]} kg/m³, ${v[2]}/kg)")
+        elif step == _Step.CHOOSE_ENVELOPE:
+            for i, (k, v) in enumerate(ENVELOPE_OPTIONS.items(), 1):
+                lines.append(f"{i}  {v[0]}  ({v[1]}m³)")
+        elif step == _Step.CHOOSE_FILL:
+            for i, (k, info) in enumerate(FILL_MODES.items(), 1):
+                lines.append(f"{i}  {info['label']}")
+                lines.append(f"     {info['description']}")
+        elif step == _Step.CHOOSE_PAYLOADS:
+            for i, (k, v) in enumerate(PAYLOAD_OPTIONS.items(), 1):
+                lines.append(f"{i}  {v[0]}  ({v[1]}kg, ${v[2]})")
+        elif step == _Step.CHOOSE_SITE:
+            for i, (_, v) in enumerate(SITE_OPTIONS.items(), 1):
+                lines.append(f"{i}  {v.name}")
+                lines.append(f"     {v.description}")
 
-        # Cache gas mass when the inputs that affect it change.
-        if key in ('gas', 'envelope', 'fill_mode'):
-            self.state['gas_mass'] = self._compute_gas_mass()
+        lines.append("")
+        cur = self.state
+        if step < _Step.REVIEW_LAUNCH:
+            lines.append(
+                "Click a button to select. Use < Back to go earlier."
+            )
+        return "\n".join(lines)
+
+    # ── Step navigation ───────────────────────────────────────────
+
+    async def _advance(self, interaction):
+        """Advance to the next step, rebuild buttons, then update the message."""
+        self._current_step += 1
+        if self._current_step > _Step.REVIEW_LAUNCH:
+            self._current_step = _Step.REVIEW_LAUNCH
+        # Build buttons BEFORE editing the message to avoid stale controls
+        self.build_buttons()
+        await self._send_step(interaction)
+
+    # ── Back button ───────────────────────────────────────────────
+
+    def _prev_step(self):
+        if self._current_step > _Step.CHOOSE_GAS:
+            self._current_step -= 1
+            return True
+        return False
+
+    # ── Option helpers ────────────────────────────────────────────
+
+    def _option_by_index(self, index: int, options: dict, multi: bool = False):
+        """Resolve a 1-based button index → option key(s)."""
+        keys = list(options.keys())
+        idx = index - 1
+        if idx < 0 or idx >= len(keys):
+            return None
+        if multi:
+            selected = keys[idx]
+            current = set(self.state["payloads"])
+            if selected in current:
+                # Deselect: remove it; if nothing left, reset to sentinel
+                current.discard(selected)
+                if not current:
+                    current = {"none"}
+            elif selected == "none":
+                # "none" selected after real payloads → clear to just {"none"}
+                current = {"none"}
+            else:
+                # Real payload selected → remove sentinel, add real one
+                current.discard("none")
+                current.add(selected)
+            self.state["payloads"] = list(current)
+            return list(current)
+        return keys[idx]
+
+    # ── Button callbacks ──────────────────────────────────────────
+
+    async def _on_gas(self, interaction, index: int):
+        key = self._option_by_index(index, GAS_OPTIONS) or "gas"
+        self.state["gas"] = key
+        self.state["gas_mass"] = self._compute_gas_mass()
+        await self._advance(interaction)
+
+    async def _on_envelope(self, interaction, index: int):
+        key = self._option_by_index(index, ENVELOPE_OPTIONS) or "envelope"
+        self.state["envelope"] = key
+        self.state["gas_mass"] = self._compute_gas_mass()
+        await self._advance(interaction)
+
+    async def _on_fill(self, interaction, index: int):
+        key = self._option_by_index(index, FILL_MODES) or "fill_mode"
+        self.state["fill_mode"] = key
+        self.state["gas_mass"] = self._compute_gas_mass()
+        await self._advance(interaction)
+
+    async def _on_payload(self, interaction, index: int):
+        self._option_by_index(index, PAYLOAD_OPTIONS, multi=True)
+        self.state["gas_mass"] = self._compute_gas_mass()
+        # Rebuild buttons and edit message (no auto-advance for payloads)
+        self.build_buttons()
+        await self._send_step(interaction)
+
+    async def _on_site(self, interaction, index: int):
+        key = self._option_by_index(index, SITE_OPTIONS) or "site"
+        self.state["site"] = key
+        self.state["gas_mass"] = self._compute_gas_mass()
+        await self._advance(interaction)
+
+    async def _on_back(self, interaction):
+        if self._prev_step():
+            self.build_buttons()
+            await self._send_step(interaction)
+
+    # ── Build buttons for current step ────────────────────────────
+
+    def build_buttons(self):
+        """Clear existing buttons (except Back) and add step buttons + Launch."""
+        # Remove all buttons
+        new_items = [item for item in self.children if isinstance(item, _BackButton)]
+        self.clear_items()
+        for item in new_items:
+            self.add_item(item)
+
+        if self._current_step == _Step.CHOOSE_GAS:
+            for i in range(1, len(GAS_OPTIONS) + 1):
+                self.add_item(_OptionButton(i, f"Choose gas {i}", self._on_gas))
+        elif self._current_step == _Step.CHOOSE_ENVELOPE:
+            for i in range(1, len(ENVELOPE_OPTIONS) + 1):
+                self.add_item(_OptionButton(i, f"Choose envelope {i}", self._on_envelope))
+        elif self._current_step == _Step.CHOOSE_FILL:
+            for i in range(1, len(FILL_MODES) + 1):
+                self.add_item(_OptionButton(i, f"Choose fill {i}", self._on_fill))
+            self.add_item(_ManualGasMassButton(self))
+        elif self._current_step == _Step.CHOOSE_PAYLOADS:
+            for i in range(1, len(PAYLOAD_OPTIONS) + 1):
+                self.add_item(_OptionButton(i, f"Toggle payload {i}", self._on_payload))
+            self.add_item(_NextButton(self))
+        elif self._current_step == _Step.CHOOSE_SITE:
+            for i in range(1, len(SITE_OPTIONS) + 1):
+                self.add_item(_OptionButton(i, f"Choose site {i}", self._on_site))
+        elif self._current_step == _Step.REVIEW_LAUNCH:
+            self.add_item(_LaunchButton(self))
+
+    # ── Gas mass helpers ──────────────────────────────────────────
 
     def _get_site_conditions(self):
         """Derive launch conditions (altitude, pressure, temperature) from the selected site."""
@@ -446,7 +608,6 @@ class BalloonConfigurator(discord.ui.View):
         """Build envelope + site params to pass to shared fill functions."""
         env_id = self.state["envelope"]
         site_cond = self._get_site_conditions()
-        # Keep only fields accepted by balloon_frontier.fill.
         return {
             "envelope_type": env_id,
             "launch_altitude": site_cond.get("launch_altitude"),
@@ -455,22 +616,13 @@ class BalloonConfigurator(discord.ui.View):
         }
 
     def _compute_gas_mass(self):
-        """Compute gas mass based on current fill_mode, envelope, and gas.
-
-        Routes envelope_type and site-derived conditions (altitude, temperature)
-        into apply_fill_mode() / calculate_max_safe_gas_mass() so the shared
-        calculation uses envelope-specific safe-fill presets.
-        """
+        """Compute gas mass based on current fill_mode, envelope, and gas."""
         gas_type = self.state["gas"]
         env_id = self.state["envelope"]
         fill_mode = self.state["fill_mode"]
-
         env_info = ENVELOPE_OPTIONS[env_id]
         volume = env_info[1]
-
-        # Pass envelope + site context to the shared fill functions.
         env_params = self._get_env_params()
-
         mode_map = {
             "auto": FillMode.AUTO,
             "light": FillMode.LIGHT,
@@ -479,11 +631,9 @@ class BalloonConfigurator(discord.ui.View):
             "manual": FillMode.MANUAL,
         }
         mode = mode_map.get(fill_mode, FillMode.AUTO)
-
         if mode == FillMode.MANUAL:
             manual_mass = self.state.get("manual_gas_mass")
             if manual_mass is None:
-                # Default to the maximum burst-safe mass (with envelope params).
                 manual_mass = calculate_max_safe_gas_mass(
                     volume, gas_type, **env_params
                 )
@@ -493,11 +643,9 @@ class BalloonConfigurator(discord.ui.View):
                 manual_mass_kg=manual_mass, **env_params
             )
         else:
-            # Override any manual entry whenever Auto/preset is active.
             mass = apply_fill_mode(
                 volume, gas_type, mode, **env_params
             )
-
         return round(mass, 3)
 
     def _build_config_text(self):
@@ -509,44 +657,80 @@ class BalloonConfigurator(discord.ui.View):
         payloads = [PAYLOAD_OPTIONS[p] for p in s["payloads"]]
         payload_names = [p[0] for p in payloads]
         payload_mass = sum(p[1] for p in payloads)
-
-        # Use cached gas mass so UI state persists across transitions.
         gas_mass = self.state.get("gas_mass")
         if gas_mass is None:
             gas_mass = self._compute_gas_mass()
             self.state["gas_mass"] = gas_mass
         fill_label = FILL_MODES[s["fill_mode"]]["label"]
-
-        lines = ["🎈 **Balloon Configuration**\n"]
+        lines = [f"🎈 **Balloon Configuration**\n"]
         lines.append(f"Gas: {gas[0]}")
         lines.append(f"Fill: {fill_label} → {gas_mass:.3f} kg")
         lines.append(f"Envelope: {env[0]} — {env[1]}m³")
         lines.append(f"Payloads: {', '.join(payload_names)}")
         lines.append(f"Site: {site.name}")
         lines.append(f"Total mass: {gas_mass + env[2] + payload_mass:.1f} kg\n")
-        lines.append("Use the dropdowns to configure, then tap Launch.")
+        lines.append("Review looks good? Hit **Launch**! 🚀")
         return "\n".join(lines)
 
 
-def _make_options(options_dict):
-    """Build discord.SelectOption list from a dict."""
-    opts = []
-    for k, v in options_dict.items():
-        label = v.name if hasattr(v, "name") else v[0]
-        opts.append(discord.SelectOption(value=k, label=label, description="select"))
-    return opts
+# ─── Button classes for the walkthrough ──────────────────────────
+
+class _OptionButton(discord.ui.Button):
+    """A numbered option button. Callback is a function on the bot client."""
+    def __init__(self, index: int, style_label: str, callback_factory):
+        super().__init__(
+            label=style_label,
+            style=discord.ButtonStyle.primary,
+            custom_id=f"cfg_option_{index}",
+        )
+        self._index = index
+        self._callback = callback_factory
+
+    async def callback(self, interaction: discord.Interaction):
+        await self._callback(interaction, self._index)
 
 
-def _make_fill_mode_options():
-    """Build select options for fill mode presets."""
-    opts = []
-    for mode, info in FILL_MODES.items():
-        opts.append(discord.SelectOption(
-            value=mode,
-            label=info["label"],
-            description=info["description"],
-        ))
-    return opts
+class _BackButton(discord.ui.Button):
+    """Back button present on every step except the first."""
+    def __init__(self, parent: BalloonConfigurator):
+        super().__init__(
+            label="◀ Back",
+            style=discord.ButtonStyle.secondary,
+            custom_id="cfg_back",
+        )
+        self._parent = parent
+
+    async def callback(self, interaction: discord.Interaction):
+        await self._parent._on_back(interaction)
+
+
+class _ManualGasMassButton(discord.ui.Button):
+    """Button that opens the manual gas mass modal."""
+    def __init__(self, parent: "BalloonConfigurator"):
+        super().__init__(
+            label="Edit Gas Mass",
+            style=discord.ButtonStyle.secondary,
+            custom_id="cfg_manual_mass",
+        )
+        self._parent = parent
+
+    async def callback(self, interaction: discord.Interaction):
+        modal = _ManualGasMassModal(self._parent)
+        await interaction.response.send_modal(modal)
+
+
+class _NextButton(discord.ui.Button):
+    """Button that advances to the next walkthrough step."""
+    def __init__(self, parent: "BalloonConfigurator"):
+        super().__init__(
+            label="Next ▶",
+            style=discord.ButtonStyle.success,
+            custom_id="cfg_next",
+        )
+        self._parent = parent
+
+    async def callback(self, interaction: discord.Interaction):
+        await self._parent._advance(interaction)
 
 
 class _ManualGasMassModal(discord.ui.Modal):
@@ -580,15 +764,13 @@ class _ManualGasMassModal(discord.ui.Modal):
 
         val = max(0.001, val)
         self._parent.state["manual_gas_mass"] = val
-
-        # If the player is currently in manual mode, recache gas_mass.
         if self._parent.state.get("fill_mode") == "manual":
             self._parent.state["gas_mass"] = self._parent._compute_gas_mass()
 
-        # Update the existing config message.
         if getattr(self._parent, "_msg", None) is not None:
-            new_content = self._parent._build_config_text()
-            await self._parent._msg.edit(content=new_content, view=self._parent)
+            await self._parent._msg.edit(
+                content=self._parent._step_content(), view=self._parent,
+            )
 
         await interaction.response.send_message(
             "✅ Manual gas mass updated.",
@@ -596,46 +778,8 @@ class _ManualGasMassModal(discord.ui.Modal):
         )
 
 
-class _ManualGasMassButton(discord.ui.Button):
-    """Button that opens the manual gas mass modal."""
-
-    def __init__(self, parent: "BalloonConfigurator"):
-        super().__init__(
-            label="Set Manual Mass",
-            style=discord.ButtonStyle.secondary,
-        )
-        self._parent = parent
-
-    async def callback(self, interaction: discord.Interaction):
-        modal = _ManualGasMassModal(self._parent)
-        await interaction.response.send_modal(modal)
-
-
-class _Select(discord.ui.Select):
-    """Generic dropdown that updates the parent view's state."""
-    def __init__(self, parent, key, placeholder, options, multi):
-        if multi:
-            super().__init__(placeholder=placeholder, options=options, min_values=1, max_values=3)
-        else:
-            super().__init__(placeholder=placeholder, options=options)
-        self._parent = parent
-        self._key = key
-
-    async def callback(self, interaction):
-        self._parent._handle_select(interaction, self._key, self.values)
-
-        # For Manual fill, immediately collect the player's gas mass.
-        if self._key == "fill_mode" and self._parent.state.get("fill_mode") == "manual":
-            modal = _ManualGasMassModal(self._parent)
-            await interaction.response.send_modal(modal)
-            return
-
-        new_content = self._parent._build_config_text()
-        await interaction.response.edit_message(content=new_content, view=self._parent)
-
-
 class _LaunchButton(discord.ui.Button):
-    def __init__(self, parent, label, callback):
+    def __init__(self, parent, label="🚀 Launch", callback=None):
         super().__init__(label=label, style=discord.ButtonStyle.success)
         self._parent = parent
 
@@ -650,6 +794,7 @@ class _LaunchButton(discord.ui.Button):
         payloads = [PAYLOAD_OPTIONS[p] for p in state["payloads"]]
         payload_names = [p[0] for p in payloads]
         payload_mass = sum(p[1] for p in payloads)
+        has_pressure_valve = any(p[3] for p in payloads)  # 4th element = has valve
 
         # Use cached gas mass from the configurator state.
         gas_mass = self._parent.state.get("gas_mass")
@@ -701,6 +846,7 @@ class _LaunchButton(discord.ui.Button):
                 env_info[3], env_info[1], env_info[4],
                 mission_assignment=mission_assignment,
                 weather_impacts=weather_impacts,
+                has_pressure_valve=has_pressure_valve,
             )
 
             payload_display = ", ".join(payload_names)
