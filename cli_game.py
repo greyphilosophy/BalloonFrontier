@@ -50,7 +50,7 @@ PAYLOADS = {
     "parachute":   ("Parachute",       2.0, False),
     "flight_comp": ("Flight Computer", 1.2, False),
     "valve":       ("Pressure Valve",  0.3, True),   # Prevents bursting by venting gas
-    "none":        ("None",             1.0, False),
+    "none":        ("None",             0.0, False),
 }
 
 SITES = {
