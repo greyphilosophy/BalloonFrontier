@@ -367,9 +367,9 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
         vent_mass = state.gas_mass_kg * excess_fraction * 0.1  # Vent 10% of excess per tick
         state.gas_mass_kg -= vent_mass
         state.gas_mass_kg = max(0.001, state.gas_mass_kg)  # Keep at least some gas
-        # Instead of bursting, the balloon now descends due to mass loss
-        # (controlled descent, not a crash)
-        state.landed = True  # Controlled landing due to valve venting
+        # Instead of bursting, the balloon now vents and continues under
+        # normal physics until it actually reaches the ground.
+        state.vent_open = True
         # Don't set burst=True — valve prevented it!
 
     # Only check for burst if valve is NOT equipped OR valve couldn't prevent it

@@ -173,7 +173,7 @@ def show_fill_presets(balloon_key, gas_type):
     balloon_spec = BALLOON_SIZES[balloon_key]
     envelope_params = _validate_envelope_params(balloon_spec)
     
-    gas_density = gas_type in ("helium", "hydrogen") and 0.004 or 0.028965  # simplified
+    gas_density = GAS_OPTIONS[gas_type][1]
     
     while True:
         print("\n  Fill mode:")
@@ -231,7 +231,7 @@ def show_balloon_menu():
     """Display balloon selection menu and return the chosen balloon key."""
     print("\n  Balloon size:")
     print("  ─────────────────────────────────────────────")
-    for i, key in enumerate(BALLOON_SIZES):
+    for i, key in enumerate(BALLOON_LIST):
         v = BALLOON_SIZES[key]
         print(f"  {i+1}. {v['name']} ({v['max_vol']:.1f}m³, burst@{v['burst'] * v['max_vol']:.1f}m³, {v['mass_kg']*1000}g)")
     print()
@@ -240,8 +240,8 @@ def show_balloon_menu():
 
 def get_balloon_choice():
     """Prompt user for balloon size selection."""
-    idx = get_choice(len(BALLOON_SIZES), "Balloon (1-8)")
-    keys = list(BALLOON_SIZES.keys())
+    idx = get_choice(len(BALLOON_LIST), f"Balloon (1-{len(BALLOON_LIST)})")
+    keys = list(BALLOON_LIST)
     return keys[idx] if idx is not None else None
 
 
@@ -374,7 +374,7 @@ def run_flight(gas_type, gas_mass, envelope_spec, payload_ids, site_key):
         "time_of_flight": time_of_flight, "final_alt": last["altitude_m"],
         "initial_altitude_m": initial_altitude_m,
         "payload_count": payload_count, "score": score,
-        "medal": tier, "medal_emoji": get_medal_emoji(summary["peak_altitude"]),
+        "medal": tier, "medal_emoji": get_medal_emoji(peak),
         "has_pressure_valve": has_valve,
     }
 
