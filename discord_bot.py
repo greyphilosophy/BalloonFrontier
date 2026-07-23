@@ -21,7 +21,11 @@ from balloon_frontier.fill import (
     calculate_max_safe_gas_mass,
     FillMode,
 )
-from balloon_frontier.simulation import run_simulation as run_full_simulation
+from balloon_frontier.simulation import (
+    run_simulation,
+    EnvelopeConfig,
+    SimulationState,
+)
 from balloon_frontier.ascii_chart import chart_to_string
 from balloon_frontier.mission_selection import (
     assign_missions_to_flight,
@@ -103,7 +107,7 @@ FILL_MODES = {
 }
 
 
-# ─── Simulation ────────────────────────────────────────────────────────
+# ─── Simulation ───────────────────────────────────────────────────────
 
 # Lazily load missions so they're available for evaluation.
 _missions_loaded = False
@@ -120,228 +124,46 @@ def _ensure_missions_loaded():
         _missions_loaded = True
 
 
-def run_simulation(
-    gas_type,
-    gas_mass,
-    gas_temperature_k,
-    payload_mass,
-    drag_coeff,
-    envelope_vol,
-    stretch_ratio,
-    *,
-    mission_assignment=None,
-    env_config=None,
-    weather_impacts=None,
-    has_pressure_valve=False,  # Valve prevents burst by venting gas
-):
-    """Run fixed-step vertical simulation using the full physics engine.
-
-    This function replaces the hand-rolled simplified simulation with the
-    proper simulation engine from balloon_frontier.simulation, which includes
-    thermal model, wind drift, permeability leak, and burst detection.
-
-    The API signature is preserved so existing callers (and tests) work
-    without modification.
-
-    Args:
-        env_config: Optional EnvelopeConfig to use instead of building one.
-        weather_impacts: Optional dict with weather modifiers (burst_risk,
-            thermal_efficiency, pressure_modifier).
-
-    Returns:
-        (telemetry, summary) where:
-            telemetry: list of step dicts (with 'time' and 'alt' keys for
-                       backward compat with Discord result rendering)
-            summary: dict with peak_altitude, burst, time_of_flight, etc.
-    """
+def _run_simulation_thread(state: SimulationState, has_pressure_valve):
+    """Run simulation in thread to avoid blocking event loop."""
     _ensure_missions_loaded()
-
-    from balloon_frontier.simulation import SimulationState, EnvelopeConfig
-
-    # Build the envelope config from the Discord API parameters.
-    if env_config is None:
-        env_config = EnvelopeConfig(
-            max_volume_m3=envelope_vol,
-            burst_stretch_ratio=stretch_ratio,
-            drag_coefficient=drag_coeff,
-            mass_kg=1.0,  # default envelope mass for Discord mode
-            contained_gas=True,
-        )
-
-    # Apply weather modifiers to the envelope config and simulation state.
-    # All values are dimensionless multipliers (centered on 1.0 = normal).
-    if weather_impacts:
-        env_config.weather_burst_risk_modifier = weather_impacts.get("burst_risk", 1.0)
-        env_config.weather_solar_modifier = weather_impacts.get("thermal_efficiency", 1.0)
-        env_config.weather_pressure_modifier = weather_impacts.get("pressure_modifier", 1.0)
-        # ascent_rate: thermal/buoyancy multiplier (~1.0 normal, >1.0 hot/updraft, <1.0 cold/downdraft)
-        env_config.weather_ascent_multiplier = weather_impacts.get("ascent_rate", 1.0)
-        # drift_factor: horizontal wind scaling (~1.0 normal)
-        env_config.weather_drift_multiplier = weather_impacts.get("drift_factor", 1.0)
-
-    state = SimulationState(
-        gas_type=gas_type,
-        gas_mass_kg=gas_mass,
-        payload_mass_kg=payload_mass,
-        envelope=env_config,
-        altitude_m=0.0,
-        gas_temperature_k=gas_temperature_k,
-        weather_ascent_multiplier=env_config.weather_ascent_multiplier if weather_impacts else 1.0,
-        weather_drift_multiplier=env_config.weather_drift_multiplier if weather_impacts else 1.0,
-        wind_enabled=True,
-        wind_site_id="field",
-        ballast_mass_kg=0.0,  # User controls mass entirely via payloads — no hidden ballast
-        has_pressure_valve=has_pressure_valve,  # Valve prevents burst by venting gas
-    )
-
-    # Run with the full physics engine. Time limit depends on whether missions are active.
-    # For mission launches we may need up to 12 hours (43200s) of flight time.
-    # We set step_interval=1.0 to store only 1 sample per second, avoiding 432k ticks
-    # in memory. Physics still runs at dt=0.1 internally — we just skip storing intermediate
-    # steps, so we don't need post-hoc downsampling or peak-memory spikes.
-    if mission_assignment:
-        max_time = 43200.0  # 12 hours default for mission launches
-        max_steps = int(max_time / 0.1)
-        tel_full = run_full_simulation(
-            state, dt=0.1, total_time_s=max_time, max_steps=max_steps,
-            step_interval=1.0,  # Store 1 sample per second only (~43k vs 432k)
-        )
-    else:
-        tel_full = run_full_simulation(state, dt=0.1, total_time_s=150.0, max_steps=10000)
-
-    if not tel_full:
+    state.has_pressure_valve = has_pressure_valve
+    tel = run_simulation(state, dt=0.1, total_time_s=43200.0, max_steps=300000, step_interval=1.0)
+    
+    if not tel:
         return [], {
             "peak_altitude": 0,
-            "burst": False,
             "time_of_flight": 0,
-            "payload_count": 1,
-            "score": 0,
-            "medal": medal_tier_to_string(0),
-            "medal_emoji": "⚪",
+            "burst": False,
+            "landed": False,
+            "crashed": False,
         }
-
-    # Extract peak altitude and burst from the full telemetry.
-    peak_alt = max(t["altitude_m"] for t in tel_full)
-    burst = any(t.get("burst", False) for t in tel_full)
-    landed = any(t.get("landed", False) for t in tel_full)
-    crashed = any(t.get("crashed", False) for t in tel_full)
-
-    # Convert full telemetry to the simpler format expected by Discord.
-    # Keep every step for the chart, but the original code only sampled
-    # every 4000 steps (at dt=0.5).  We sample similarly for compat.
-    telemetry = []
-    step_idx = 0
-    for t in tel_full:
-        telemetry.append({
-            "time": t["time_s"],
-            "alt": t["altitude_m"],
-            "vel": t["velocity_mps"],
-            "burst": t.get("burst", False),
-            "landed": t.get("landed", False),
-            "crashed": t.get("crashed", False),
-        })
-        step_idx += 1
-
-    flight_time = tel_full[-1]["time_s"]
-
-    # Payload count: count actual payloads (at least 1 for scoring).
-    payload_count = 1
-
-    score = calculate_flight_score(peak_alt, payload_count, flight_time)
-    medal_name = medal_tier_to_string(peak_alt)
-    medal_emoji = get_medal_emoji(peak_alt)
-
-    summary = {
-        "peak_altitude": peak_alt,
+    
+    last = tel[-1]
+    peak_altitude = max(t.get("altitude_m", 0) for t in tel)
+    flight_time = last.get("time_s", 0)
+    burst = last.get("burst", False)
+    landed = last.get("landed", False)
+    crashed = last.get("crashed", False)
+    
+    return tel, {
+        "peak_altitude": peak_altitude,
+        "time_of_flight": flight_time,
         "burst": burst,
         "landed": landed,
         "crashed": crashed,
-        "time_of_flight": flight_time,
-        "payload_count": payload_count,
-        "score": score,
-        "medal": medal_name,
-        "medal_emoji": medal_emoji,
     }
-
-    if mission_assignment:
-        summary["assigned_missions"] = list(mission_assignment.get("missions", []))
-        summary["mission_seed"] = mission_assignment.get("seed")
-        summary["mission_count"] = mission_assignment.get("mission_count")
-
-    return telemetry, summary
 
 
 def format_score_breakdown(score, peak_alt, payload_count, time_of_flight):
-    """Format the score breakdown string."""
-    alt_pts = int(peak_alt * 1.0)
-    pay_pts = int(payload_count * 500.0)
-    time_pts = int(time_of_flight * 100.0)
+    """Format the score breakdown for the final result."""
     lines = []
-    lines.append(f"  Altitude: {alt_pts:,} pts")
-    lines.append(f"  Payloads: {pay_pts:,} pts")
-    lines.append(f"  Time: {time_pts:,} pts")
-    lines.append(f"  ─────────────────")
-    lines.append(f"  TOTAL: {int(score):,} pts")
+    lines.append(f"**Score Breakdown**")
+    lines.append(f"- Peak Altitude: {peak_alt:.0f}m ({score['peak_alt']} pts)")
+    lines.append(f"- Flight Time: {time_of_flight:.0f}s ({score['time']} pts)")
+    lines.append(f"- Payload Bonus: {payload_count} ({score['payload']} pts)")
+    lines.append(f"**Total Score: {score['total']}**")
     return "\n".join(lines)
-
-
-def make_result_embed(gas_name, gas_mass, env_name, payload_name, site_name,
-                      telemetry, summary):
-    """Build result embed for a launch."""
-    # Be defensive: results rendering should not crash if summary is missing
-    # optional fields.
-    peak = summary.get("peak_altitude", 0)
-    burst = summary.get("burst", False)
-    time_of_flight = summary.get("time_of_flight", 0)
-    payload_count = summary.get("payload_count", 1)
-    score = summary.get(
-        "score",
-        calculate_flight_score(peak, payload_count, time_of_flight),
-    )
-
-    medal_name = summary.get("medal", medal_tier_to_string(peak))
-    medal_emoji = summary.get("medal_emoji", get_medal_emoji(peak))
-
-    target = 30000
-    status = "🟢" if peak >= target else "🟡" if peak >= target * 0.7 else "🔵"
-
-    lines = ["🎈 **Launch Report**\n"]
-    lines.append(f"Gas: {gas_name} | Mass: {gas_mass}kg")
-    lines.append(f"Envelope: {env_name}")
-    lines.append(f"Site: {site_name}\n")
-
-    missions = summary.get("assigned_missions")
-    if missions:
-        lines.append(f"Missions: {', '.join(missions)}\n")
-
-    lines.append(f"Altitude: {status} {peak:,.0f}m / {target:,}m target")
-    lines.append(f"Time of Flight: {time_of_flight:.1f}s")
-    lines.append(f"Burst: {'💥 Yes' if burst else '🟢 No'}")
-    lines.append(f"Medal: {medal_emoji} **{medal_name}**")
-    lines.append("")
-
-    # Score section
-    lines.append("🏆 **Score Breakdown**")
-    lines.append(format_score_breakdown(score, peak, payload_count, time_of_flight))
-    lines.append("")
-
-    # Generate ASCII trajectory chart
-    time_arr = [r["time"] for r in telemetry]
-    alt_arr = [r["alt"] for r in telemetry]
-    chart = chart_to_string(
-        time_arr, alt_arr,
-        title="📈 Flight Trajectory"
-    )
-
-    lines.append(chart + "\n")
-    # Telemetry
-    sampled = telemetry[::1]
-    for r in sampled[:15]:
-        v_dir = "↑" if r["vel"] > 0 else "↓"
-        lines.append(f"⏱ {r['time']:.0f}s  {r['alt']:>8,.0f}m  {v_dir}")
-
-    content = "\n".join(lines)
-    return content
 
 
 # ─── Bot ──────────────────────────────────────────────────────────────
@@ -362,108 +184,120 @@ async def on_message(message):
     await bot.process_commands(message)
 
 
-# ─── Configurator — stateful menu ─────────────────────────────────
+# ─── Configurator — interactive walkthrough ─────────────────────────
 
-class BalloonConfigurator(discord.ui.View):
-    """View with select menus + launch button."""
+class _StepConfigurator(discord.ui.View):
+    """Step-by-step interactive walkthrough for balloon configuration.
+    
+    Replaces stacked dropdown menus with numbered buttons presented one step
+    at a time. Each step auto-advances to the next (except payloads which
+    allow toggling without advancing).
+    """
 
-    def __init__(self):
+    # Step constants
+    STEP_GAS = 0
+    STEP_ENVELOPE = 1
+    STEP_FILL = 2
+    STEP_PAYLOADS = 3
+    STEP_SITE = 4
+    STEP_REVIEW = 5
+
+    def __init__(self, ctx):
         super().__init__(timeout=300)
-
-        # Initialize config state
+        self.ctx = ctx  # Store the context for message updates
+        
+        # Config state
         self.state = {
             "gas": "helium",
             "envelope": "latex",
             "payloads": ["none"],
             "site": "field",
-            # Fill mode: Auto/Light/Normal/Heavy/Manual
             "fill_mode": "auto",
-            # Player-entered gas mass for Manual mode.
-            # When Auto or a preset is active, this must be ignored.
             "manual_gas_mass": None,
-            # Cached computed gas mass (kg) for the current gas+envelope+fill_mode.
-            # Tests (and the UI) expect this to be present in state.
             "gas_mass": None,
         }
-        # Initialize cached gas mass from defaults.
         self.state["gas_mass"] = self._compute_gas_mass()
+        self._current_step = self.STEP_GAS
         self._msg = None
 
-        # Build and add all menus
-        self._add_menu("gas", "Select gas type",
-            _make_options(GAS_OPTIONS))
-        self._add_menu("envelope", "Select envelope",
-            _make_options(ENVELOPE_OPTIONS))
-        self._add_menu("fill_mode", "Select fill mode",
-            _make_fill_mode_options())
-        self._add_menu("payloads", "Select payloads",
-            _make_options(PAYLOAD_OPTIONS), allow_multi=True)
-        self._add_menu("site", "Select launch site",
-            _make_options(SITE_OPTIONS))
+        # Add the launch button (always present)
+        self.add_item(_LaunchButton(self))
 
-        # Note: we intentionally do not add a separate Discord UI control for
-        # manual gas mass here, to avoid exceeding Discord's component layout
-        # limits in tests.
-
-    def _add_menu(self, key, placeholder, options, allow_multi=False):
-        if allow_multi:
-            menu = _Select(self, key, placeholder, options, multi=True)
+    def _build_step_message(self):
+        """Build the message content for the current step."""
+        step = self._current_step
+        step_label = self._get_step_label(step)
+        
+        lines = [f"🔧 **Balloon Configuration**\n", f"**Step {step + 1}/6:** {step_label}\n"]
+        
+        # Add context if not first step
+        if step > self.STEP_GAS:
+            lines.append(f"Current: {self._get_current_config_summary()}")
+            lines.append("")
+        
+        # Add options based on current step
+        if step == self.STEP_GAS:
+            for i, (key, val) in enumerate(GAS_OPTIONS.items(), 1):
+                lines.append(f"{i}. {val[0]} (ρ={val[1]} kg/m³, ${val[2]}/kg)")
+        elif step == self.STEP_ENVELOPE:
+            for i, (key, val) in enumerate(ENVELOPE_OPTIONS.items(), 1):
+                lines.append(f"{i}. {val[0]} ({val[1]}m³)")
+        elif step == self.STEP_FILL:
+            for i, (key, info) in enumerate(FILL_MODES.items(), 1):
+                lines.append(f"{i}. {info['label']}")
+                lines.append(f"   {info['description']}")
+        elif step == self.STEP_PAYLOADS:
+            for i, (key, val) in enumerate(PAYLOAD_OPTIONS.items(), 1):
+                selected = "✓" if key in self.state["payloads"] else " "
+                lines.append(f"{i}. [{selected}] {val[0]} ({val[1]}kg, ${val[2]})")
+        elif step == self.STEP_SITE:
+            for i, (_, val) in enumerate(SITE_OPTIONS.items(), 1):
+                lines.append(f"{i}. {val.name}")
+                lines.append(f"   {val.description}")
+        
+        lines.append("")
+        if step < self.STEP_REVIEW:
+            lines.append("Click a button to select → Auto-advances to next step")
         else:
-            menu = _Select(self, key, placeholder, options, multi=False)
-        self.add_item(menu)
+            lines.append("Review looks good? Click **Launch**! 🚀")
+        
+        return "\n".join(lines)
 
-    def _add_button(self, label, callback_func):
-        btn = _LaunchButton(self, label, callback_func)
-        self.add_item(btn)
-        return btn
-
-    def _handle_select(self, interaction, key, value):
-        """Handle a dropdown selection update."""
-        if key == 'payloads':
-            self.state['payloads'] = value
-            return
-
-        # Single-select dropdowns pass a list (discord Select values).
-        self.state[key] = value[0] if value else self.state[key]
-
-        # Cache gas mass when the inputs that affect it change.
-        if key in ('gas', 'envelope', 'fill_mode'):
-            self.state['gas_mass'] = self._compute_gas_mass()
-
-    def _get_site_conditions(self):
-        """Derive launch conditions (altitude, pressure, temperature) from the selected site."""
-        site = SITE_OPTIONS[self.state["site"]]
-        return site.derive_conditions()
-
-    def _get_env_params(self):
-        """Build envelope + site params to pass to shared fill functions."""
-        env_id = self.state["envelope"]
-        site_cond = self._get_site_conditions()
-        # Keep only fields accepted by balloon_frontier.fill.
-        return {
-            "envelope_type": env_id,
-            "launch_altitude": site_cond.get("launch_altitude"),
-            "launch_pressure": site_cond.get("launch_pressure"),
-            "gas_temperature": site_cond.get("gas_temperature"),
+    def _get_step_label(self, step):
+        """Get the label for a step."""
+        labels = {
+            self.STEP_GAS: "Choose Gas Type",
+            self.STEP_ENVELOPE: "Choose Envelope",
+            self.STEP_FILL: "Choose Fill Mode",
+            self.STEP_PAYLOADS: "Choose Payloads",
+            self.STEP_SITE: "Choose Launch Site",
+            self.STEP_REVIEW: "Review & Launch",
         }
+        return labels.get(step, "Unknown")
+
+    def _get_current_config_summary(self):
+        """Get a summary of current configuration."""
+        s = self.state
+        gas = GAS_OPTIONS[s["gas"]][0]
+        env = ENVELOPE_OPTIONS[s["envelope"]][0]
+        fill = FILL_MODES[s["fill_mode"]]["label"]
+        payloads = ", ".join([PAYLOAD_OPTIONS[p][0] for p in s["payloads"]])
+        site = SITE_OPTIONS[s["site"]].name
+        
+        return f"Gas: {gas} | Envelope: {env} | Fill: {fill}\nPayloads: {payloads} | Site: {site}"
 
     def _compute_gas_mass(self):
-        """Compute gas mass based on current fill_mode, envelope, and gas.
-
-        Routes envelope_type and site-derived conditions (altitude, temperature)
-        into apply_fill_mode() / calculate_max_safe_gas_mass() so the shared
-        calculation uses envelope-specific safe-fill presets.
-        """
+        """Compute gas mass based on current fill_mode, envelope, and gas."""
         gas_type = self.state["gas"]
         env_id = self.state["envelope"]
         fill_mode = self.state["fill_mode"]
-
+        
         env_info = ENVELOPE_OPTIONS[env_id]
         volume = env_info[1]
-
+        
         # Pass envelope + site context to the shared fill functions.
         env_params = self._get_env_params()
-
+        
         mode_map = {
             "auto": FillMode.AUTO,
             "light": FillMode.LIGHT,
@@ -472,11 +306,10 @@ class BalloonConfigurator(discord.ui.View):
             "manual": FillMode.MANUAL,
         }
         mode = mode_map.get(fill_mode, FillMode.AUTO)
-
+        
         if mode == FillMode.MANUAL:
             manual_mass = self.state.get("manual_gas_mass")
             if manual_mass is None:
-                # Default to the maximum burst-safe mass (with envelope params).
                 manual_mass = calculate_max_safe_gas_mass(
                     volume, gas_type, **env_params
                 )
@@ -486,156 +319,187 @@ class BalloonConfigurator(discord.ui.View):
                 manual_mass_kg=manual_mass, **env_params
             )
         else:
-            # Override any manual entry whenever Auto/preset is active.
             mass = apply_fill_mode(
                 volume, gas_type, mode, **env_params
             )
-
+        
         return round(mass, 3)
 
-    def _build_config_text(self):
-        """Build a text summary of current config."""
-        s = self.state
-        gas = GAS_OPTIONS[s["gas"]]
-        env = ENVELOPE_OPTIONS[s["envelope"]]
-        site = SITE_OPTIONS[s["site"]]
-        payloads = [PAYLOAD_OPTIONS[p] for p in s["payloads"]]
-        payload_names = [p[0] for p in payloads]
-        payload_mass = sum(p[1] for p in payloads)
+    def _get_env_params(self):
+        """Build envelope + site params to pass to shared fill functions."""
+        env_id = self.state["envelope"]
+        site = SITE_OPTIONS[self.state["site"]]
+        site_cond = site.derive_conditions()
+        return {
+            "envelope_type": env_id,
+            "launch_altitude": site_cond.get("launch_altitude"),
+            "launch_pressure": site_cond.get("launch_pressure"),
+            "gas_temperature": site_cond.get("gas_temperature"),
+        }
 
-        # Use cached gas mass so UI state persists across transitions.
-        gas_mass = self.state.get("gas_mass")
-        if gas_mass is None:
-            gas_mass = self._compute_gas_mass()
-            self.state["gas_mass"] = gas_mass
-        fill_label = FILL_MODES[s["fill_mode"]]["label"]
+    def _handle_gas_select(self, interaction, index: int):
+        """Handle gas type selection."""
+        gas_keys = list(GAS_OPTIONS.keys())
+        if 0 < index <= len(gas_keys):
+            self.state["gas"] = gas_keys[index - 1]
+            self.state["gas_mass"] = self._compute_gas_mass()
+        
+        # Advance to next step
+        self._advance_step()
 
-        lines = ["🎈 **Balloon Configuration**\n"]
-        lines.append(f"Gas: {gas[0]}")
-        lines.append(f"Fill: {fill_label} → {gas_mass:.3f} kg")
-        lines.append(f"Envelope: {env[0]} — {env[1]}m³")
-        lines.append(f"Payloads: {', '.join(payload_names)}")
-        lines.append(f"Site: {site.name}")
-        lines.append(f"Total mass: {gas_mass + env[2] + payload_mass:.1f} kg\n")
-        lines.append("Use the dropdowns to configure, then tap Launch.")
-        return "\n".join(lines)
+    def _handle_envelope_select(self, interaction, index: int):
+        """Handle envelope selection."""
+        env_keys = list(ENVELOPE_OPTIONS.keys())
+        if 0 < index <= len(env_keys):
+            self.state["envelope"] = env_keys[index - 1]
+            self.state["gas_mass"] = self._compute_gas_mass()
+        
+        self._advance_step()
 
+    def _handle_fill_select(self, interaction, index: int):
+        """Handle fill mode selection."""
+        fill_keys = list(FILL_MODES.keys())
+        if 0 < index <= len(fill_keys):
+            self.state["fill_mode"] = fill_keys[index - 1]
+            self.state["gas_mass"] = self._compute_gas_mass()
+        
+        self._advance_step()
 
-def _make_options(options_dict):
-    """Build discord.SelectOption list from a dict."""
-    opts = []
-    for k, v in options_dict.items():
-        label = v.name if hasattr(v, "name") else v[0]
-        opts.append(discord.SelectOption(value=k, label=label, description="select"))
-    return opts
+    def _handle_payload_select(self, interaction, index: int):
+        """Handle payload selection (toggle without advancing)."""
+        payload_keys = list(PAYLOAD_OPTIONS.keys())
+        if 0 < index <= len(payload_keys):
+            key = payload_keys[index - 1]
+            
+            if key == "none":
+                # Selecting "none" clears all payloads
+                self.state["payloads"] = ["none"]
+            else:
+                # Toggle payload
+                if "none" in self.state["payloads"]:
+                    self.state["payloads"] = [key]
+                elif key in self.state["payloads"]:
+                    self.state["payloads"].remove(key)
+                    if not self.state["payloads"]:
+                        self.state["payloads"] = ["none"]
+                else:
+                    self.state["payloads"].append(key)
+            
+            self.state["gas_mass"] = self._compute_gas_mass()
+            # Don't advance - allow multiple selections
+            self._update_message()
 
+    def _handle_site_select(self, interaction, index: int):
+        """Handle site selection."""
+        site_keys = list(SITE_OPTIONS.keys())
+        if 0 < index <= len(site_keys):
+            self.state["site"] = site_keys[index - 1]
+            self.state["gas_mass"] = self._compute_gas_mass()
+        
+        self._advance_step()
 
-def _make_fill_mode_options():
-    """Build select options for fill mode presets."""
-    opts = []
-    for mode, info in FILL_MODES.items():
-        opts.append(discord.SelectOption(
-            value=mode,
-            label=info["label"],
-            description=info["description"],
-        ))
-    return opts
+    def _advance_step(self):
+        """Advance to the next step."""
+        self._current_step += 1
+        if self._current_step > self.STEP_REVIEW:
+            self._current_step = self.STEP_REVIEW
+        self._update_message()
 
+    def _update_message(self):
+        """Update the message with current step content."""
+        if self._msg is not None:
+            content = self._build_step_message()
+            view = self._build_view()
+            try:
+                self._msg.edit(content=content, view=view)
+            except discord.errors.NotFound:
+                pass
 
-class _ManualGasMassModal(discord.ui.Modal):
-    """Modal to set the manual gas mass (kg)."""
+    def _build_view(self):
+        """Build the view with buttons for the current step."""
+        view = _StepConfiguratorView(self)
+        return view
 
-    def __init__(self, parent: "BalloonConfigurator"):
-        super().__init__(title="Manual Gas Mass")
-        self._parent = parent
-
-        current = parent.state.get("manual_gas_mass")
-        default_str = "" if current is None else str(current)
-
-        self.mass_input = discord.ui.TextInput(
-            label="Gas mass (kg)",
-            placeholder="e.g. 12.5",
-            default=default_str,
-            required=True,
-            max_length=20,
-        )
-        self.add_item(self.mass_input)
-
-    async def on_submit(self, interaction: discord.Interaction):
+    async def on_timeout(self):
+        """Handle timeout."""
         try:
-            val = float(str(self.mass_input.value).strip())
-        except Exception:
-            await interaction.response.send_message(
-                "❌ Please enter a valid number for gas mass.",
-                ephemeral=True,
-            )
-            return
-
-        val = max(0.001, val)
-        self._parent.state["manual_gas_mass"] = val
-
-        # If the player is currently in manual mode, recache gas_mass.
-        if self._parent.state.get("fill_mode") == "manual":
-            self._parent.state["gas_mass"] = self._parent._compute_gas_mass()
-
-        # Update the existing config message.
-        if getattr(self._parent, "_msg", None) is not None:
-            new_content = self._parent._build_config_text()
-            await self._parent._msg.edit(content=new_content, view=self._parent)
-
-        await interaction.response.send_message(
-            "✅ Manual gas mass updated.",
-            ephemeral=True,
-        )
+            if self._msg is not None:
+                await self._msg.edit(content=self._msg.content + "\n\n⏰ Timed out. Use `/launch` to start over.", view=None)
+        except discord.errors.NotFound:
+            pass
 
 
-class _ManualGasMassButton(discord.ui.Button):
-    """Button that opens the manual gas mass modal."""
+class _StepConfiguratorView(discord.ui.View):
+    """The View that holds the buttons for a step."""
+    
+    def __init__(self, parent: _StepConfigurator):
+        super().__init__(timeout=300)
+        self.parent = parent
+        self._current_step = parent._current_step
+        
+        # Add step-specific buttons
+        if self._current_step == parent.STEP_GAS:
+            for i, (key, val) in enumerate(GAS_OPTIONS.items(), 1):
+                self.add_item(_OptionButton(str(i), f"Choose {val[0]}", 
+                    lambda interaction, idx=i: parent._handle_gas_select(interaction, idx)))
+        
+        elif self._current_step == parent.STEP_ENVELOPE:
+            for i, (key, val) in enumerate(ENVELOPE_OPTIONS.items(), 1):
+                self.add_item(_OptionButton(str(i), f"Choose {val[0]}",
+                    lambda interaction, idx=i: parent._handle_envelope_select(interaction, idx)))
+        
+        elif self._current_step == parent.STEP_FILL:
+            for i, (key, info) in enumerate(FILL_MODES.items(), 1):
+                self.add_item(_OptionButton(str(i), info["label"],
+                    lambda interaction, idx=i: parent._handle_fill_select(interaction, idx)))
+        
+        elif self._current_step == parent.STEP_PAYLOADS:
+            for i, (key, val) in enumerate(PAYLOAD_OPTIONS.items(), 1):
+                self.add_item(_PayloadButton(str(i), f"Toggle {val[0]}", 
+                    lambda interaction, idx=i: parent._handle_payload_select(interaction, idx)))
+            self.add_item(_LaunchButton(parent))
+        
+        elif self._current_step == parent.STEP_SITE:
+            for i, (_, val) in enumerate(SITE_OPTIONS.items(), 1):
+                self.add_item(_OptionButton(str(i), val.name,
+                    lambda interaction, idx=i: parent._handle_site_select(interaction, idx)))
+            self.add_item(_LaunchButton(parent))
+        
+        elif self._current_step == parent.STEP_REVIEW:
+            self.add_item(_LaunchButton(parent))
 
-    def __init__(self, parent: "BalloonConfigurator"):
-        super().__init__(
-            label="Set Manual Mass",
-            style=discord.ButtonStyle.secondary,
-        )
-        self._parent = parent
 
+class _OptionButton(discord.ui.Button):
+    """A numbered option button."""
+    
+    def __init__(self, index: str, label: str, callback):
+        super().__init__(label=label, style=discord.ButtonStyle.primary, custom_id=f"step_{index}")
+        self._callback = callback
+    
     async def callback(self, interaction: discord.Interaction):
-        modal = _ManualGasMassModal(self._parent)
-        await interaction.response.send_modal(modal)
+        await self._callback(interaction)
 
 
-class _Select(discord.ui.Select):
-    """Generic dropdown that updates the parent view's state."""
-    def __init__(self, parent, key, placeholder, options, multi):
-        if multi:
-            super().__init__(placeholder=placeholder, options=options, min_values=1, max_values=3)
-        else:
-            super().__init__(placeholder=placeholder, options=options)
-        self._parent = parent
-        self._key = key
-
-    async def callback(self, interaction):
-        self._parent._handle_select(interaction, self._key, self.values)
-
-        # For Manual fill, immediately collect the player's gas mass.
-        if self._key == "fill_mode" and self._parent.state.get("fill_mode") == "manual":
-            modal = _ManualGasMassModal(self._parent)
-            await interaction.response.send_modal(modal)
-            return
-
-        new_content = self._parent._build_config_text()
-        await interaction.response.edit_message(content=new_content, view=self._parent)
+class _PayloadButton(discord.ui.Button):
+    """A payload toggle button."""
+    
+    def __init__(self, index: str, label: str, callback):
+        super().__init__(label=label, style=discord.ButtonStyle.secondary, custom_id=f"payload_{index}")
+        self._callback = callback
+    
+    async def callback(self, interaction: discord.Interaction):
+        await self._callback(interaction)
 
 
 class _LaunchButton(discord.ui.Button):
-    def __init__(self, parent, label, callback):
+    def __init__(self, parent, label="🚀 Launch", callback=None):
         super().__init__(label=label, style=discord.ButtonStyle.success)
         self._parent = parent
-
-    async def callback(self, interaction):
+    
+    async def callback(self, interaction: discord.Interaction):
         # Defer immediately so the event loop isn't blocked by CPU work.
         await interaction.response.defer(thinking=True, ephemeral=False)
-
+        
         state = self._parent.state
         gas_info = GAS_OPTIONS[state["gas"]]
         env_info = ENVELOPE_OPTIONS[state["envelope"]]
@@ -644,18 +508,18 @@ class _LaunchButton(discord.ui.Button):
         payload_names = [p[0] for p in payloads]
         payload_mass = sum(p[1] for p in payloads)
         has_pressure_valve = any(p[3] for p in payloads)  # 4th element = has valve
-
+        
         # Use cached gas mass from the configurator state.
         gas_mass = self._parent.state.get("gas_mass")
         if gas_mass is None:
             gas_mass = self._parent._compute_gas_mass()
             self._parent.state["gas_mass"] = gas_mass
-
+        
         try:
             payload_keys = list(state.get("payloads") or [])
             payload_count = len(payload_keys) if payload_keys else 0
             mission_count = choose_mission_count(payload_count)
-
+            
             mission_seed = seed_from_game_state(
                 gas=state["gas"],
                 envelope=state["envelope"],
@@ -667,9 +531,9 @@ class _LaunchButton(discord.ui.Button):
                 seed=mission_seed,
                 mission_count=mission_count,
             )
-
-            site_cond = self._parent._get_site_conditions()
-
+            
+            site_cond = self._parent._get_env_params()
+            
             # Generate weather based on launch configuration
             weather = generate_weather(
                 site=state["site"],
@@ -684,26 +548,61 @@ class _LaunchButton(discord.ui.Button):
                 "severity": weather.severity,
                 "flight_modifier": weather.flight_modifier,
             }
-
+            
             # Compute weather impacts and pass them to the simulation
             weather_impacts = weather_impact_on_flight(weather)
-
-            # Run the CPU-heavy simulation off the event loop.
-            tel, summary = await asyncio.to_thread(
-                run_simulation,
-                state["gas"], gas_mass, site_cond["gas_temperature"], payload_mass,
-                env_info[3], env_info[1], env_info[4],
-                mission_assignment=mission_assignment,
-                weather_impacts=weather_impacts,
+            
+            # Build simulation state
+            env = EnvelopeConfig(
+                max_volume_m3=env_info[1],
+                burst_stretch_ratio=env_info[4],
+                drag_coefficient=env_info[3],
+                permeability=0.001,
+                mass_kg=0.5,  # envelope mass placeholder
+                contained_gas=True,
+            )
+            
+            sim_state = SimulationState(
+                gas_type=state["gas"],
+                gas_mass_kg=gas_mass,
+                envelope=env,
+                payload_mass_kg=payload_mass,
+                ballast_mass_kg=0.0,
+                terrain_base_altitude_offset_m=0.0,
+                gas_temperature_k=site_cond["gas_temperature"],
                 has_pressure_valve=has_pressure_valve,
             )
-
+            
+            # Run the CPU-heavy simulation off the event loop.
+            tel = await asyncio.to_thread(
+                _run_simulation_thread,
+                sim_state, has_pressure_valve,
+            )
+            
+            # Build summary from telemetry
+            if tel:
+                last = tel[-1]
+                peak_altitude = max(t.get("altitude_m", 0) for t in tel)
+                flight_time = last.get("time_s", 0)
+                burst = last.get("burst", False)
+                landed = last.get("landed", False)
+                crashed = last.get("crashed", False)
+                summary = {
+                    "peak_altitude": peak_altitude,
+                    "time_of_flight": flight_time,
+                    "burst": burst,
+                    "landed": landed,
+                    "crashed": crashed,
+                }
+            else:
+                summary = {"peak_altitude": 0, "time_of_flight": 0, "burst": False, "landed": False, "crashed": False}
+            
             payload_display = ", ".join(payload_names)
             if payload_keys and "none" not in payload_keys:
                 pass  # keep as is
             elif payload_keys == ["none"]:
                 payload_display = "None"
-
+            
             # Generate chart from telemetry
             time_arr = [r["time"] for r in tel]
             alt_arr = [r["alt"] for r in tel]
@@ -711,10 +610,10 @@ class _LaunchButton(discord.ui.Button):
                 time_arr, alt_arr,
                 title="📈 Flight Trajectory"
             )
-
+            
             # Get player ID from the interaction for progression tracking
             player_id = str(interaction.user.id) if hasattr(interaction, 'user') and interaction.user else "anonymous"
-
+            
             # Build narrative result
             result_content = format_discord_results(
                 peak_altitude=summary.get("peak_altitude", 0),
@@ -733,7 +632,7 @@ class _LaunchButton(discord.ui.Button):
                 weather_event=weather_dict,
                 chart_str=chart,
             )
-
+            
             # Truncate if too long
             if len(result_content) > 2000:
                 result_content = result_content[:1997] + "..."
@@ -748,8 +647,8 @@ class _LaunchButton(discord.ui.Button):
 
 @bot.command(name="launch")
 async def cmd_launch(ctx):
-    view = BalloonConfigurator()
-    content = view._build_config_text()
+    view = _StepConfigurator(ctx)
+    content = view._build_step_message()
     msg = await ctx.send(content, view=view)
     view._msg = msg
 
