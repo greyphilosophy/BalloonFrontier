@@ -505,10 +505,16 @@ class BalloonConfigurator(discord.ui.View):
             selected = keys[idx]
             current = set(self.state["payloads"])
             if selected in current:
+                # Deselect: remove it; if nothing left, reset to sentinel
                 current.discard(selected)
                 if not current:
                     current = {"none"}
+            elif selected == "none":
+                # "none" selected after real payloads → clear to just {"none"}
+                current = {"none"}
             else:
+                # Real payload selected → remove sentinel, add real one
+                current.discard("none")
                 current.add(selected)
             self.state["payloads"] = list(current)
             return list(current)
@@ -687,10 +693,7 @@ class _BackButton(discord.ui.Button):
         self._parent = parent
 
     async def callback(self, interaction: discord.Interaction):
-        if self._parent._prev_step():
-            await interaction.response.edit_message(
-                content=self._parent._step_content(), view=self._parent,
-            )
+        await self._parent._on_back(interaction)
 
 
 class _ManualGasMassButton(discord.ui.Button):
@@ -743,13 +746,15 @@ class _ManualGasMassModal(discord.ui.Modal):
             self._parent.state["gas_mass"] = self._parent._compute_gas_mass()
 
         if getattr(self._parent, "_msg", None) is not None:
-            new_content = self._parent._build_config_text()
-            await self._parent._msg.edit(content=new_content, view=self._parent)
+            await self._parent._msg.edit(
+                content=self._parent._step_content(), view=self._parent,
+            )
 
         await interaction.response.send_message(
             "✅ Manual gas mass updated.",
             ephemeral=True,
         )
+
 
 class _LaunchButton(discord.ui.Button):
     def __init__(self, parent, label="🚀 Launch", callback=None):
