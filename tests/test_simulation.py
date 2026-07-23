@@ -260,24 +260,28 @@ class TestBurstDetection:
         # Zero-pressure: gas gets vented, no burst
         assert not result_zp["burst"]
 
-    def test_zero_pressure_balloon_does_not_burst_from_overflow(self):
-        """Zero-pressure balloons vent excess gas, so they don't typically burst
-        from volume expansion alone."""
+    def test_burst_does_not_end_flight_mid_air(self):
+        """A burst should vent gas and the balloon should still descend to land."""
         env = EnvelopeConfig(
-            max_volume_m3=100.0,
-            mass_kg=3.0,
-            contained_gas=False,
+            max_volume_m3=10.0,
+            burst_stretch_ratio=2.5,
+            mass_kg=1.0,
+            contained_gas=True,
         )
         s = SimulationState(
-            gas_mass_kg=50.0,
+            altitude_m=100.0,
+            gas_mass_kg=5.0,
+            gas_type="helium",
+            payload_mass_kg=10.0,
+            ballast_mass_kg=0.0,
             envelope=env,
         )
-        result = simulation_step(s)
-        # Gas is vented, so no burst
-        assert not result["burst"]
+        telemetry = run_simulation(s, dt=0.1, total_time_s=60.0)
+        assert telemetry, "Burst flights should still produce telemetry"
+        assert telemetry[0]["burst"]
+        assert telemetry[-1]["landed"], "Burst flights should continue until landing"
+        assert telemetry[-1]["altitude_m"] <= 0.01
 
-
-# ─── Landing and Crash ──────────────────────────────────────────
 
 class TestLandingAndCrash:
     def test_descending_balloon_lands(self):

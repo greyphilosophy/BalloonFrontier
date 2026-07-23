@@ -358,6 +358,11 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     burst_vol_limit = state.envelope.max_volume_m3 * state.envelope.burst_stretch_ratio / weather_burst_mod
     if state.envelope.contained_gas and gas_vol_after >= burst_vol_limit:
         state.burst = True
+        # A burst should vent gas and let the balloon continue descending under
+        # normal physics. Mark the envelope as venting instead of ending flight
+        # mid-air.
+        state.envelope.contained_gas = False
+        state.vent_open = True
 
     # ── 7. Landing / Crash detection ───────────────────────
     ground_alt_m = float(state.terrain_base_altitude_offset_m)
@@ -440,16 +445,16 @@ def run_simulation(
 ) -> List[dict]:
     """Run the simulation for total_time_s seconds and return telemetry list.
 
-    The simulation stops early if the balloon bursts, lands, or crashes.
-    step_interval limits output frequency for long runs (e.g. 1.0 = 1 sample/s)
-    so we don't store hundreds of thousands of ticks.
+    The simulation stops early if the balloon lands or crashes.
+    Burst events are allowed to continue as venting flights so the balloon can
+    descend naturally back to the ground.
     """
 
     telemetry = []
     step = 0
     next_sample = 0.0
     while step * dt < total_time_s and step < max_steps:
-        if state.burst or state.landed or state.crashed:
+        if state.landed or state.crashed:
             break
         tick = simulation_step(state, dt)
         # Only append to telemetry if we've reached the next sample interval

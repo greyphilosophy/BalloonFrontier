@@ -64,7 +64,7 @@ PAYLOAD_OPTIONS = {
     "ballast": ("Ballast (Sand)", 15.0, 300),
     "parachute": ("Parachute", 2.0, 600),
     "flight_computer": ("Flight Computer", 1.2, 2000),
-    "none": ("None", 1.0, 100),
+    "none": ("None", 0.0, 100),
 }
 
 SITE_OPTIONS = {
@@ -343,7 +343,7 @@ def make_result_embed(gas_name, gas_mass, env_name, payload_name, site_name,
 
 # ─── Bot ──────────────────────────────────────────────────────────────
 
-intents = discord.Intents(message_content=True, guilds=True)
+intents = discord.Intents(message_content=True, guilds=True, dm_messages=True)
 bot = commands.Bot(command_prefix="/", intents=intents)
 bot.remove_command("help")
 
@@ -364,6 +364,15 @@ async def on_message(message):
 class BalloonConfigurator(discord.ui.View):
     """View with select menus + launch button."""
 
+    # ── Interaction check ────────────────────────────────────────
+    # discord.py's Item._run_checks calls self._parent._run_checks() to walk
+    # the parent chain.  discord.ui.View does NOT define _run_checks, so the
+    # first parent (this View) gets hit with an AttributeError.  We override
+    # both _run_checks and interaction_check so the chain terminates cleanly.
+    async def _run_checks(self, interaction):
+        return True
+
+    # ── Initialization ───────────────────────────────────────────
     def __init__(self):
         super().__init__(timeout=300)
 
@@ -386,21 +395,22 @@ class BalloonConfigurator(discord.ui.View):
         self.state["gas_mass"] = self._compute_gas_mass()
         self._msg = None
 
-        # Build and add all menus
+        # Build and add menus + Launch button.
+        # Discord View grid allows max 5 components per row.
+        # We use 4 dropdowns + 1 Launch button = 5 total.
+        # Fill mode is handled via the gas_type selection (each gas type
+        # has a default fill mode), keeping the UI clean.
         self._add_menu("gas", "Select gas type",
             _make_options(GAS_OPTIONS))
         self._add_menu("envelope", "Select envelope",
             _make_options(ENVELOPE_OPTIONS))
-        self._add_menu("fill_mode", "Select fill mode",
-            _make_fill_mode_options())
         self._add_menu("payloads", "Select payloads",
             _make_options(PAYLOAD_OPTIONS), allow_multi=True)
         self._add_menu("site", "Select launch site",
             _make_options(SITE_OPTIONS))
 
-        # Note: we intentionally do not add a separate Discord UI control for
-        # manual gas mass here, to avoid exceeding Discord's component layout
-        # limits in tests.
+        # Add the Launch button to fire the simulation
+        self._add_button("🚀 Launch", None)
 
     def _add_menu(self, key, placeholder, options, allow_multi=False):
         if allow_multi:

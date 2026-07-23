@@ -40,7 +40,7 @@ PAYLOADS = {
     "ballast":     ("Ballast (Sand)", 15.0),
     "parachute":   ("Parachute",       2.0),
     "flight_comp": ("Flight Computer", 1.2),
-    "none":        ("None",             1.0),
+    "none":        ("None",             0.0),
 }
 
 SITES = {
