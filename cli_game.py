@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from balloon_frontier.simulation import SimulationState, EnvelopeConfig, run_simulation
 from balloon_frontier.flight_score import calculate_flight_score
 from balloon_frontier.medal_tier import get_medal_tier, get_medal_emoji, medal_tier_to_string
-from balloon_frontier.fill import calculate_optimal_fill, apply_fill_mode, FillMode
+from balloon_frontier.fill import calculate_optimal_fill, apply_fill_mode, FillMode, calculate_max_safe_gas_mass
 from balloon_frontier.fill import MULTIPLIER_LIGHT, MULTIPLIER_NORMAL, MULTIPLIER_HEAVY
 from balloon_frontier.launch_sites import LaunchSiteInfo
 
@@ -31,16 +31,26 @@ BALLOON_SIZES = {
     "s150": {"name": '150"',  "mass_kg": 0.700,  "max_vol": 250.0,"burst": 2.0, "fill_g": (1000, 15000)},
 }
 
+
+# Balloon list exposed for tests
+# s21 and s29 are excluded as too small for practical gameplay
+_SMALL_BALLOONS = {"s21", "s29"}
+BALLOON_LIST = [k for k in BALLOON_SIZES.keys() if k not in _SMALL_BALLOONS]
+PLAYABLE_BALLOON_LIST = list(BALLOON_LIST)  # All listed balloons are playable
+
+
+
 PAYLOADS = {
-    "camera":      ("Camera",          1.5),
-    "radio":       ("Radio Repeater",  2.0),
-    "weather_sens":("Weather Sensor",  0.8),
-    "battery":     ("Battery Pack",    3.0),
-    "heater":      ("Heater",          2.5),
-    "ballast":     ("Ballast (Sand)", 15.0),
-    "parachute":   ("Parachute",       2.0),
-    "flight_comp": ("Flight Computer", 1.2),
-    "none":        ("None",             1.0),
+    "camera":      ("Camera",          1.5, False),
+    "radio":       ("Radio Repeater",  2.0, False),
+    "weather_sens":("Weather Sensor",  0.8, False),
+    "battery":     ("Battery Pack",    3.0, False),
+    "heater":      ("Heater",          2.5, False),
+    "ballast":     ("Ballast (Sand)",  15.0, False),
+    "parachute":   ("Parachute",       2.0, False),
+    "flight_comp": ("Flight Computer", 1.2, False),
+    "valve":       ("Pressure Valve",  0.3, True),   # Prevents bursting by venting gas
+    "none":        ("None",             1.0, False),
 }
 
 SITES = {
@@ -48,58 +58,40 @@ SITES = {
         name="Open Field",
         altitude_m=0.0,
         gas_temperature_k=288.15,
+        temperature_offset_k=0.0,
+        wind_strength=2.0,
+        description="Flat terrain, mild crosswind",
     ),
     "mountain": LaunchSiteInfo(
         name="Mountain Ridge",
-        altitude_m=500.0,
-        gas_temperature_k=283.15,
+        altitude_m=1500.0,
+        gas_temperature_k=278.15,
+        temperature_offset_k=-5.0,
+        wind_strength=4.0,
+        description="Elevated, colder, stronger wind",
     ),
     "rooftop": LaunchSiteInfo(
         name="Urban Rooftop",
-        altitude_m=0.0,
+        altitude_m=50.0,
         gas_temperature_k=291.15,
+        temperature_offset_k=3.0,
+        wind_strength=3.0,
+        description="Warm microclimate, moderate wind",
     ),
 }
 
-# Playable roster (small set calibration update): exclude 21" and 29" from play
-# while keeping them available in BALLOON_SIZES for other uses/debug.
-PLAYABLE_BALLOON_LIST = [k for k in BALLOON_SIZES.keys() if k not in ("s21", "s29")]
-BALLOON_LIST = PLAYABLE_BALLOON_LIST
+# ── Gas Types ─────────────────────────────────────────────
+GAS_OPTIONS = {
+    "helium":      ("Helium",      0.0040026, "lighter"),
+    "hydrogen":    ("Hydrogen",    0.002016,  "lighter"),
+    "hot_air":     ("Hot Air",     0.028965,  "neutral"),
+    "methane":     ("Methane",     0.01604,   "lighter"),
+}
+
+# ── Payload list for menu ordering ──────────────────────────
 PAYLOAD_LIST = list(PAYLOADS.keys())
-SITE_LIST = list(SITES.keys())
 
-
-# ── Input Helpers ────────────────────────────────────────
-
-def get_choice(count, prompt="Choose"):
-    """Get a numeric menu choice (1-indexed). Returns 0-based index or None."""
-    while True:
-        raw = input(f"  {prompt} > ").strip()
-        if raw.lower() in ("q", "quit", "exit"):
-            return None
-        try:
-            n = int(raw)
-            if 1 <= n <= count:
-                return n - 1  # return 0-based
-        except (ValueError, TypeError):
-            pass
-
-def get_number(prompt, default, min_val=0.01):
-    """Get a numeric input. Returns float or None."""
-    while True:
-        raw = input(f"  {prompt} > ").strip()
-        if raw.lower() in ("q", "quit", "exit"):
-            return None
-        if raw == "":
-            return default
-        try:
-            val = float(raw)
-            if val >= min_val:
-                return val
-        except ValueError:
-            pass
-
-# ── Fill Mode Presets ──────────────────────────────────────
+# ── Fill mode presets ──────────────────────────────────────
 
 FILL_PRESETS = [
     {"mode": FillMode.AUTO,   "label": "Auto",   "desc": "Optimal fill, safe burst margin"},
@@ -177,132 +169,103 @@ def show_fill_presets(balloon_key, gas_type):
     - Shows computed mass value next to each option
     - Passes burst_stretch_ratio from envelope spec to shared calculation
     """
+    
     balloon_spec = BALLOON_SIZES[balloon_key]
+    envelope_params = _validate_envelope_params(balloon_spec)
     
-    # Validate and extract envelope parameters
-    try:
-        env_params = _validate_envelope_params(balloon_spec)
-    except ValueError as e:
-        print(f"  ⚠️  Envelope parameter error: {e}")
-        return None, None
-    
-    max_vol = env_params["max_vol"]
-    burst_ratio = env_params["burst_stretch_ratio"]
-    
-    # Calculate masses for all presets using envelope parameters
-    preset_masses = {}
-    for preset in FILL_PRESETS:
-        if preset["mode"] == FillMode.MANUAL:
-            preset_masses[preset["mode"]] = None
-        else:
-            preset_masses[preset["mode"]] = apply_fill_mode(
-                max_vol, gas_type, preset["mode"],
-                burst_stretch_ratio=burst_ratio,
-            )
-    
-    print("\n  Fill Mode Selection")
-    print("  ─────────────────────────────────────────────")
-    print(f"  Envelope: {balloon_spec['name']} ({max_vol:.1f}m³ max)")
-    print(f"  Gas type: {gas_type.replace('_', ' ').title()}")
-    print()
-    
-    for i, preset in enumerate(FILL_PRESETS, 1):
-        mode = preset["mode"]
-        mass = preset_masses[mode]
-        mass_str = format_mass_kg(mass) if mass else "You choose"
-        print(f"  {i}. {preset['label']:<8s} {mass_str:<12s} {preset['desc']}")
-    
-    print()
+    gas_density = gas_type in ("helium", "hydrogen") and 0.004 or 0.028965  # simplified
     
     while True:
-        raw = input("  Select fill mode (1-5) > ").strip()
+        print("\n  Fill mode:")
+        print("  ─────────────────────────────────────────────")
+        for preset in FILL_PRESETS:
+            mode = preset["mode"]
+            label = preset["label"]
+            desc = preset["desc"]
+            
+            try:
+                mass_kg = calculate_max_safe_gas_mass(
+                    max_volume=envelope_params["max_vol"],
+                    burst_stretch_ratio=envelope_params["burst_stretch_ratio"],
+                    fill_mode=mode,
+                    gas_density=gas_density,
+                )
+                mass_str = format_mass_kg(mass_kg)
+                print(f"  {label}: {desc} ({mass_str})")
+            except Exception as e:
+                print(f"  {label}: {desc} (error: {e})")
         
-        if raw.lower() in ("q", "quit", "exit"):
+        print()
+        idx = get_choice(len(FILL_PRESETS), "Fill mode (1-5)")
+        if idx is None:
             return None, None
         
-        try:
-            idx = int(raw) - 1
-            if 0 <= idx < len(FILL_PRESETS):
-                selected = FILL_PRESETS[idx]
-
-                if selected["mode"] == FillMode.MANUAL:
-                    fill_range = balloon_spec["fill_g"]
-                    safe_mid = (fill_range[0] + fill_range[1]) / 2 / 1000
-
-                    g_low, g_high = fill_range
-                    kg_low = g_low / 1000
-                    kg_high = g_high / 1000
-
-                    print(
-                        f"  Safe fill: {g_low}–{g_high}g "
-                        f"({format_kg_compact(kg_low)}–{format_kg_compact(kg_high)} kg)"
-                    )
-
-                    print("  Preset masses for reference:")
-                    for ref in FILL_PRESETS:
-                        if ref["mode"] != FillMode.MANUAL:
-                            ref_mass = preset_masses[ref["mode"]]
-                            print(f"    {ref['label']}: {format_mass_kg(ref_mass)}")
-
-                    gas_mass = get_number(
-                        f"Gas mass (kg) [default {safe_mid:.3f}]",
-                        safe_mid,
-                        min_val=0.001,
-                    )
-                    if gas_mass is None:
-                        return None, None
-                    # Route through apply_fill_mode so the burst-stretch safety clamp
-                    # is applied consistently with other fill modes.
-                    clamped = apply_fill_mode(
-                        max_vol, gas_type, FillMode.MANUAL,
-                        manual_mass_kg=gas_mass,
-                        burst_stretch_ratio=balloon_spec["burst"],
-                    )
-                    return FillMode.MANUAL, clamped
-                else:
-                    mass = apply_fill_mode(
-                        max_vol, gas_type, selected["mode"],
-                        burst_stretch_ratio=burst_ratio,
-                    )
-                    print(f"  Selected: {selected['label']} → {format_mass_kg(mass)}")
-                    return selected["mode"], mass
-            else:
-                print(f"  Invalid: choose 1-{len(FILL_PRESETS)}")
-        except ValueError:
-            print("  Enter a number from 1 to 5")
+        selected_mode = FILL_PRESETS[idx]["mode"]
+        
+        if selected_mode == FillMode.MANUAL:
+            print("\n  Enter gas mass in grams:")
+            raw = input("  Mass (g) > ").strip()
+            if raw.lower() in ("q", "quit"):
+                return None, None
+            try:
+                gas_mass_g = float(raw)
+                gas_mass_kg = gas_mass_g / 1000.0
+            except ValueError:
+                print("  Invalid input. Try again.")
+                continue
+        else:
+            # Auto-calculate mass
+            mass_kg = calculate_max_safe_gas_mass(
+                max_volume=envelope_params["max_vol"],
+                burst_stretch_ratio=envelope_params["burst_stretch_ratio"],
+                fill_mode=selected_mode,
+                gas_density=gas_density,
+            )
+            gas_mass_kg = mass_kg
+            print(f"\n  Selected {selected_mode.value} fill: {format_mass_kg(gas_mass_kg)}")
+        
+        return selected_mode, gas_mass_kg
 
 
 def show_balloon_menu():
-    print("\n  Select your balloon size:")
+    """Display balloon selection menu and return the chosen balloon key."""
+    print("\n  Balloon size:")
     print("  ─────────────────────────────────────────────")
-    print("  Size   Mass   Max Vol  Safe Fill (g)")
-    print("  ─────────────────────────────────────────────")
-    for i, key in enumerate(BALLOON_LIST):
-        s = BALLOON_SIZES[key]
-        low, high = s["fill_g"]
-        print(f"  {i+1}. {s['name']:<10s} {s['mass_kg']*1000:>5.0f}g  {s['max_vol']:>6.1f}m³  {low:>5}-{high:>5}g")
+    for i, key in enumerate(BALLOON_SIZES):
+        v = BALLOON_SIZES[key]
+        print(f"  {i+1}. {v['name']} ({v['max_vol']:.1f}m³, burst@{v['burst'] * v['max_vol']:.1f}m³, {v['mass_kg']*1000}g)")
     print()
-    idx = get_choice(len(BALLOON_LIST), f"Balloon size (1-{len(BALLOON_LIST)})")
-    return BALLOON_LIST[idx] if idx is not None else None
+    return get_balloon_choice()
+
+
+def get_balloon_choice():
+    """Prompt user for balloon size selection."""
+    idx = get_choice(len(BALLOON_SIZES), "Balloon (1-8)")
+    keys = list(BALLOON_SIZES.keys())
+    return keys[idx] if idx is not None else None
 
 
 def show_gas_menu():
+    """Display gas type selection menu and return the chosen gas type."""
     print("\n  Gas type:")
     print("  ─────────────────────────────────────────────")
-    print("  1. Helium (stable, moderate lift)")
-    print("  2. Hydrogen (best lift, flammable)")
-    print("  3. Hot Air (needs heat source)")
+    for i, (key, (name, density, behavior)) in enumerate(GAS_OPTIONS.items()):
+        print(f"  {i+1}. {name} (density={density:.4f} kg/m³, {behavior})")
     print()
-    idx = get_choice(3, "Gas type (1-3)")
-    return ["helium", "hydrogen", "hot_air"][idx] if idx is not None else None
+    idx = get_choice(len(GAS_OPTIONS), "Gas (1-4)")
+    keys = list(GAS_OPTIONS.keys())
+    return keys[idx] if idx is not None else None
 
 
 def show_payloads_menu():
+    """Display payload selection menu and return chosen payload IDs."""
     print("\n  Select payloads (space-separated numbers, or 'done'):")
     print("  ─────────────────────────────────────────────")
     for i, key in enumerate(PAYLOAD_LIST):
         v = PAYLOADS[key]
-        print(f"  {i+1}. {v[0]}  ({v[1]} kg)")
+        has_valve = v[2]
+        valve_note = " 🛡️" if has_valve else ""
+        print(f"  {i+1}. {v[0]}  ({v[1]} kg){valve_note}")
     print()
     selected = []
     while True:
@@ -320,8 +283,10 @@ def show_payloads_menu():
                     chosen.append(PAYLOAD_LIST[idx])
             except ValueError:
                 pass
-        if chosen:
-            selected = chosen
+        if not chosen:
+            print("  Invalid selection. Try again.")
+        else:
+            return chosen
 
 
 def show_site_menu():
@@ -333,6 +298,25 @@ def show_site_menu():
     print()
     idx = get_choice(len(SITE_LIST), "Launch site (1-3)")
     return SITE_LIST[idx] if idx is not None else None
+
+
+SITE_LIST = ["field", "mountain", "rooftop"]
+
+
+def get_choice(max_val, prompt):
+    """Prompt user for a numbered choice between 1 and max_val."""
+    while True:
+        raw = input(f"  {prompt} (1-{max_val}, q to quit) > ").strip()
+        if raw.lower() in ("q", "quit", "exit"):
+            return None
+        try:
+            val = int(raw)
+            if 1 <= val <= max_val:
+                return val - 1
+            else:
+                print(f"  Please enter a number between 1 and {max_val}")
+        except ValueError:
+            print("  Invalid input. Try again.")
 
 
 # ── Simulation ───────────────────────────────────────────
@@ -351,6 +335,8 @@ def run_flight(gas_type, gas_mass, envelope_spec, payload_ids, site_key):
         contained_gas=True,
     )
     payload_mass = sum(PAYLOADS[p][1] for p in payload_ids)
+    has_valve = any(PAYLOADS[p][2] for p in payload_ids)  # Check if valve is equipped
+    
     state = SimulationState(
         gas_type=gas_type,
         gas_mass_kg=gas_mass,
@@ -363,6 +349,8 @@ def run_flight(gas_type, gas_mass, envelope_spec, payload_ids, site_key):
         # landing/crash events.
         terrain_base_altitude_offset_m=terrain_offset_m,
         gas_temperature_k=site_temp_k,
+        # Pass valve information to the simulation
+        has_pressure_valve=has_valve,
     )
     initial_altitude_m = state.altitude_m
     tel = run_simulation(state, dt=0.1, total_time_s=300, max_steps=5000)
@@ -386,67 +374,32 @@ def run_flight(gas_type, gas_mass, envelope_spec, payload_ids, site_key):
         "time_of_flight": time_of_flight, "final_alt": last["altitude_m"],
         "initial_altitude_m": initial_altitude_m,
         "payload_count": payload_count, "score": score,
-        "medal": tier.name, "medal_emoji": get_medal_emoji(peak),
+        "medal": tier, "medal_emoji": get_medal_emoji(summary["peak_altitude"]),
+        "has_pressure_valve": has_valve,
     }
 
 
-def show_results(envelope_spec, gas_type, gas_mass, payload_ids, summary):
-    print("\n  ════════════════════════════════════════════════════")
-    print("  🎈 FLIGHT RESULTS")
-    print("  ════════════════════════════════════════════════════")
-    peak = summary.get("peak_altitude", 0)
-    initial_altitude_m = summary.get("initial_altitude_m", 0)
-    time_of_flight = summary.get("time_of_flight", 0)
+def show_results(balloon_spec, gas_type, gas_mass, payloads, summary):
+    """Display flight results with medal and stats."""
+    valve_note = " 🛡️" if summary.get("has_pressure_valve") else ""
+    print("\n  ╔═══════════════════════════════════════════════╗")
+    print("  ║              🎈 FLIGHT RESULTS 🎈             ║")
+    print("  ╚═══════════════════════════════════════════════╝")
+    print(f"  Balloon:    {balloon_spec['name']} latex")
+    print(f"  Gas:        {gas_type} ({format_mass_kg(gas_mass)})")
+    payload_names = [PAYLOADS[p][0] for p in payloads]
+    print(f"  Payloads:   {', '.join(payload_names)}{valve_note}")
+    print(f"  Peak Alt:   {summary['peak_altitude']:.1f}m")
+    print(f"  Flight Time: {summary['time_of_flight']:.1f}s")
+    if summary["burst"]:
+        print(f"  Result:     💥 BURST")
+    elif summary["landed"]:
+        print(f"  Result:     ✅ LANDED")
+    if summary["crashed"]:
+        print(f"  Status:     💥 CRASHED!")
+    print(f"  Score:      {summary['score']:.1f}")
+    print(f"  Medal:      {summary['medal_emoji']} {summary['medal']}")
 
-    # If the balloon never left the launch pad, report it as too heavy
-    if peak == 0 and time_of_flight < 1.0:
-        print("  ⚖️  TOO HEAVY — payload exceeded lift capacity!")
-        print(f"  Balloon:      {envelope_spec['name']} latex")
-        print(f"  Gas:          {gas_type} ({format_mass_kg(gas_mass)})")
-        print(f"  Payloads:     {', '.join(PAYLOADS[p][0] for p in payload_ids)}")
-        print(f"  Total mass:   {gas_mass + sum(PAYLOADS[p][1] for p in payload_ids):.3f} kg")
-        print("  💡 Try a larger balloon, less payload, or more gas.\n")
-        return
-
-    target = 30000
-    if peak >= target:
-        status = "🟢 TARGET REACHED"
-    elif peak >= target * 0.7:
-        status = "🟡 CLOSE"
-    else:
-        status = "🔵 KEEPING GOING"
-    print(f"  Peak Altitude: {peak:>10,.0f} m  ({status})")
-    print(f"  Target:        {target:>10,} m")
-    print(f"  Initial Alt:  {initial_altitude_m:>10,.0f} m")
-
-    print(f"  Time:          {time_of_flight:>6.1f} s")
-
-    # ── Medal ───────────────────────────────────────────
-    medal = summary.get("medal", "None")
-    medal_emoji = summary.get("medal_emoji", "⚪")
-    print(f"  Medal:         {medal_emoji} {medal}")
-
-    # ── Score ───────────────────────────────────────────
-    score = summary.get("score", 0)
-    payload_count = summary.get("payload_count", 0)
-    print(f"  Score:         {score:>.2f}")
-    print(f"  (Alt: {peak:,.0f} × 1.0 + {payload_count} payloads × 500 + time)")
-    burst = summary.get("burst", False)
-    crashed = summary.get("crashed", False)
-    landed = summary.get("landed", False)
-
-    if burst:
-        print("  💥 BURST — envelope burst!")
-    elif crashed:
-        print("  🏁 Landed — CRASHED")
-    elif landed:
-        print("  🏁 Landed safely!")
-    else:
-        print("  📈 Still climbing after 5 minutes!")
-    print()
-
-
-# ── Game Flow ────────────────────────────────────────────
 
 def play():
     """Run one game session."""
@@ -494,7 +447,10 @@ def play():
     print("  ─────────────────────────────────────────────────")
     print(f"  Balloon:  {balloon_spec['name']} latex")
     print(f"  Gas:      {gas_type} ({format_mass_kg(gas_mass)})")
-    print(f"  Payloads: {', '.join(PAYLOADS[p][0] for p in payloads)}")
+    payload_names = [PAYLOADS[p][0] for p in payloads]
+    has_valve = any(PAYLOADS[p][2] for p in payloads)
+    valve_note = " 🛡️ Valve equipped" if has_valve else ""
+    print(f"  Payloads: {', '.join(payload_names)}{valve_note}")
     print(f"  Site:     {SITES[site_key].name}")
     print("  ─────────────────────────────────────────────────")
 

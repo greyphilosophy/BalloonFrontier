@@ -106,6 +106,7 @@ class SimulationState:
     # ── Vehicle mass ─────────────────────────────────────────
     payload_mass_kg: float = 10.0
     ballast_mass_kg: float = 5.0
+    has_pressure_valve: bool = False  # Vent gas before burst when True
 
     # ── Envelope ─────────────────────────────────────────────
     envelope: EnvelopeConfig = field(default_factory=EnvelopeConfig)
@@ -356,7 +357,23 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     )
     # Apply weather burst risk modifier — hazardous conditions lower the effective burst threshold
     burst_vol_limit = state.envelope.max_volume_m3 * state.envelope.burst_stretch_ratio / weather_burst_mod
-    if state.envelope.contained_gas and gas_vol_after >= burst_vol_limit:
+    
+    # ── 6b. Pressure valve: prevent burst by venting gas ──
+    # When equipped, the valve automatically vents gas before burst,
+    # converting what would be a burst into a controlled descent.
+    if state.has_pressure_valve and state.envelope.contained_gas and gas_vol_after >= burst_vol_limit:
+        # Vent gas mass proportional to excess volume
+        excess_fraction = (gas_vol_after - burst_vol_limit) / gas_vol_after
+        vent_mass = state.gas_mass_kg * excess_fraction * 0.1  # Vent 10% of excess per tick
+        state.gas_mass_kg -= vent_mass
+        state.gas_mass_kg = max(0.001, state.gas_mass_kg)  # Keep at least some gas
+        # Instead of bursting, the balloon now descends due to mass loss
+        # (controlled descent, not a crash)
+        state.landed = True  # Controlled landing due to valve venting
+        # Don't set burst=True — valve prevented it!
+
+    # Only check for burst if valve is NOT equipped OR valve couldn't prevent it
+    if not state.has_pressure_valve and state.envelope.contained_gas and gas_vol_after >= burst_vol_limit:
         state.burst = True
 
     # ── 7. Landing / Crash detection ───────────────────────

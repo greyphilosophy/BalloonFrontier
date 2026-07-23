@@ -56,15 +56,16 @@ ENVELOPE_OPTIONS = {
 }
 
 PAYLOAD_OPTIONS = {
-    "camera": ("Camera", 1.5, 500),
-    "radio": ("Radio Repeater", 2.0, 800),
-    "weather_sensor": ("Weather Sensor", 0.8, 1200),
-    "battery": ("Battery Pack", 3.0, 1000),
-    "heater": ("Heater", 2.5, 750),
-    "ballast": ("Ballast (Sand)", 15.0, 300),
-    "parachute": ("Parachute", 2.0, 600),
-    "flight_computer": ("Flight Computer", 1.2, 2000),
-    "none": ("None", 1.0, 100),
+    "camera": ("Camera", 1.5, 500, False),
+    "radio": ("Radio Repeater", 2.0, 800, False),
+    "weather_sensor": ("Weather Sensor", 0.8, 1200, False),
+    "battery": ("Battery Pack", 3.0, 1000, False),
+    "heater": ("Heater", 2.5, 750, False),
+    "ballast": ("Ballast (Sand)", 15.0, 300, False),
+    "parachute": ("Parachute", 2.0, 600, False),
+    "flight_computer": ("Flight Computer", 1.2, 2000, False),
+    "valve": ("Pressure Valve", 0.3, 250, True),  # Prevents bursting by venting gas
+    "none": ("None", 1.0, 100, False),
 }
 
 SITE_OPTIONS = {
@@ -131,6 +132,7 @@ def run_simulation(
     mission_assignment=None,
     env_config=None,
     weather_impacts=None,
+    has_pressure_valve=False,  # Valve prevents burst by venting gas
 ):
     """Run fixed-step vertical simulation using the full physics engine.
 
@@ -189,6 +191,7 @@ def run_simulation(
         wind_enabled=True,
         wind_site_id="field",
         ballast_mass_kg=0.0,  # User controls mass entirely via payloads — no hidden ballast
+        has_pressure_valve=has_pressure_valve,  # Valve prevents burst by venting gas
     )
 
     # Run with the full physics engine. Time limit depends on whether missions are active.
@@ -640,6 +643,7 @@ class _LaunchButton(discord.ui.Button):
         payloads = [PAYLOAD_OPTIONS[p] for p in state["payloads"]]
         payload_names = [p[0] for p in payloads]
         payload_mass = sum(p[1] for p in payloads)
+        has_pressure_valve = any(p[3] for p in payloads)  # 4th element = has valve
 
         # Use cached gas mass from the configurator state.
         gas_mass = self._parent.state.get("gas_mass")
@@ -691,6 +695,7 @@ class _LaunchButton(discord.ui.Button):
                 env_info[3], env_info[1], env_info[4],
                 mission_assignment=mission_assignment,
                 weather_impacts=weather_impacts,
+                has_pressure_valve=has_pressure_valve,
             )
 
             payload_display = ", ".join(payload_names)
