@@ -433,8 +433,6 @@ class BalloonConfigurator(discord.ui.View):
                     await self._msg.edit(content=self._step_content(), view=self)
                 except discord.errors.NotFound:
                     pass
-            # Ensure buttons are present even when no interaction
-            self.build_buttons()
         # Remember the message for future updates.
         if interaction is not None and interaction.message is not None:
             self._msg = interaction.message
@@ -478,12 +476,14 @@ class BalloonConfigurator(discord.ui.View):
 
     # ── Step navigation ───────────────────────────────────────────
 
-    def _advance(self, interaction):
-        """Advance to the next step after a selection."""
+    async def _advance(self, interaction):
+        """Advance to the next step, rebuild buttons, then update the message."""
         self._current_step += 1
         if self._current_step > _Step.REVIEW_LAUNCH:
             self._current_step = _Step.REVIEW_LAUNCH
-        self._send_step(interaction)
+        # Build buttons BEFORE editing the message to avoid stale controls
+        self.build_buttons()
+        await self._send_step(interaction)
 
     # ── Back button ───────────────────────────────────────────────
 
@@ -509,39 +509,48 @@ class BalloonConfigurator(discord.ui.View):
                 if not current:
                     current = {"none"}
             else:
-                current = {selected}
+                current.add(selected)
             self.state["payloads"] = list(current)
             return list(current)
-        self.state[keys[idx]] = keys[idx]
-        if keys[idx] in ('gas', 'envelope', 'fill_mode'):
-            self.state["gas_mass"] = self._compute_gas_mass()
         return keys[idx]
 
     # ── Button callbacks ──────────────────────────────────────────
 
     async def _on_gas(self, interaction, index: int):
-        self.state["gas"] = self._option_by_index(index, GAS_OPTIONS) or self.state["gas"]
-        self._advance(interaction)
+        key = self._option_by_index(index, GAS_OPTIONS) or "gas"
+        self.state["gas"] = key
+        self.state["gas_mass"] = self._compute_gas_mass()
+        await self._advance(interaction)
 
     async def _on_envelope(self, interaction, index: int):
-        self.state["envelope"] = self._option_by_index(index, ENVELOPE_OPTIONS) or self.state["envelope"]
-        self._advance(interaction)
+        key = self._option_by_index(index, ENVELOPE_OPTIONS) or "envelope"
+        self.state["envelope"] = key
+        self.state["gas_mass"] = self._compute_gas_mass()
+        await self._advance(interaction)
 
     async def _on_fill(self, interaction, index: int):
-        self.state["fill_mode"] = self._option_by_index(index, FILL_MODES) or self.state["fill_mode"]
-        self._advance(interaction)
+        key = self._option_by_index(index, FILL_MODES) or "fill_mode"
+        self.state["fill_mode"] = key
+        self.state["gas_mass"] = self._compute_gas_mass()
+        await self._advance(interaction)
 
     async def _on_payload(self, interaction, index: int):
         self._option_by_index(index, PAYLOAD_OPTIONS, multi=True)
-        self._send_step(interaction)  # payloads don't auto-advance
+        self.state["gas_mass"] = self._compute_gas_mass()
+        # Rebuild buttons and edit message (no auto-advance for payloads)
+        self.build_buttons()
+        await self._send_step(interaction)
 
     async def _on_site(self, interaction, index: int):
-        self.state["site"] = self._option_by_index(index, SITE_OPTIONS) or self.state["site"]
-        self._advance(interaction)
+        key = self._option_by_index(index, SITE_OPTIONS) or "site"
+        self.state["site"] = key
+        self.state["gas_mass"] = self._compute_gas_mass()
+        await self._advance(interaction)
 
     async def _on_back(self, interaction):
         if self._prev_step():
-            self._send_step(interaction)
+            self.build_buttons()
+            await self._send_step(interaction)
 
     # ── Build buttons for current step ────────────────────────────
 
@@ -555,20 +564,21 @@ class BalloonConfigurator(discord.ui.View):
 
         if self._current_step == _Step.CHOOSE_GAS:
             for i in range(1, len(GAS_OPTIONS) + 1):
-                self.add_item(_OptionButton(f"{i}", f"Choose gas {i}", self._on_gas))
+                self.add_item(_OptionButton(i, f"Choose gas {i}", self._on_gas))
         elif self._current_step == _Step.CHOOSE_ENVELOPE:
             for i in range(1, len(ENVELOPE_OPTIONS) + 1):
-                self.add_item(_OptionButton(f"{i}", f"Choose envelope {i}", self._on_envelope))
+                self.add_item(_OptionButton(i, f"Choose envelope {i}", self._on_envelope))
         elif self._current_step == _Step.CHOOSE_FILL:
             for i in range(1, len(FILL_MODES) + 1):
-                self.add_item(_OptionButton(f"{i}", f"Choose fill {i}", self._on_fill))
+                self.add_item(_OptionButton(i, f"Choose fill {i}", self._on_fill))
+            self.add_item(_ManualGasMassButton(self))
         elif self._current_step == _Step.CHOOSE_PAYLOADS:
             for i in range(1, len(PAYLOAD_OPTIONS) + 1):
-                self.add_item(_OptionButton(f"{i}", f"Toggle payload {i}", self._on_payload))
+                self.add_item(_OptionButton(i, f"Toggle payload {i}", self._on_payload))
             self.add_item(_LaunchButton(self))
         elif self._current_step == _Step.CHOOSE_SITE:
             for i in range(1, len(SITE_OPTIONS) + 1):
-                self.add_item(_OptionButton(f"{i}", f"Choose site {i}", self._on_site))
+                self.add_item(_OptionButton(i, f"Choose site {i}", self._on_site))
             self.add_item(_LaunchButton(self))
         elif self._current_step == _Step.REVIEW_LAUNCH:
             self.add_item(_LaunchButton(self))
@@ -653,16 +663,17 @@ class BalloonConfigurator(discord.ui.View):
 
 class _OptionButton(discord.ui.Button):
     """A numbered option button. Callback is a function on the bot client."""
-    def __init__(self, style_label: str, custom_id_prefix: str, callback_factory):
+    def __init__(self, index: int, style_label: str, callback_factory):
         super().__init__(
             label=style_label,
             style=discord.ButtonStyle.primary,
-            custom_id=f"cfg_{custom_id_prefix}",
+            custom_id=f"cfg_option_{index}",
         )
-        self._callback_factory = callback_factory
+        self._index = index
+        self._callback = callback_factory
 
     async def callback(self, interaction: discord.Interaction):
-        self._callback_factory(interaction, self.custom_id.split("_", 1)[1])
+        await self._callback(interaction, self._index)
 
 
 class _BackButton(discord.ui.Button):
