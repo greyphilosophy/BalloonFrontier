@@ -93,16 +93,22 @@ def test_view_base_lacks_run_checks():
 
 
 def test_children_exist():
-    """Ensure the configurator has Select children."""
+    """Ensure the configurator has button children (step-based UI)."""
     from discord_bot import BalloonConfigurator
 
     config = BalloonConfigurator()
-    select_children = [
+    # The step-based UI uses _OptionButton / _NextButton / _LaunchButton
+    # children (button-based) instead of _Select dropdowns.
+    # At minimum, we expect the Back button plus step-specific option buttons.
+    button_children = [
         child for child in config.children
-        if child.__class__.__name__ == "_Select"
+        if child.__class__.__name__ in (
+            "_OptionButton", "_BackButton", "_NextButton",
+            "_LaunchButton", "_ManualGasMassButton",
+        )
     ]
-    assert len(select_children) > 0, (
-        "Configurator should have at least one Select child"
+    assert len(button_children) > 0, (
+        f"Configurator should have at least one button child, got {len(button_children)}"
     )
 
 
