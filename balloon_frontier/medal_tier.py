@@ -2,12 +2,12 @@
 Medal tier determination for BalloonFrontier.
 
 Maps a flight's peak altitude to a medal tier:
-  Bronze    ≥ 10,000m
-  Silver    ≥ 20,000m
-  Gold      ≥ 30,000m
-  Platinum  ≥ 40,000m
+  Bronze    ≥ 2,000m
+  Silver    ≥ 4,000m
+  Gold      ≥ 6,000m
+  Platinum  ≥ 8,000m
 
-Altitudes below 10 km return "None" medal.
+Altitudes below 2 km return "None" medal.
 """
 
 from enum import Enum, auto
@@ -25,10 +25,10 @@ class MedalTier(Enum):
 
 # Thresholds in meters (ordered from highest tier down)
 _MEDAL_THRESHOLDS = [
-    (MedalTier.PLATINUM, 40_000),
-    (MedalTier.GOLD, 30_000),
-    (MedalTier.SILVER, 20_000),
-    (MedalTier.BRONZE, 10_000),
+    (MedalTier.PLATINUM, 8_000),
+    (MedalTier.GOLD, 6_000),
+    (MedalTier.SILVER, 4_000),
+    (MedalTier.BRONZE, 2_000),
 ]
 
 # Emoji map for display on results screens
@@ -49,12 +49,12 @@ def get_medal_tier(peak_altitude_m: float) -> MedalTier:
 
     Returns:
         The MedalTier enum value for the given peak altitude.
-        Returns MedalTier.NONE if the flight peaks below 10,000m.
+        Returns MedalTier.NONE if the flight peaks below 2,000m.
 
     Examples:
-        >>> get_medal_tier(15_000)
+        >>> get_medal_tier(3_000)
         <MedalTier.BRONZE>
-        >>> get_medal_tier(40_000)
+        >>> get_medal_tier(8_000)
         <MedalTier.PLATINUM>
         >>> get_medal_tier(500)
         <MedalTier.NONE>
@@ -93,7 +93,7 @@ def medal_tier_to_string(peak_altitude_m: float) -> str:
 # ── Quick CLI demo ────────────────────────────────────────
 
 if __name__ == "__main__":
-    for alt in [500, 9_999, 10_000, 20_000, 30_000, 40_000, 40_001]:
+    for alt in [500, 1_999, 2_000, 4_000, 6_000, 8_000, 10_000]:
         tier = get_medal_tier(alt)
         emoji = get_medal_emoji(alt)
         print(f"  {alt:>7}m → {tier.name:<10s} {emoji}")

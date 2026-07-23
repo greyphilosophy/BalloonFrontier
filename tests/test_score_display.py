@@ -120,16 +120,16 @@ class TestScoreMedalIntegration:
         assert score > 0
 
     def test_score_and_medal_for_gold_altitude(self):
-        """30,000m → Gold medal."""
-        tier = get_medal_tier(30_000)
+        """6,000m → Gold medal."""
+        tier = get_medal_tier(6_000)
         assert tier == MedalTier.GOLD
-        assert get_medal_emoji(30_000) == "🥇"
+        assert get_medal_emoji(6_000) == "🥇"
 
     def test_score_and_medal_for_platinum_altitude(self):
-        """40,000m → Platinum medal."""
-        tier = get_medal_tier(40_000)
+        """8,000m → Platinum medal."""
+        tier = get_medal_tier(8_000)
         assert tier == MedalTier.PLATINUM
-        assert get_medal_emoji(40_000) == "💎"
+        assert get_medal_emoji(8_000) == "💎"
 
     def test_medal_emoji_appears_in_embed(self):
         """When the balloon reaches high altitude, medal emoji shows."""

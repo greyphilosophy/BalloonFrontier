@@ -346,7 +346,7 @@ def make_result_embed(gas_name, gas_mass, env_name, payload_name, site_name,
 
 # ─── Bot ──────────────────────────────────────────────────────────────
 
-intents = discord.Intents(message_content=True, guilds=True)
+intents = discord.Intents(message_content=True, guilds=True, dm_messages=True)
 bot = commands.Bot(command_prefix="/", intents=intents)
 bot.remove_command("help")
 
@@ -394,6 +394,15 @@ class BalloonConfigurator(discord.ui.View):
         "Review & Launch",
     ]
 
+    # ── Interaction check ────────────────────────────────────────
+    # discord.py's Item._run_checks calls self._parent._run_checks() to walk
+    # the parent chain.  discord.ui.View does NOT define _run_checks, so the
+    # first parent (this View) gets hit with an AttributeError.  We override
+    # both _run_checks and interaction_check so the chain terminates cleanly.
+    async def _run_checks(self, interaction):
+        return True
+
+    # ── Initialization ───────────────────────────────────────────
     def __init__(self):
         super().__init__(timeout=300)
         self.state = {
