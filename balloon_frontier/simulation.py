@@ -368,7 +368,9 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
         # => gas_mass_neutral = non_gas_mass * rho_gas / (rho_air - rho_gas)
         # Use the same effective-pressure formula as the force model so
         # weather pressure modifiers are handled consistently.
-        rho_air = P_amb_effective / (R_AIR * atmosphere_temperature(max(0.0, state.altitude_m)))
+        rho_air = P_amb_effective / (
+            R_AIR * atmosphere_temperature(max(0.0, state.altitude_m))
+        )
         rho_gas = gas_density(state.gas_type, state.gas_temperature_k, P_amb_effective)
         non_gas_mass = (state.envelope.mass_kg + state.payload_mass_kg +
                         max(0.0, state.ballast_mass_kg - state.ballast_released_kg))
