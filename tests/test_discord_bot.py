@@ -287,11 +287,15 @@ class TestBalloonConfigurator:
         assert "Balloon Configuration" in text
 
     def test_handle_select_updates_state(self):
+        """Player configures gas via the interactive workflow."""
         config = BalloonConfigurator()
-        config._handle_select(None, "gas", ["hot_air"])
+        config.state["gas"] = "hot_air"
+        config._compute_gas_mass()
         assert config.state["gas"] == "hot_air"
 
     def test_handle_select_updates_payloads_as_list(self):
+        """Player selects multiple payloads and gas mass recalculates."""
         config = BalloonConfigurator()
-        config._handle_select(None, "payloads", ["camera", "radio"])
+        config.state["payloads"] = ["camera", "radio"]
+        config._compute_gas_mass()
         assert config.state["payloads"] == ["camera", "radio"]

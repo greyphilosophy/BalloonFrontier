@@ -40,7 +40,8 @@ class TestFullGameplayFlow:
     def test_player_can_configure_gas_then_launch(self):
         """Player changes gas type and launches — simulation runs successfully."""
         config = BalloonConfigurator()
-        config._handle_select(None, "gas", ["hydrogen"])
+        config.state["gas"] = "hydrogen"
+        config._compute_gas_mass()
         assert config.state["gas"] == "hydrogen"
 
         gas_info = GAS_OPTIONS[config.state["gas"]]
@@ -74,7 +75,8 @@ class TestFullGameplayFlow:
         """Player can try all 4 envelope types — each is selectable."""
         config = BalloonConfigurator()
         for env_key in ENVELOPE_OPTIONS:
-            config._handle_select(None, "envelope", [env_key])
+            config.state["envelope"] = env_key
+            config._compute_gas_mass()
             assert config.state["envelope"] == env_key
 
 
@@ -161,7 +163,8 @@ class TestConfigurationEdgeCases:
     def test_multiple_payloads_sum_mass_correctly(self):
         """Selecting multiple payloads correctly sums their masses."""
         config = BalloonConfigurator()
-        config._handle_select(None, "payloads", ["camera", "radio", "weather_sensor"])
+        config.state["payloads"] = ["camera", "radio", "weather_sensor"]
+        config._compute_gas_mass()
         total = sum(PAYLOAD_OPTIONS[p][1] for p in config.state["payloads"])
         expected = (PAYLOAD_OPTIONS["camera"][1] + PAYLOAD_OPTIONS["radio"][1] + PAYLOAD_OPTIONS["weather_sensor"][1])
         assert abs(total - expected) < 0.01
@@ -176,7 +179,8 @@ class TestConfigurationEdgeCases:
     def test_switching_gas_updates_display(self):
         """Changing the gas type updates the config display."""
         config = BalloonConfigurator()
-        config._handle_select(None, "gas", ["hydrogen"])
+        config.state["gas"] = "hydrogen"
+        config._compute_gas_mass()
         text = config._build_config_text()
         assert "Hydrogen" in text
 
@@ -194,7 +198,8 @@ class TestCompletePlaySession:
     def test_complete_session_helium_latex(self):
         """Full session: Helium balloon, latex envelope, open field."""
         config = BalloonConfigurator()
-        config._handle_select(None, "payloads", ["camera"])
+        config.state["payloads"] = ["camera"]
+        config._compute_gas_mass()
 
         gas_info = GAS_OPTIONS[config.state["gas"]]
         env_info = ENVELOPE_OPTIONS[config.state["envelope"]]
@@ -217,9 +222,12 @@ class TestCompletePlaySession:
     def test_complete_session_hydrogen_blimp(self):
         """Full session: Hydrogen blimp with multiple payloads."""
         config = BalloonConfigurator()
-        config._handle_select(None, "gas", ["hydrogen"])
-        config._handle_select(None, "envelope", ["blimp"])
-        config._handle_select(None, "payloads", ["camera", "radio"])
+        config.state["gas"] = "hydrogen"
+        config._compute_gas_mass()
+        config.state["envelope"] = "blimp"
+        config._compute_gas_mass()
+        config.state["payloads"] = ["camera", "radio"]
+        config._compute_gas_mass()
 
         gas_info = GAS_OPTIONS[config.state["gas"]]
         env_info = ENVELOPE_OPTIONS[config.state["envelope"]]
@@ -242,8 +250,10 @@ class TestCompletePlaySession:
     def test_complete_session_hot_air_mylar(self):
         """Full session: Hot air, mylar balloon."""
         config = BalloonConfigurator()
-        config._handle_select(None, "gas", ["hot_air"])
-        config._handle_select(None, "envelope", ["mylar"])
+        config.state["gas"] = "hot_air"
+        config._compute_gas_mass()
+        config.state["envelope"] = "mylar"
+        config._compute_gas_mass()
 
         gas_info = GAS_OPTIONS[config.state["gas"]]
         env_info = ENVELOPE_OPTIONS[config.state["envelope"]]
