@@ -581,11 +581,10 @@ class BalloonConfigurator(discord.ui.View):
         elif self._current_step == _Step.CHOOSE_PAYLOADS:
             for i in range(1, len(PAYLOAD_OPTIONS) + 1):
                 self.add_item(_OptionButton(i, f"Toggle payload {i}", self._on_payload))
-            self.add_item(_LaunchButton(self))
+            self.add_item(_NextButton(self))
         elif self._current_step == _Step.CHOOSE_SITE:
             for i in range(1, len(SITE_OPTIONS) + 1):
                 self.add_item(_OptionButton(i, f"Choose site {i}", self._on_site))
-            self.add_item(_LaunchButton(self))
         elif self._current_step == _Step.REVIEW_LAUNCH:
             self.add_item(_LaunchButton(self))
 
@@ -709,6 +708,20 @@ class _ManualGasMassButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         modal = _ManualGasMassModal(self._parent)
         await interaction.response.send_modal(modal)
+
+
+class _NextButton(discord.ui.Button):
+    """Button that advances to the next walkthrough step."""
+    def __init__(self, parent: "BalloonConfigurator"):
+        super().__init__(
+            label="Next ▶",
+            style=discord.ButtonStyle.success,
+            custom_id="cfg_next",
+        )
+        self._parent = parent
+
+    async def callback(self, interaction: discord.Interaction):
+        await self._parent._advance(interaction)
 
 
 class _ManualGasMassModal(discord.ui.Modal):
