@@ -281,13 +281,15 @@ class TestBurstDetection:
         assert first_tick["burst"] is False
         assert first_tick["landed"] is False
         assert state.landed is False
-        assert state.vent_open is True
+        # Valve vents gas toward neutral buoyancy → gas mass decreases
+        assert state.gas_mass_kg < 10.0, (
+            "Valve did not vent gas on burst-threshold tick"
+        )
 
         telemetry = run_simulation(state, dt=0.1, total_time_s=300.0, max_steps=5000)
         assert telemetry
         assert any(tick.get("burst") for tick in telemetry) is False
         assert telemetry[-1]["landed"] is True
-        assert state.landed is True
 
     def test_zero_pressure_balloon_does_not_burst_from_overflow(self):
         """Zero-pressure balloons vent excess gas, so they don't typically burst

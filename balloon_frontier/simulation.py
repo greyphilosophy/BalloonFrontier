@@ -359,20 +359,45 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     burst_vol_limit = state.envelope.max_volume_m3 * state.envelope.burst_stretch_ratio / weather_burst_mod
     
     # ── 6b. Pressure valve: prevent burst by venting gas ──
-    # When equipped, the valve automatically vents gas before burst,
-    # converting what would be a burst into a controlled descent.
+    # When equipped, the valve vents gas until the balloon becomes
+    # slightly negatively buoyant, so normal physics produces a controlled
+    # descent rather than a sustained positive-buoyancy hang.
     if state.has_pressure_valve and state.envelope.contained_gas and gas_vol_after >= burst_vol_limit:
-        # Vent gas mass proportional to excess volume
-        excess_fraction = (gas_vol_after - burst_vol_limit) / gas_vol_after
-        vent_mass = state.gas_mass_kg * excess_fraction * 0.1  # Vent 10% of excess per tick
-        state.gas_mass_kg -= vent_mass
-        state.gas_mass_kg = max(0.001, state.gas_mass_kg)  # Keep at least some gas
-        # Instead of bursting, the balloon now vents and continues under
-        # normal physics until it actually reaches the ground.
-        state.vent_open = True
-        # Don't set burst=True — valve prevented it!
+        # Calculate the gas mass needed for neutral buoyancy at this altitude.
+        # Neutral: (rho_air - rho_gas) * V_gas * g = total_non_gas * g
+        # => gas_mass_neutral = non_gas_mass * rho_gas / (rho_air - rho_gas)
+        # Use the same effective-pressure formula as the force model so
+        # weather pressure modifiers are handled consistently.
+        rho_air = P_amb_effective / (
+            R_AIR * atmosphere_temperature(max(0.0, state.altitude_m))
+        )
+        rho_gas = gas_density(state.gas_type, state.gas_temperature_k, P_amb_effective)
+        non_gas_mass = (state.envelope.mass_kg + state.payload_mass_kg +
+                        max(0.0, state.ballast_mass_kg - state.ballast_released_kg))
+        if rho_air > rho_gas and non_gas_mass > 0:
+            neutral_gas_kg = non_gas_mass * rho_gas / (rho_air - rho_gas)
+        else:
+            neutral_gas_kg = 0.0  # already neutrally/negatively buoyant or impossible
 
-    # Only check for burst if valve is NOT equipped OR valve couldn't prevent it
+        # Vent to 90% of neutral gas mass → slight negative buoyancy → descent
+        target_gas_kg = max(0.001, neutral_gas_kg * 0.90)
+
+        # Vent in iterations until we reach the target mass.
+        # NOTE: do NOT use volume to gate the loop — at altitude the volume
+        # shrinks (lower pressure) even though the balloon is still positively
+        # buoyant.  The real control is gas mass.
+        while state.gas_mass_kg > target_gas_kg:
+            vent_mass = state.gas_mass_kg * 0.05  # vent 5% per iteration
+            state.gas_mass_kg -= vent_mass
+            state.gas_mass_kg = max(0.001, state.gas_mass_kg)
+            gas_vol_after = gas_volume(
+                state.gas_mass_kg,
+                state.gas_type,
+                state.gas_temperature_k,
+                P_amb_effective,
+            )
+
+    # Only check for burst if valve is NOT equipped
     if not state.has_pressure_valve and state.envelope.contained_gas and gas_vol_after >= burst_vol_limit:
         state.burst = True
 
