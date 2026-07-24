@@ -991,16 +991,14 @@ class _LaunchButton(discord.ui.Button):
             landed = result_obj.landed
             crashed = result_obj.crashed
 
-            # Compute score and medal (from flight_score module)
-            # Use actual payload count from the request, not hardcoded 1
-            payload_keys = list(state.get("payloads") or [])
-            payload_count = max(1, len([pid for pid in payload_keys if pid != "none"]))
-
-            score = calculate_flight_score(peak_alt, payload_count, time_of_flight)
-            medal_name = medal_tier_to_string(peak_alt)
-            medal_emoji = get_medal_emoji(peak_alt)
+            # Use score and medal computed by FlightService (no local recomputation)
+            score = result.score
+            medal_name = result.medal_name
+            medal_emoji = result.medal_emoji
+            mission_results = result.mission_results
 
             # Resolve payload display names
+            payload_keys = list(state.get("payloads") or [])
             payload_display = ", ".join(payload_names)
             if payload_keys and "none" not in payload_keys:
                 pass  # keep as is
@@ -1026,6 +1024,16 @@ class _LaunchButton(discord.ui.Button):
                 "flight_modifier": result.weather.flight_modifier if result.weather else "",
             }
             mission_assignment = result.mission_assignment
+            # Convert typed MissionAssignment to dict for format_discord_results compatibility
+            if isinstance(mission_assignment, dict):
+                mission_assignment_dict = mission_assignment
+            else:
+                mission_assignment_dict = {
+                    "mission_ids": list(mission_assignment.mission_ids) if mission_assignment else [],
+                    "seed": mission_assignment.seed if mission_assignment else None,
+                    "missions": list(mission_assignment.mission_ids) if mission_assignment else [],
+                    "mission_count": mission_assignment.mission_count if mission_assignment else 0,
+                }
 
             # Build narrative result
             result_content = format_discord_results(
@@ -1040,11 +1048,25 @@ class _LaunchButton(discord.ui.Button):
                 env_name=env_info[0],
                 payload_names=payload_display,
                 site_name=site_info.name,
-                mission_assignment=mission_assignment,
+                mission_assignment=mission_assignment_dict,
                 player_id=player_id,
                 weather_event=weather_dict,
                 chart_str=chart,
             )
+
+            # Append mission results if any were evaluated by FlightService
+            if mission_results and len(mission_results) > 0:
+                mission_lines = ["\n🎯 **Mission Results:**"]
+                for mr in mission_results:
+                    status = "✅" if mr.completed else "❌"
+                    reward_str = f" (+{mr.reward} credits)" if mr.reward else ""
+                    mission_lines.append(f"  {status} {mr.mission_id}{reward_str}: {mr.explanation}")
+                mission_text = "\n".join(mission_lines)
+                # Append before chart, respecting 2000 char limit
+                result_content = result_content.replace(
+                    "\n" + chart,
+                    mission_text + "\n" + chart,
+                ) if chart else result_content + mission_text
 
             # Truncate if too long
             if len(result_content) > 2000:

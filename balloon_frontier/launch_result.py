@@ -541,6 +541,47 @@ def build_launch_request_from_cli(
 
 
 # ═══════════════════════════════════════════════════════════
+# Mission models (PR E additions)
+# ═══════════════════════════════════════════════════════════
+
+
+@dataclass(frozen=True, slots=True)
+class MissionAssignment:
+    """Assigned missions for a flight.
+
+    Replaces the previous ``dict`` contract that caused typos like
+    ``"missions"`` vs ``"mission_ids"`` in the CLI/Discord frontends.
+
+    Attributes:
+        mission_ids: Tuple of mission identifiers assigned to this flight.
+        seed: Deterministic seed used for selection (reproducible).
+    """
+    mission_ids: tuple[str, ...] = ()
+    seed: Optional[int] = None
+
+    @property
+    def mission_count(self) -> int:
+        """Number of missions assigned (derived from mission_ids)."""
+        return len(self.mission_ids)
+
+
+@dataclass(frozen=True, slots=True)
+class MissionResult:
+    """Result of completing (or failing) a single mission.
+
+    Attributes:
+        mission_id: The mission identifier.
+        completed: Whether the mission objectives were satisfied.
+        reward: Points awarded for this mission (0 if not completed).
+        explanation: Human-readable description of the outcome.
+    """
+    mission_id: str
+    completed: bool
+    reward: int = 0
+    explanation: str = ""
+
+
+# ═══════════════════════════════════════════════════════════
 # TelemetryPoint helper
 # ═══════════════════════════════════════════════════════════
 
