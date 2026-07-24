@@ -123,8 +123,8 @@ class GasDefinition:
     gas_behavior: str = "lighter"
 
     @property
-    def density_string(self) -> str:
-        return f"ρ={self.molar_mass} kg/m³"
+    def molar_mass_string(self) -> str:
+        return f"M={self.molar_mass} kg/mol"
 
     def matches_behavior(self, behavior: str) -> bool:
         return self.gas_behavior.lower() == behavior.lower()
@@ -281,13 +281,13 @@ class _Catalog:
                 id="zero_pressure", name="Zero-Pressure Polyethylene",
                 max_volume_m3=300.0, mass_kg=18.0,
                 drag_coefficient=1.5, burst_stretch_ratio=1.8,
-                contained_gas=True, cost=15000, safe_fill_fraction=0.65,
+                contained_gas=False, cost=15000, safe_fill_fraction=0.65,
             ),
             EnvelopeDefinition(
                 id="blimp", name="Small Non-Rigid Blimp",
                 max_volume_m3=500.0, mass_kg=45.0,
                 drag_coefficient=1.3, burst_stretch_ratio=2.0,
-                contained_gas=False, cost=50000, safe_fill_fraction=0.6,
+                contained_gas=True, cost=50000, safe_fill_fraction=0.6,
             ),
         )
 
@@ -307,12 +307,12 @@ class _Catalog:
         self._register(
             PayloadDefinition("camera",      "Camera",           1.5, 500,  False),
             PayloadDefinition("radio",       "Radio Repeater",   2.0, 800,  False),
-            PayloadDefinition("weather_sens","Weather Sensor",   0.8, 1200, False),
+            PayloadDefinition("weather_sensor", "Weather Sensor", 0.8, 1200, False),
             PayloadDefinition("battery",     "Battery Pack",     3.0, 1000, False),
             PayloadDefinition("heater",      "Heater",           2.5, 750,  False),
             PayloadDefinition("ballast",     "Ballast (Sand)",  15.0, 300,  False),
             PayloadDefinition("parachute",   "Parachute",        2.0, 600,  False),
-            PayloadDefinition("flight_comp", "Flight Computer",  1.2, 2000, False),
+            PayloadDefinition("flight_computer", "Flight Computer",  1.2, 2000, False),
             PayloadDefinition("valve",       "Pressure Valve",   0.3, 250,  True),
             # "none" is a special sentinel; not registered as a real payload
         )

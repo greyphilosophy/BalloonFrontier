@@ -67,8 +67,8 @@ class TestGasDefinition:
         ids = CATALOG.gas_ids()
         assert set(ids) == {"helium", "hydrogen", "hot_air", "methane"}
 
-    def test_density_string(self):
-        assert CATALOG.gas("helium").density_string == "ρ=0.0040026 kg/m³"
+    def test_molar_mass_string(self):
+        assert CATALOG.gas("helium").molar_mass_string == "M=0.0040026 kg/mol"
 
     def test_gases_by_behavior(self):
         lighter = CATALOG.gases_by_behavior("lighter")
@@ -113,6 +113,11 @@ class TestEnvelopeDefinition:
         e = CATALOG.envelope("blimp")
         assert e.max_volume_m3 == 500.0
         assert e.cost == 50000
+        assert e.contained_gas is True  # Non-rigid blimp retains gas
+
+    def test_zero_pressure_contained(self):
+        """Zero-pressure balloons vent excess gas, so contained_gas is False."""
+        e = CATALOG.envelope("zero_pressure")
         assert e.contained_gas is False
 
     def test_burst_volume_calculation(self):
