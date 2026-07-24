@@ -971,6 +971,8 @@ class _LaunchButton(discord.ui.Button):
                 return
 
             # Extract telemetry for chart (convert tuple back to list of dicts)
+            # Access FlightResult properties (immutable, derived)
+            result_obj = result.result
             tel = [
                 {
                     "time": tp.time_s,
@@ -980,25 +982,25 @@ class _LaunchButton(discord.ui.Button):
                     "landed": tp.landed,
                     "crashed": tp.crashed,
                 }
-                for tp in result.telemetry
+                for tp in result_obj.telemetry
             ]
 
-            # Access FlightResult properties (immutable, derived)
-            peak_alt = result.peak_altitude_m
-            time_of_flight = result.duration_s
-            burst = result.burst
-            landed = result.landed
-            crashed = result.crashed
+            peak_alt = result_obj.peak_altitude_m
+            time_of_flight = result_obj.duration_s
+            burst = result_obj.burst
+            landed = result_obj.landed
+            crashed = result_obj.crashed
 
             # Compute score and medal (from flight_score module)
-            payload_count = 1  # At least 1 for scoring
+            # Use actual payload count from the request, not hardcoded 1
+            payload_keys = list(state.get("payloads") or [])
+            payload_count = max(1, len([pid for pid in payload_keys if pid != "none"]))
 
             score = calculate_flight_score(peak_alt, payload_count, time_of_flight)
             medal_name = medal_tier_to_string(peak_alt)
             medal_emoji = get_medal_emoji(peak_alt)
 
-            # Resolve payload display names from Discord state
-            payload_keys = list(state.get("payloads") or [])
+            # Resolve payload display names
             payload_display = ", ".join(payload_names)
             if payload_keys and "none" not in payload_keys:
                 pass  # keep as is
@@ -1016,15 +1018,14 @@ class _LaunchButton(discord.ui.Button):
             # Get player ID from the interaction for progression tracking
             player_id = str(interaction.user.id) if hasattr(interaction, 'user') and interaction.user else "anonymous"
 
-            # Get weather and mission data from the prepared launch
-            prep = flight_service.prepare(launch_request)
+            # Get weather and mission data from the FlightOutcome (no second prepare())
             weather_dict = {
-                "name": prep.weather.name if prep.weather else "",
-                "description": prep.weather.description if prep.weather else "",
-                "severity": prep.weather.severity if prep.weather else "",
-                "flight_modifier": prep.weather.flight_modifier if prep.weather else "",
+                "name": result.weather.name if result.weather else "",
+                "description": result.weather.description if result.weather else "",
+                "severity": result.weather.severity if result.weather else "",
+                "flight_modifier": result.weather.flight_modifier if result.weather else "",
             }
-            mission_assignment = prep.mission_assignment
+            mission_assignment = result.mission_assignment
 
             # Build narrative result
             result_content = format_discord_results(
