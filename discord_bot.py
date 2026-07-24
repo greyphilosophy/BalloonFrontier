@@ -1,13 +1,14 @@
 """Balloon Frontier — Discord Bot
 
 Interactive select-menu UI for the balloon simulation game.
-Uses the Python physics engine (`balloon_frontier/physics.py`).
+Uses the Python physics engine (balloon_frontier/physics.py).
 """
 
 import asyncio
 import logging
 import os
 import traceback
+from typing import List, Optional
 
 import discord
 from discord.ext import commands
@@ -34,8 +35,22 @@ from balloon_frontier.launch_sites import LaunchSiteInfo
 from balloon_frontier.narrative_result import format_discord_results
 from balloon_frontier.weather_event import generate_weather, weather_impact_on_flight, format_weather_briefing
 from balloon_frontier.missions import load_mission_directory
+from balloon_frontier.progression import (
+    PlayerRegistry,
+    ENVELOPES as PROGRESSION_ENVELOPES,
+    list_unlocked_envelopes,
+    list_locked_envelopes,
+    list_unlocked_payloads,
+    list_locked_payloads,
+    list_unlocked_sites,
+    list_locked_sites,
+    get_envelope,
+    PAYLOAD_UNLOCKS,
+    SITES,
+)
 
 logger = logging.getLogger("balloon_frontier_bot")
+
 
 # ─── Game Data ────────────────────────────────────────────────────────
 
@@ -96,9 +111,9 @@ SITE_OPTIONS = {
 
 FILL_MODES = {
     "auto": {"label": "Auto (Optimal)", "description": "Calculated optimal fill"},
-    "light": {"label": "Light", "description": "Less free lift — slower ascent, higher burst"},
+    "light": {"label": "Light", "description": "Less free lift -- slower ascent, higher burst"},
     "normal": {"label": "Normal", "description": "Baseline optimal fill"},
-    "heavy": {"label": "Heavy", "description": "More free lift — faster ascent, earlier burst"},
+    "heavy": {"label": "Heavy", "description": "More free lift -- faster ascent, earlier burst"},
     "manual": {"label": "Manual", "description": "Your chosen gas mass"},
 }
 
@@ -128,6 +143,7 @@ def run_simulation(
     drag_coeff,
     envelope_vol,
     stretch_ratio,
+    envelope_mass_kg=1.0,  # Dry mass of the envelope material
     *,
     mission_assignment=None,
     env_config=None,
@@ -164,7 +180,7 @@ def run_simulation(
             max_volume_m3=envelope_vol,
             burst_stretch_ratio=stretch_ratio,
             drag_coefficient=drag_coeff,
-            mass_kg=1.0,  # default envelope mass for Discord mode
+            mass_kg=envelope_mass_kg,
             contained_gas=True,
         )
 
@@ -190,14 +206,14 @@ def run_simulation(
         weather_drift_multiplier=env_config.weather_drift_multiplier if weather_impacts else 1.0,
         wind_enabled=True,
         wind_site_id="field",
-        ballast_mass_kg=0.0,  # User controls mass entirely via payloads — no hidden ballast
+        ballast_mass_kg=0.0,  # User controls mass entirely via payloads -- no hidden ballast
         has_pressure_valve=has_pressure_valve,  # Valve prevents burst by venting gas
     )
 
     # Run with the full physics engine. Time limit depends on whether missions are active.
     # For mission launches we may need up to 12 hours (43200s) of flight time.
     # We set step_interval=1.0 to store only 1 sample per second, avoiding 432k ticks
-    # in memory. Physics still runs at dt=0.1 internally — we just skip storing intermediate
+    # in memory. Physics still runs at dt=0.1 internally -- we just skip storing intermediate
     # steps, so we don't need post-hoc downsampling or peak-memory spikes.
     if mission_assignment:
         max_time = 43200.0  # 12 hours default for mission launches
@@ -217,7 +233,7 @@ def run_simulation(
             "payload_count": 1,
             "score": 0,
             "medal": medal_tier_to_string(0),
-            "medal_emoji": "⚪",
+            "medal_emoji": "\u26aa",
         }
 
     # Extract peak altitude and burst from the full telemetry.
@@ -280,7 +296,7 @@ def format_score_breakdown(score, peak_alt, payload_count, time_of_flight):
     lines.append(f"  Altitude: {alt_pts:,} pts")
     lines.append(f"  Payloads: {pay_pts:,} pts")
     lines.append(f"  Time: {time_pts:,} pts")
-    lines.append(f"  ─────────────────")
+    lines.append(f"  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
     lines.append(f"  TOTAL: {int(score):,} pts")
     return "\n".join(lines)
 
@@ -303,9 +319,9 @@ def make_result_embed(gas_name, gas_mass, env_name, payload_name, site_name,
     medal_emoji = summary.get("medal_emoji", get_medal_emoji(peak))
 
     target = 30000
-    status = "🟢" if peak >= target else "🟡" if peak >= target * 0.7 else "🔵"
+    status = "\U0001f7e2" if peak >= target else "\U0001f7e1" if peak >= target * 0.7 else "\U0001f535"
 
-    lines = ["🎈 **Launch Report**\n"]
+    lines = ["\U0001f388 **Launch Report**\n"]
     lines.append(f"Gas: {gas_name} | Mass: {gas_mass}kg")
     lines.append(f"Envelope: {env_name}")
     lines.append(f"Site: {site_name}\n")
@@ -316,12 +332,13 @@ def make_result_embed(gas_name, gas_mass, env_name, payload_name, site_name,
 
     lines.append(f"Altitude: {status} {peak:,.0f}m / {target:,}m target")
     lines.append(f"Time of Flight: {time_of_flight:.1f}s")
-    lines.append(f"Burst: {'💥 Yes' if burst else '🟢 No'}")
+    burst_text = "\U0001f4a5 Yes" if burst else "\U0001f7e2 No"
+    lines.append(f"Burst: {burst_text}")
     lines.append(f"Medal: {medal_emoji} **{medal_name}**")
     lines.append("")
 
     # Score section
-    lines.append("🏆 **Score Breakdown**")
+    lines.append("\U0001f3c6 **Score Breakdown**")
     lines.append(format_score_breakdown(score, peak, payload_count, time_of_flight))
     lines.append("")
 
@@ -330,15 +347,15 @@ def make_result_embed(gas_name, gas_mass, env_name, payload_name, site_name,
     alt_arr = [r["alt"] for r in telemetry]
     chart = chart_to_string(
         time_arr, alt_arr,
-        title="📈 Flight Trajectory"
+        title="\U0001f4c8 Flight Trajectory"
     )
 
     lines.append(chart + "\n")
     # Telemetry
     sampled = telemetry[::1]
     for r in sampled[:15]:
-        v_dir = "↑" if r["vel"] > 0 else "↓"
-        lines.append(f"⏱ {r['time']:.0f}s  {r['alt']:>8,.0f}m  {v_dir}")
+        v_dir = "\u2191" if r["vel"] > 0 else "\u2193"
+        lines.append(f"\u23f1 {r['time']:.0f}s  {r['alt']:>8,.0f}m  {v_dir}")
 
     content = "\n".join(lines)
     return content
@@ -362,7 +379,7 @@ async def on_message(message):
     await bot.process_commands(message)
 
 
-# ─── Configurator — step-by-step interactive walkthrough ──────────
+# ─── Configurator -- step-by-step interactive walkthrough ──────────
 
 # Step enumeration (used in button styles)
 class _Step:
@@ -446,6 +463,28 @@ class BalloonConfigurator(discord.ui.View):
         if interaction is not None and interaction.message is not None:
             self._msg = interaction.message
 
+    def _get_player_state(self) -> Optional["PlayerState"]:
+        """Look up the current Discord user's player state."""
+        if hasattr(self, "_msg") and self._msg is not None:
+            try:
+                user_id = self._msg.author.id if self._msg.author else None
+            except Exception:
+                user_id = None
+        else:
+            user_id = None
+        if user_id is None:
+            user_id = "anonymous"
+        return PlayerRegistry.get_or_create(str(user_id))
+
+    def _is_item_unlocked(self, item_key: str) -> bool:
+        """Discord configuration shows all items regardless of progression.
+
+        Progression unlocks gate mission eligibility and the in-game shop,
+        not the configuration UI itself. Players can experiment with any
+        balloon type.
+        """
+        return True
+
     def _step_content(self) -> str:
         step = self._current_step
         if step == _Step.REVIEW_LAUNCH:
@@ -453,27 +492,65 @@ class BalloonConfigurator(discord.ui.View):
 
         label = self.STEP_LABELS[step]
         lines = [
-            f"🔧 **Balloon Configuration**\n",
+            f"\U0001f527 **Balloon Configuration**\n",
             f"**Step {step + 1}/{len(self.STEPS)}:** {label}\n",
         ]
 
+        # Pull progression data so we can mark locked items
+        player = self._get_player_state()
+
         if step == _Step.CHOOSE_GAS:
             for i, (k, v) in enumerate(GAS_OPTIONS.items(), 1):
-                lines.append(f"{i}  {v[0]}  (ρ={v[1]} kg/m³, ${v[2]}/kg)")
+                lines.append(f"{i}  {v[0]}  (\u03c1={v[1]} kg/m\u00b3, ${v[2]}/kg)")
         elif step == _Step.CHOOSE_ENVELOPE:
-            for i, (k, v) in enumerate(ENVELOPE_OPTIONS.items(), 1):
-                lines.append(f"{i}  {v[0]}  ({v[1]}m³)")
+            prog_env_lookup = {e.id: e for e in PROGRESSION_ENVELOPES}
+            for i, (key, v) in enumerate(ENVELOPE_OPTIONS.items(), 1):
+                prog_env = prog_env_lookup.get(key)
+                unlocked = player.is_envelope_unlocked(key) if player else key == "latex"
+                if unlocked:
+                    lines.append(f"{i}  {v[0]}  ({v[1]}m\u00b3)")
+                else:
+                    needs = ""
+                    if prog_env and (prog_env.cost > 0 or prog_env.min_reputation > 0):
+                        if prog_env.cost > 0 and prog_env.min_reputation > 0:
+                            needs = f" \U0001f512 Needs {prog_env.cost} credits OR {prog_env.min_reputation} rep"
+                        elif prog_env.cost > 0:
+                            needs = f" \U0001f512 Needs {prog_env.cost} credits"
+                        else:
+                            needs = f" \U0001f512 Needs {prog_env.min_reputation} reputation"
+                    else:
+                        needs = " (unlocked!) \U0001f513"
+                    lines.append(f"{i}  {v[0]}  ({v[1]}m\u00b3){needs}")
         elif step == _Step.CHOOSE_FILL:
             for i, (k, info) in enumerate(FILL_MODES.items(), 1):
                 lines.append(f"{i}  {info['label']}")
                 lines.append(f"     {info['description']}")
         elif step == _Step.CHOOSE_PAYLOADS:
-            for i, (k, v) in enumerate(PAYLOAD_OPTIONS.items(), 1):
-                lines.append(f"{i}  {v[0]}  ({v[1]}kg, ${v[2]})")
+            prog_payload_lookup = {p.id: p for p in PAYLOAD_UNLOCKS}
+            for i, (key, v) in enumerate(PAYLOAD_OPTIONS.items(), 1):
+                prog_payload = prog_payload_lookup.get(key)
+                unlocked = True
+                lock_note = ""
+                if prog_payload is not None:
+                    unlocked = player.is_payload_unlocked(key) if player else True
+                    if not unlocked:
+                        lock_note = f" \U0001f512 ({prog_payload.min_reputation}rep/{prog_payload.cost}cr)"
+                lines.append(f"{i}  {v[0]}  ({v[1]}kg, ${v[2]}){lock_note}")
         elif step == _Step.CHOOSE_SITE:
-            for i, (_, v) in enumerate(SITE_OPTIONS.items(), 1):
+            prog_site_lookup = {s.id: s for s in SITES}
+            for i, (key, v) in enumerate(SITE_OPTIONS.items(), 1):
+                prog_site = prog_site_lookup.get(key)
+                unlocked = True
+                lock_note = ""
+                if prog_site is not None:
+                    unlocked = player.is_site_unlocked(key) if player else True
+                    if not unlocked:
+                        lock_note = f" \U0001f512 (Needs {prog_site.min_reputation}rep / {prog_site.cost}cr)"
                 lines.append(f"{i}  {v.name}")
-                lines.append(f"     {v.description}")
+                if v.description:
+                    lines.append(f"     {v.description}")
+                if lock_note:
+                    lines.append(lock_note)
 
         lines.append("")
         cur = self.state
@@ -481,6 +558,8 @@ class BalloonConfigurator(discord.ui.View):
             lines.append(
                 "Click a button to select. Use < Back to go earlier."
             )
+        if player:
+            lines.append(f"\u26a1 You have {player.reputation} reputation and ${player.budget} budget.")
         return "\n".join(lines)
 
     # ── Step navigation ───────────────────────────────────────────
@@ -505,7 +584,7 @@ class BalloonConfigurator(discord.ui.View):
     # ── Option helpers ────────────────────────────────────────────
 
     def _option_by_index(self, index: int, options: dict, multi: bool = False):
-        """Resolve a 1-based button index → option key(s)."""
+        """Resolve a 1-based button index \u2192 option key(s)."""
         keys = list(options.keys())
         idx = index - 1
         if idx < 0 or idx >= len(keys):
@@ -519,10 +598,34 @@ class BalloonConfigurator(discord.ui.View):
                 if not current:
                     current = {"none"}
             elif selected == "none":
-                # "none" selected after real payloads → clear to just {"none"}
+                # "none" selected after real payloads \u2192 clear to just {"none"}
                 current = {"none"}
             else:
-                # Real payload selected → remove sentinel, add real one
+                # Real payload selected \u2192 remove sentinel, add real one
+                current.discard("none")
+                current.add(selected)
+            self.state["payloads"] = list(current)
+            return list(current)
+        return keys[idx]
+
+    def _option_by_index_filtered(
+        self, index: int, options: dict, multi: bool = False
+    ) -> Optional[List[str]]:
+        """Resolve a 1-based button index \u2192 option key(s), filtering out locked items first."""
+        keys = [k for k in options.keys() if self._is_item_unlocked(k)]
+        idx = index - 1
+        if idx < 0 or idx >= len(keys):
+            return None
+        if multi:
+            selected = keys[idx]
+            current = set(self.state["payloads"])
+            if selected in current:
+                current.discard(selected)
+                if not current:
+                    current = {"none"}
+            elif selected == "none":
+                current = {"none"}
+            else:
                 current.discard("none")
                 current.add(selected)
             self.state["payloads"] = list(current)
@@ -538,7 +641,19 @@ class BalloonConfigurator(discord.ui.View):
         await self._advance(interaction)
 
     async def _on_envelope(self, interaction, index: int):
-        key = self._option_by_index(index, ENVELOPE_OPTIONS) or "envelope"
+        key = self._option_by_index(index, ENVELOPE_OPTIONS)
+        if key is None:
+            key = "envelope"
+        # Block locked envelopes
+        player = self._get_player_state()
+        if not player.is_envelope_unlocked(key):  # type: ignore[arg-type]
+            prog_env = get_envelope(key)
+            await interaction.response.send_message(
+                f"\U0001f512 **{prog_env.name}** is locked!\n"
+                f"Unlock by reaching {prog_env.min_reputation} reputation OR {prog_env.cost} credits.",
+                ephemeral=True,
+            )
+            return
         self.state["envelope"] = key
         self.state["gas_mass"] = self._compute_gas_mass()
         await self._advance(interaction)
@@ -550,14 +665,29 @@ class BalloonConfigurator(discord.ui.View):
         await self._advance(interaction)
 
     async def _on_payload(self, interaction, index: int):
-        self._option_by_index(index, PAYLOAD_OPTIONS, multi=True)
+        filtered = [k for k in PAYLOAD_OPTIONS.keys() if self._is_item_unlocked(k)]
+        key = self._option_by_index_filtered(index, PAYLOAD_OPTIONS, multi=True)
+        if key is None or (isinstance(key, list) and len(key) == 0):
+            await interaction.response.send_message(
+                "That option isn't available right now.",
+                ephemeral=True,
+            )
+            return
         self.state["gas_mass"] = self._compute_gas_mass()
         # Rebuild buttons and edit message (no auto-advance for payloads)
         self.build_buttons()
         await self._send_step(interaction)
 
     async def _on_site(self, interaction, index: int):
-        key = self._option_by_index(index, SITE_OPTIONS) or "site"
+        filtered_keys = [k for k in SITE_OPTIONS.keys() if self._is_item_unlocked(k)]
+        idx = index - 1
+        if idx < 0 or idx >= len(filtered_keys):
+            await interaction.response.send_message(
+                "That option isn't available right now.",
+                ephemeral=True,
+            )
+            return
+        key = filtered_keys[idx]
         self.state["site"] = key
         self.state["gas_mass"] = self._compute_gas_mass()
         await self._advance(interaction)
@@ -581,18 +711,19 @@ class BalloonConfigurator(discord.ui.View):
             for i in range(1, len(GAS_OPTIONS) + 1):
                 self.add_item(_OptionButton(i, f"Choose gas {i}", self._on_gas))
         elif self._current_step == _Step.CHOOSE_ENVELOPE:
-            for i in range(1, len(ENVELOPE_OPTIONS) + 1):
+            # Only show unlocked envelopes as buttons
+            for i, key in enumerate([k for k in ENVELOPE_OPTIONS if self._is_item_unlocked(k)], 1):
                 self.add_item(_OptionButton(i, f"Choose envelope {i}", self._on_envelope))
         elif self._current_step == _Step.CHOOSE_FILL:
             for i in range(1, len(FILL_MODES) + 1):
                 self.add_item(_OptionButton(i, f"Choose fill {i}", self._on_fill))
             self.add_item(_ManualGasMassButton(self))
         elif self._current_step == _Step.CHOOSE_PAYLOADS:
-            for i in range(1, len(PAYLOAD_OPTIONS) + 1):
+            for i, key in enumerate([k for k in PAYLOAD_OPTIONS if self._is_item_unlocked(k)], 1):
                 self.add_item(_OptionButton(i, f"Toggle payload {i}", self._on_payload))
             self.add_item(_NextButton(self))
         elif self._current_step == _Step.CHOOSE_SITE:
-            for i in range(1, len(SITE_OPTIONS) + 1):
+            for i, key in enumerate([k for k in SITE_OPTIONS if self._is_item_unlocked(k)], 1):
                 self.add_item(_OptionButton(i, f"Choose site {i}", self._on_site))
         elif self._current_step == _Step.REVIEW_LAUNCH:
             self.add_item(_LaunchButton(self))
@@ -662,14 +793,14 @@ class BalloonConfigurator(discord.ui.View):
             gas_mass = self._compute_gas_mass()
             self.state["gas_mass"] = gas_mass
         fill_label = FILL_MODES[s["fill_mode"]]["label"]
-        lines = [f"🎈 **Balloon Configuration**\n"]
+        lines = [f"\U0001f388 **Balloon Configuration**\n"]
         lines.append(f"Gas: {gas[0]}")
-        lines.append(f"Fill: {fill_label} → {gas_mass:.3f} kg")
-        lines.append(f"Envelope: {env[0]} — {env[1]}m³")
+        lines.append(f"Fill: {fill_label} \u2192 {gas_mass:.3f} kg")
+        lines.append(f"Envelope: {env[0]} \u2014 {env[1]}m\u00b3")
         lines.append(f"Payloads: {', '.join(payload_names)}")
         lines.append(f"Site: {site.name}")
         lines.append(f"Total mass: {gas_mass + env[2] + payload_mass:.1f} kg\n")
-        lines.append("Review looks good? Hit **Launch**! 🚀")
+        lines.append("Review looks good? Hit **Launch**! \U0001f680")
         return "\n".join(lines)
 
 
@@ -694,7 +825,7 @@ class _BackButton(discord.ui.Button):
     """Back button present on every step except the first."""
     def __init__(self, parent: BalloonConfigurator):
         super().__init__(
-            label="◀ Back",
+            label="\u25c0 Back",
             style=discord.ButtonStyle.secondary,
             custom_id="cfg_back",
         )
@@ -723,7 +854,7 @@ class _NextButton(discord.ui.Button):
     """Button that advances to the next walkthrough step."""
     def __init__(self, parent: "BalloonConfigurator"):
         super().__init__(
-            label="Next ▶",
+            label="Next \u25b6",
             style=discord.ButtonStyle.success,
             custom_id="cfg_next",
         )
@@ -757,7 +888,7 @@ class _ManualGasMassModal(discord.ui.Modal):
             val = float(str(self.mass_input.value).strip())
         except Exception:
             await interaction.response.send_message(
-                "❌ Please enter a valid number for gas mass.",
+                "\u274c Please enter a valid number for gas mass.",
                 ephemeral=True,
             )
             return
@@ -773,13 +904,13 @@ class _ManualGasMassModal(discord.ui.Modal):
             )
 
         await interaction.response.send_message(
-            "✅ Manual gas mass updated.",
+            "\u2705 Manual gas mass updated.",
             ephemeral=True,
         )
 
 
 class _LaunchButton(discord.ui.Button):
-    def __init__(self, parent, label="🚀 Launch", callback=None):
+    def __init__(self, parent, label="\U0001f680 Launch", callback=None):
         super().__init__(label=label, style=discord.ButtonStyle.success)
         self._parent = parent
 
@@ -817,6 +948,8 @@ class _LaunchButton(discord.ui.Button):
                 payload_count=payload_count,
                 seed=mission_seed,
                 mission_count=mission_count,
+                selected_payloads=payload_keys,
+                launch_site=state["site"],
             )
 
             site_cond = self._parent._get_site_conditions()
@@ -844,6 +977,7 @@ class _LaunchButton(discord.ui.Button):
                 run_simulation,
                 state["gas"], gas_mass, site_cond["gas_temperature"], payload_mass,
                 env_info[3], env_info[1], env_info[4],
+                envelope_mass_kg=env_info[2],
                 mission_assignment=mission_assignment,
                 weather_impacts=weather_impacts,
                 has_pressure_valve=has_pressure_valve,
@@ -860,7 +994,7 @@ class _LaunchButton(discord.ui.Button):
             alt_arr = [r["alt"] for r in tel]
             chart = chart_to_string(
                 time_arr, alt_arr,
-                title="📈 Flight Trajectory"
+                title="\U0001f4c8 Flight Trajectory"
             )
 
             # Get player ID from the interaction for progression tracking
@@ -892,7 +1026,7 @@ class _LaunchButton(discord.ui.Button):
         except Exception:
             logger.exception("Balloon launch failed")
             await interaction.edit_original_response(
-                content="❌ The launch simulation failed. Please try again.",
+                content="\u274c The launch simulation failed. Please try again.",
                 view=None,
             )
 
@@ -908,12 +1042,12 @@ async def cmd_launch(ctx):
 @bot.command(name="physics")
 async def cmd_physics(ctx):
     content = (
-        "⚙️ **Physics Model**\n\n"
-        "• ρ = P / (R_air × T)\n"
-        "• F_buoy = ρ_air × g × V\n"
-        "• F_drag = 0.5 × ρ × v² × C_d × A\n"
-        "• PV = nRT\n"
-        "• Fixed-step Euler: Δt = 0.5s"
+        "\u2699\ufe0f **Physics Model**\n\n"
+        "\u2022 \u03c1 = P / (R_air \u00d7 T)\n"
+        "\u2022 F_buoy = \u03c1_air \u00d7 g \u00d7 V\n"
+        "\u2022 F_drag = 0.5 \u00d7 \u03c1 \u00d7 v\u00b2 \u00d7 C_d \u00d7 A\n"
+        "\u2022 PV = nRT\n"
+        "\u2022 Fixed-step Euler: \u0394t = 0.5s"
     )
     await ctx.send(content)
 
@@ -921,11 +1055,101 @@ async def cmd_physics(ctx):
 @bot.command(name="help")
 async def cmd_help(ctx):
     content = (
-        "🎈 **Balloon Frontier**\n\n"
-        "• `/launch` — Open the balloon configurator\n"
-        "• `/physics` — View the physics equations\n"
-        "• `/help` — This message"
+        "\U0001f388 **Balloon Frontier**\n\n"
+        "\u2022 `/launch` \u2014 Open the balloon configurator\n"
+        "\u2022 `/physics` \u2014 View the physics equations\n"
+        "\u2022 `/help` \u2014 This message"
     )
+    await ctx.send(content)
+
+
+@bot.command(name="profile")
+async def cmd_profile(ctx):
+    """Show player status and equipment unlock progress."""
+    try:
+        user_id = str(ctx.author.id) if ctx.author else "anonymous"
+        player = PlayerRegistry.get_or_create(user_id)
+    except Exception:
+        await ctx.send("\u26a0\ufe0f Unable to load player profile.")
+        return
+
+    lines = [
+        f"\u26a1 **{user_id}'s Profile**",
+        f"  Reputation: {player.reputation}",
+        f"  Budget: ${player.budget}",
+        f"  Flights: {player.total_flights} ({player.successful_flights} successful)",
+        "",
+        "=== ENVELOPES ===",
+    ]
+
+    for env in PROGRESSION_ENVELOPES:
+        unlocked = player.is_envelope_unlocked(env.id)
+        mark = "\u2705" if unlocked else "\U0001f512"
+        detail = ""
+        if not unlocked:
+            rep_ok = player.reputation >= env.min_reputation
+            budget_ok = player.budget >= env.cost
+            if rep_ok and budget_ok:
+                pass  # should be unlocked \u2014 race condition; treat as unlocked
+            elif rep_ok:
+                detail = f"({env.cost - player.budget} more credits needed)"
+            elif budget_ok:
+                detail = f"({env.min_reputation - player.reputation} more reputation needed)"
+            else:
+                rep_need = env.min_reputation - player.reputation
+                cost_need = env.cost - player.budget
+                r_pct = (player.reputation / env.min_reputation * 100) if env.min_reputation > 0 else 100
+                c_pct = (player.budget / env.cost * 100) if env.cost > 0 else 100
+                closest = "reputation" if r_pct < c_pct else "credits"
+                if closest == "reputation":
+                    detail = f"({rep_need} rep closer, {cost_need} cr away)"
+                else:
+                    detail = f"({cost_need} cr closer, {rep_need} rep away)"
+        lines.append(f"{mark} {env.name}{(' ' + detail) if detail else ''}")
+
+    lines.append("")
+    lines.append("=== PAYLOADS ===")
+    advanced_unseen = False
+    for p in PAYLOAD_UNLOCKS:
+        unlocked = player.is_payload_unlocked(p.id)
+        mark = "\u2705" if unlocked else "\U0001f512"
+        if unlocked:
+            continue  # Hide already-unlocked basic payloads
+        # Show locked advanced payloads only
+        if p.min_reputation > 0 or p.cost > 0:
+            advanced_unseen = True
+            rep_needed = max(0, p.min_reputation - player.reputation)
+            cr_needed = max(0, p.cost - player.budget)
+            lines.append(f"{mark} {p.name} \u2014 {p.description}")
+            if rep_needed == 0:
+                lines.append(f"   Needs {cr_needed} more credits")
+            elif cr_needed == 0:
+                lines.append(f"   Needs {rep_needed} more reputation")
+            else:
+                lines.append(f"   Needs {min(rep_needed, cr_needed)} of either rep/credits to progress")
+    if not advanced_unseen:
+        lines.append("\u2705 All payload types unlocked!")
+
+    lines.append("")
+    lines.append("=== SITES ===")
+    for s in SITES:
+        unlocked = player.is_site_unlocked(s.id)
+        mark = "\u2705" if unlocked else "\U0001f512"
+        detail = ""
+        if not unlocked:
+            rep_needed = max(0, s.min_reputation - player.reputation)
+            cr_needed = max(0, s.cost - player.budget)
+            if rep_needed == 0:
+                detail = f"({cr_needed} more credits)"
+            elif cr_needed == 0:
+                detail = f"({rep_needed} more reputation)"
+            else:
+                detail = f"{rep_needed}/{cr_needed}"
+        lines.append(f"{mark} {s.name}{(' ' + detail) if detail else ''}")
+
+    content = "\n".join(lines)
+    if len(content) > 2000:
+        content = content[:1997] + "\n\n...(truncated)"
     await ctx.send(content)
 
 

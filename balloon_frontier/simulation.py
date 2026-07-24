@@ -291,6 +291,10 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
         acceleration_y = 0.0
         acceleration_x = 0.0
 
+    # Apply weather ascent modifier (updrafts/downdrafts affect vertical acceleration)
+    weather_ascent_mult = getattr(state, 'weather_ascent_multiplier', 1.0)
+    acceleration_y *= weather_ascent_mult
+
     state.vx_mps += acceleration_x * dt
     state.x_m += state.vx_mps * dt
 
