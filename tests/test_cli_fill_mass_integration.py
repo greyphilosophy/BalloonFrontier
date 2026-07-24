@@ -43,7 +43,9 @@ def test_displayed_mass_equals_simulation_state(balloon_id, gas_id, fill_mode):
         return "1"
 
     def fake_choice(max_val, prompt):
-        return 0
+        # Select the mode matching the parameterized fill_mode, not always index 0.
+        index = list(FillMode).index(fill_mode)
+        return index
 
     def fake_print(*args, **kwargs):
         captured_output.append(" ".join(str(a) for a in args))
@@ -58,28 +60,27 @@ def test_displayed_mass_equals_simulation_state(balloon_id, gas_id, fill_mode):
     # We need to find the line for the specific selected mode and parse its mass.
     import re
 
-    # Build the expected menu-line pattern: e.g. "2. Light: 20% less gas — slower ascent (1.2 kg)"
+    # Build the expected menu-line pattern: e.g. "  2. Light: Less free lift..."
     mode_name = fill_mode.label  # e.g. "Light", "Normal", "Heavy", "Auto"
     menu_lines = []
     for line in captured_output:
-        # Menu lines start with a digit (the index)
-        if re.match(r'^\d+\.\s' + re.escape(mode_name) + r':', line):
+        # Menu lines start with optional whitespace, then a digit, dot, space, and the mode label
+        if re.match(r'^\s*\d+\.\s' + re.escape(mode_name) + r':', line):
             menu_lines.append(line)
             break
 
-    if menu_lines:
-        display_text = menu_lines[0]
-        # Extract mass_str from parentheses at the end
-        match = re.search(r"\(([^)]+)\)\s*$", display_text)
-        if match:
-            displayed_mass_str = match.group(1)
-        else:
-            displayed_mass_str = display_text
+    assert menu_lines, (
+        f"No displayed mass found for {fill_mode.label}; "
+        f"output was: {captured_output}"
+    )
 
+    display_text = menu_lines[0]
+    # Extract mass_str from parentheses at the end
+    match = re.search(r"\(([^)]+)\)\s*$", display_text)
+    if match:
+        displayed_mass_str = match.group(1)
     else:
-        # Fallback: just check that something was printed
-        assert captured_output, "show_fill_presets should have printed something"
-        return  # Cannot validate mass string if format changed
+        displayed_mass_str = display_text
 
     # 3. Build the same LaunchRequest that play() would build
     balloon = CATALOG.balloon(balloon_id)

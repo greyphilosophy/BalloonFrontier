@@ -50,8 +50,6 @@ def show_fill_presets(balloon_key, gas_type):
     authoritative source: LaunchRequest.gas_mass_kg.  The same object
     is then reused for the final launch.
     """
-    from balloon_frontier.flight_service import flight_service
-
     balloon = CATALOG.balloon(balloon_key)
     gas = CATALOG.gas(gas_type)
 
@@ -270,7 +268,7 @@ def show_results(outcome: FlightOutcome, balloon_key, gas_type, gas_mass, payloa
 
     # Show missions if assigned
     if outcome.mission_assignment:
-        mission_ids = outcome.mission_assignment.get("missions", [])
+        mission_ids = outcome.mission_assignment.get("mission_ids", [])
         if mission_ids:
             print(f"\n  Missions:   {', '.join(mission_ids)}")
 
