@@ -81,6 +81,8 @@ def select_missions(
     mission_count: int,
     seed: Optional[int] = None,
     mission_dir: Optional[str] = None,
+    selected_payloads: Optional[List[str]] = None,
+    launch_site: Optional[str] = None,
 ) -> List[str]:
     """Select mission IDs from the mission pool.
 
@@ -89,6 +91,10 @@ def select_missions(
             and to the pool size.
         seed: Optional deterministic seed.
         mission_dir: Optional mission directory override for lazy loading.
+        selected_payloads: Payload keys the player selected (e.g. ["camera", "battery"]).
+            Only missions whose required_payloads are a subset of these are eligible.
+        launch_site: The site the player is launching from (e.g. "field", "mountain", "rooftop").
+            Only missions whose launch_site is None or matches this site are eligible.
 
     Returns:
         A list of selected mission IDs (unique, length <= mission_count).
@@ -101,11 +107,35 @@ def select_missions(
         if not pool_ids:
             return fallback_mission_ids()
 
+        # Filter by launch_site and required_payloads compatibility.
+        # Use a set for selected_payloads so an empty list is treated correctly
+        # (missions with required_payloads are excluded when the player has none).
+        selected = set(selected_payloads or [])
+        eligible_ids = []
+        for mid in pool_ids:
+            m = MISSIONS[mid]
+            # Site check: None on the mission means any site.
+            # When the caller doesn't specify a site (None), don't filter.
+            if launch_site is not None and m.launch_site is not None and m.launch_site != launch_site:
+                continue
+            # Payload check: all required_payloads must be subset of selected.
+            # When the player has no payloads selected (empty set), any mission
+            # that requires payloads is excluded.
+            if not set(m.required_payloads or []).issubset(selected):
+                continue
+            eligible_ids.append(mid)
+
+        # No compatible missions means no assignment — do not fall back to
+        # the incompatible pool. Callers can use the returned empty list to
+        # skip the mission phase entirely.
+        if not eligible_ids:
+            return []
+
         n_raw = int(mission_count)
         if n_raw < 1:
             return fallback_mission_ids()
         n = max(DEFAULT_MISSION_COUNT_RANGE[0], min(DEFAULT_MISSION_COUNT_RANGE[1], n_raw))
-        n = min(n, len(pool_ids))
+        n = min(n, len(eligible_ids))
 
         if seed is None:
             rng = random.Random()
@@ -113,7 +143,7 @@ def select_missions(
             rng = random.Random(int(seed))
 
         # random.sample guarantees uniqueness.
-        return rng.sample(pool_ids, n)
+        return rng.sample(eligible_ids, n)
 
     except Exception:
         # Any selection error should not crash flight start.
@@ -136,13 +166,23 @@ def assign_missions_to_flight(
     payload_count: int,
     seed: Optional[int] = None,
     mission_count: Optional[int] = None,
+    selected_payloads: Optional[List[str]] = None,
+    launch_site: Optional[str] = None,
 ) -> dict:
-    """Convenience wrapper returning a flight/session-friendly mission assignment."""
+    """Convenience wrapper returning a flight/session-friendly mission assignment.
 
+    Filters the mission pool by compatibility (launch_site and required_payloads)
+    so players cannot receive missions they cannot perform.
+    """
     if mission_count is None:
         mission_count = choose_mission_count(payload_count)
 
-    mission_ids = select_missions(mission_count=mission_count, seed=seed)
+    mission_ids = select_missions(
+        mission_count=mission_count,
+        seed=seed,
+        selected_payloads=selected_payloads,
+        launch_site=launch_site,
+    )
 
     return {
         "mission_count": len(mission_ids),

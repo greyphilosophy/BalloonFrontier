@@ -283,6 +283,29 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     weather_burst_mod = getattr(state.envelope, 'weather_burst_risk_modifier', 1.0)
     weather_drift_mult = getattr(state, 'weather_drift_multiplier', 1.0)
 
+    # ── Vertical weather wind (analogous to horizontal wind drift) ──
+    # weather_ascent_multiplier is a multiplicative modifier centered on 1.0.
+    # Convert to a signed vertical air velocity so the relative-velocity drag
+    # model behaves correctly (neutral = 0 m/s wind, not 1 m/s upward).
+    weather_ascent_mult = getattr(state, 'weather_ascent_multiplier', 1.0)
+    vertical_wind_mps = float(weather_ascent_mult - 1.0)
+    v_rel_y_mps = float(state.velocity_mps) - vertical_wind_mps
+
+    # Recompute vertical drag from relative velocity (like horizontal drag).
+    # F_drag_vertical was originally computed with still-air velocity above.
+    # Replace it with drag from v_balloon - v_air.
+    F_drag_y_mag = drag_force(
+        v_rel_y_mps,
+        max(0.0, altitude_m0),
+        state.envelope.drag_coefficient,
+        area_m2,
+    )
+    drag_y_sign = -1.0 if v_rel_y_mps > 0 else (1.0 if v_rel_y_mps < 0 else 0.0)
+    F_drag_vertical = F_drag_y_mag * drag_y_sign
+
+    # Recompute net force with corrected vertical drag.
+    F_net = F_buoy + F_drag_vertical - F_weight
+
     # ── 2. Update velocity (semi-implicit Euler) ───────────
     if state.total_mass() > 0:
         acceleration_y = F_net / state.total_mass()

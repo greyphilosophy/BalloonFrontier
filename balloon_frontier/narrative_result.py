@@ -21,7 +21,7 @@ from typing import Dict, List, Optional, Tuple
 
 from .missions import get_mission, MISSIONS
 from .evaluation import evaluate_flight, format_mission_result
-from .progression import PlayerRegistry, ENVELOPES
+from .progression import PlayerRegistry, ENVELOPES, PAYLOAD_UNLOCKS, SITES
 
 
 def evaluate_and_update_progression(
@@ -123,12 +123,25 @@ def evaluate_and_update_progression(
             if mission_id not in player.missions_completed:
                 player.missions_completed.append(mission_id)
 
-        # Check envelope unlocks
+        # Check all equipment unlocks using OR logic (GDD §20/21).
+        # Budget gates only apply when cost > 0.
         for env in ENVELOPES:
             if env.id not in player.unlocked_envelopes:
-                if player.reputation >= env.min_reputation and player.budget >= env.cost:
+                if player.reputation >= env.min_reputation or (env.cost > 0 and player.budget >= env.cost):
                     player.unlocked_envelopes.append(env.id)
                     new_unlocks.append(env.name)
+
+        for puid in PAYLOAD_UNLOCKS:
+            if puid.id not in player.unlocked_payloads:
+                if player.reputation >= puid.min_reputation or (puid.cost > 0 and player.budget >= puid.cost):
+                    player.unlocked_payloads.append(puid.id)
+                    new_unlocks.append(puid.name)
+
+        for site in SITES:
+            if site.id not in player.unlocked_sites:
+                if player.reputation >= site.min_reputation or (site.cost > 0 and player.budget >= site.cost):
+                    player.unlocked_sites.append(site.id)
+                    new_unlocks.append(site.name)
 
     overall_score = (total_weighted_score / total_weight) if total_weight > 0 else 0
     overall_success = overall_score >= 60
