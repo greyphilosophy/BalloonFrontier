@@ -280,16 +280,16 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     # ── Weather: read modifiers from state ─────────────────
     weather_pressure_scale = getattr(state.envelope, 'weather_pressure_modifier', 1.0)
     weather_solar_mod = getattr(state.envelope, 'weather_solar_modifier', 1.0)
-    weather_burst_mod = getattr(state.envelope, 'weather_risk_modifier', 1.0)
+    weather_burst_mod = getattr(state.envelope, 'weather_burst_risk_modifier', 1.0)
     weather_drift_mult = getattr(state, 'weather_drift_multiplier', 1.0)
 
-    # Vertical weather air velocity (analogous to horizontal wind drift).
-    # The weather_ascent_multiplier represents a vertical air mass velocity
-    # (m/s) — updrafts (>0) push the balloon up, downdrafts (<0) push it down.
-    # We compute vertical drag from the velocity relative to this moving air
-    # mass, exactly like we do for horizontal wind.
+    # ── Vertical weather wind (analogous to horizontal wind drift) ──
+    # weather_ascent_multiplier is a multiplicative modifier centered on 1.0.
+    # Convert to a signed vertical air velocity so the relative-velocity drag
+    # model behaves correctly (neutral = 0 m/s wind, not 1 m/s upward).
     weather_ascent_mult = getattr(state, 'weather_ascent_multiplier', 1.0)
-    v_rel_y_mps = float(state.velocity_mps) - weather_ascent_mult
+    vertical_wind_mps = float(weather_ascent_mult - 1.0)
+    v_rel_y_mps = float(state.velocity_mps) - vertical_wind_mps
 
     # Recompute vertical drag from relative velocity (like horizontal drag).
     # F_drag_vertical was originally computed with still-air velocity above.
