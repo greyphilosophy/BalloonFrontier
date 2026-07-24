@@ -299,10 +299,12 @@ class FlightService:
             )
 
             # Apply mission rewards to player progression (if player_id provided)
+            applied_rewards: list[str] = []
+            flush_failed: bool = False
+
             if launch_request.player_id and mission_results:
                 from balloon_frontier.progression import PlayerRegistry
                 player = PlayerRegistry.get_or_create(launch_request.player_id)
-                applied_rewards: list[str] = []
                 for mr in mission_results:
                     if not mr.completed:
                         continue
@@ -321,12 +323,43 @@ class FlightService:
                         PlayerRegistry.flush_all()
                     except Exception:
                         logger.exception("Failed to save player progression")
+                        flush_failed = True
 
                 for mission_id in applied_rewards:
                     logger.info("Applied mission reward for %s: budget=%d, rep=%d",
                               mission_id,
                               next(mr.reward for mr in mission_results if mr.mission_id == mission_id),
                               min(int(next(mr.reward for mr in mission_results if mr.mission_id == mission_id) / 3000), 2))
+
+            # Reconcile displayed reward with what was actually applied
+            if launch_request.player_id:
+                applied_set = set(applied_rewards)
+                flush_failed_local = flush_failed
+
+                def _reconcile_mission(mr: MissionResult) -> MissionResult:
+                    if not mr.completed:
+                        return mr
+
+                    if mr.mission_id in applied_set:
+                        # Reward was actually awarded
+                        return mr
+
+                    # Progression skipped: either already-completed or flush failed
+                    if flush_failed_local:
+                        return MissionResult(
+                            mission_id=mr.mission_id,
+                            completed=True,
+                            reward=0,
+                            explanation="Mission completed but reward could not be applied (progression error).",
+                        )
+                    return MissionResult(
+                        mission_id=mr.mission_id,
+                        completed=True,
+                        reward=0,
+                        explanation="Mission completed previously; no additional reward awarded.",
+                    )
+
+                mission_results = tuple(_reconcile_mission(mr) for mr in mission_results)
 
             # Build FlightOutcome with all metadata
             result = FlightOutcome(
