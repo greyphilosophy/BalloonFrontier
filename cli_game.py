@@ -44,12 +44,13 @@ def format_kg_compact(mass_kg: float) -> str:
 
 
 def show_fill_presets(balloon_key, gas_type):
-    """Show fill mode selection UI with presets and auto option.
+    """Show fill mode selection UI with presets and manual option.
 
-    Displays all fill presets with their calculated masses using the
-    catalog-based calculation. Returns the selected FillMode and mass.
+    Uses LaunchRequest to compute all displayed masses from a single
+    authoritative source: LaunchRequest.gas_mass_kg.  The same object
+    is then reused for the final launch.
     """
-    from balloon_frontier.fill import calculate_max_safe_gas_mass
+    from balloon_frontier.flight_service import flight_service
 
     balloon = CATALOG.balloon(balloon_key)
     gas = CATALOG.gas(gas_type)
@@ -57,35 +58,37 @@ def show_fill_presets(balloon_key, gas_type):
     while True:
         print("\n  Fill mode:")
         print("  ─────────────────────────────────────────────")
-        for mode in FillMode:
-            if mode == FillMode.MANUAL:
-                continue
+
+        for i, mode in enumerate(FillMode, start=1):
             label = mode.label
             desc = mode.description
 
             try:
-                # Calculate fill based on mode multiplier
-                from balloon_frontier.fill import calculate_optimal_fill, MULTIPLIER_LIGHT, MULTIPLIER_NORMAL, MULTIPLIER_HEAVY, MULTIPLIER_AUTO
-                multipliers = {
-                    FillMode.AUTO: MULTIPLIER_AUTO,
-                    FillMode.LIGHT: MULTIPLIER_LIGHT,
-                    FillMode.NORMAL: MULTIPLIER_NORMAL,
-                    FillMode.HEAVY: MULTIPLIER_HEAVY,
-                }
-                optimal = calculate_optimal_fill(balloon.max_volume_m3, gas.id)
-                mass_kg = optimal * multipliers.get(mode, MULTIPLIER_NORMAL)
-                mass_str = format_mass_kg(mass_kg)
-                print(f"  {label}: {desc} ({mass_str})")
+                if mode == FillMode.MANUAL:
+                    mass_str = "You choose"
+                else:
+                    # Build a one-shot request just to read gas_mass_kg
+                    display_req = LaunchRequest(
+                        gas_id=gas_type,
+                        envelope_id="latex",
+                        balloon_size=balloon_key,
+                        payload_ids=tuple(),
+                        launch_site_id="field",
+                        fill_mode=mode,
+                        manual_gas_mass_kg=None,
+                    )
+                    mass_str = format_mass_kg(display_req.gas_mass_kg)
+
+                print(f"  {i}. {label}: {desc} ({mass_str})")
             except Exception as e:
-                print(f"  {label}: {desc} (error: {e})")
+                print(f"  {i}. {label}: {desc} (error: {e})")
 
         print()
-        modes = [m for m in FillMode if m != FillMode.MANUAL]
-        idx = get_choice(len(modes), f"Fill mode (1-{len(modes)})")
+        idx = get_choice(len(FillMode), f"Fill mode (1-{len(FillMode)})")
         if idx is None:
             return None, None
 
-        selected_mode = modes[idx]
+        selected_mode = list(FillMode)[idx]
 
         if selected_mode == FillMode.MANUAL:
             print("\n  Enter gas mass in grams:")
@@ -98,18 +101,24 @@ def show_fill_presets(balloon_key, gas_type):
             except ValueError:
                 print("  Invalid input. Try again.")
                 continue
+            print(f"\n  Selected manual fill: {format_mass_kg(gas_mass_kg)}")
+            return selected_mode, gas_mass_kg
         else:
-            mass_kg = calculate_max_safe_gas_mass(
-                volume_m3=balloon.max_volume_m3,
-                gas_type=gas.id,
-                burst_stretch_ratio=balloon.burst_stretch_ratio,
-                envelope_type="latex",
-                safe_fill_data={"mode": selected_mode},
+            # Use the mass computed by LaunchRequest.gas_mass_kg above.
+            # We built a temp request already, but need to recompute since
+            # we may have cycled through multiple modes.
+            mass_request = LaunchRequest(
+                gas_id=gas_type,
+                envelope_id="latex",
+                balloon_size=balloon_key,
+                payload_ids=tuple(),
+                launch_site_id="field",
+                fill_mode=selected_mode,
+                manual_gas_mass_kg=None,
             )
-            gas_mass_kg = mass_kg
+            gas_mass_kg = mass_request.gas_mass_kg
             print(f"\n  Selected {selected_mode.value} fill: {format_mass_kg(gas_mass_kg)}")
-
-        return selected_mode, gas_mass_kg
+            return selected_mode, gas_mass_kg
 
 
 def show_balloon_menu():
@@ -135,7 +144,7 @@ def show_gas_menu():
     print("  ─────────────────────────────────────────────")
     gases = CATALOG.all_gases()
     for i, gas in enumerate(gases):
-        print(f"  {i+1}. {gas.name} (density={gas.molar_mass:.4f} kg/m³, {gas.gas_behavior})")
+        print(f"  {i+1}. {gas.name} (molar mass={gas.molar_mass:.4f} kg/mol, {gas.gas_behavior})")
     print()
     idx = get_choice(len(gases), "Gas (1-4)")
     return gases[idx].id if idx is not None else None
