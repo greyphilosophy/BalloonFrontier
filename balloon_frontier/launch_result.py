@@ -272,6 +272,10 @@ class LaunchRequest:
 
         This allows the typed request to be passed directly into the
         simulation engine without manual field mapping.
+
+        When balloon_size is set (CLI), it overrides envelope params
+        from envelope (Discord). This enables the same LaunchRequest
+        to work through either interface.
         """
         from balloon_frontier.simulation import (
             EnvelopeConfig,
@@ -279,13 +283,25 @@ class LaunchRequest:
         )
 
         env_def = self.envelope
-        env_config = EnvelopeConfig(
-            max_volume_m3=env_def.max_volume_m3,
-            burst_stretch_ratio=env_def.burst_stretch_ratio,
-            drag_coefficient=env_def.drag_coefficient,
-            mass_kg=env_def.mass_kg,
-            contained_gas=env_def.contained_gas,
-        )
+
+        # CLI mode: balloon_size overrides envelope parameters
+        if self.balloon_size is not None:
+            balloon = CATALOG.balloon(self.balloon_size)
+            env_config = EnvelopeConfig(
+                max_volume_m3=balloon.max_volume_m3,
+                burst_stretch_ratio=balloon.burst_stretch_ratio,
+                drag_coefficient=env_def.drag_coefficient,
+                mass_kg=balloon.mass_kg,
+                contained_gas=env_def.contained_gas,
+            )
+        else:
+            env_config = EnvelopeConfig(
+                max_volume_m3=env_def.max_volume_m3,
+                burst_stretch_ratio=env_def.burst_stretch_ratio,
+                drag_coefficient=env_def.drag_coefficient,
+                mass_kg=env_def.mass_kg,
+                contained_gas=env_def.contained_gas,
+            )
 
         site = self.site
         gas_temp = self.gas_temperature_delta_k

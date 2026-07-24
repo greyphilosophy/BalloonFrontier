@@ -1,9 +1,9 @@
 """Tests for CLI envelope parameter passing to shared calculation.
 
 Covers:
-- _validate_envelope_params() validation logic
-- show_fill_presets() passes burst_stretch_ratio to apply_fill_mode
-- Error handling for malformed/missing envelope parameters
+- show_fill_presets() uses CATALOG balloon params correctly
+- Fill calculation uses burst_stretch_ratio from CATALOG balloons
+- Error handling: fill calculation with various envelope params
 - Consistency: CLI uses same calculation as shared module
 """
 
@@ -13,98 +13,42 @@ from balloon_frontier.fill import (
     apply_fill_mode, FillMode, calculate_optimal_fill,
     calculate_max_safe_gas_mass, SAFE_FILL_PRESETS, SAFETY_MARGIN,
 )
+from balloon_frontier.catalog import CATALOG
 
 
-class TestValidateEnvelopeParams:
-    """Test the _validate_envelope_params helper function."""
+class TestCatalogBalloonParams:
+    """Test that CATALOG balloon specs have valid envelope parameters."""
 
     def test_valid_latex_balloon(self):
-        """A valid balloon spec returns parsed params."""
-        from cli_game import _validate_envelope_params
-
-        spec = {"name": '36"', "mass_kg": 0.060, "max_vol": 3.5, "burst": 2.3}
-        result = _validate_envelope_params(spec)
-        assert result["max_vol"] == 3.5
-        assert result["burst_stretch_ratio"] == 2.3
+        """A CATALOG balloon has valid volume and burst ratio."""
+        balloon = CATALOG.balloon("s36")
+        assert balloon.max_volume_m3 > 0
+        assert balloon.burst_stretch_ratio > 0
+        assert balloon.max_volume_m3 == 3.5
+        assert balloon.burst_stretch_ratio == 2.3
 
     def test_valid_balloon_without_name(self):
-        """Works even when 'name' is missing (falls back to 'unknown')."""
-        from cli_game import _validate_envelope_params
+        """CATALOG.balloon() returns a valid BalloonSpec by id."""
+        balloon = CATALOG.balloon("s45")
+        assert balloon.max_volume_m3 > 0
+        assert balloon.burst_stretch_ratio > 0
 
-        spec = {"max_vol": 10.0, "burst": 2.2}
-        result = _validate_envelope_params(spec)
-        assert result["max_vol"] == 10.0
-        assert result["burst_stretch_ratio"] == 2.2
+    def test_all_balloons_have_valid_params(self):
+        """Every balloon in CATALOG has positive volume and burst ratio."""
+        for balloon in CATALOG.all_balloons():
+            assert balloon.max_volume_m3 > 0, f"{balloon.id}: max_volume should be positive"
+            assert balloon.burst_stretch_ratio > 0, f"{balloon.id}: burst_stretch_ratio should be positive"
+            assert balloon.mass_kg > 0, f"{balloon.id}: mass_kg should be positive"
 
-    def test_missing_max_vol(self):
-        """Missing 'max_vol' raises ValueError."""
-        from cli_game import _validate_envelope_params
-
-        spec = {"name": 'Test', "burst": 2.3}
-        with pytest.raises(ValueError, match="max_vol"):
-            _validate_envelope_params(spec)
-
-    def test_missing_burst(self):
-        """Missing 'burst' raises ValueError."""
-        from cli_game import _validate_envelope_params
-
-        spec = {"name": 'Test', "max_vol": 10.0}
-        with pytest.raises(ValueError, match="burst"):
-            _validate_envelope_params(spec)
-
-    def test_non_numeric_max_vol(self):
-        """Non-numeric 'max_vol' raises ValueError."""
-        from cli_game import _validate_envelope_params
-
-        spec = {"name": 'Test', "max_vol": "ten", "burst": 2.3}
-        with pytest.raises(ValueError, match="max_vol"):
-            _validate_envelope_params(spec)
-
-    def test_non_numeric_burst(self):
-        """Non-numeric 'burst' raises ValueError."""
-        from cli_game import _validate_envelope_params
-
-        spec = {"name": 'Test', "max_vol": 10.0, "burst": "two_point_five"}
-        with pytest.raises(ValueError, match="burst"):
-            _validate_envelope_params(spec)
-
-    def test_zero_max_vol(self):
-        """Zero 'max_vol' raises ValueError."""
-        from cli_game import _validate_envelope_params
-
-        spec = {"name": 'Test', "max_vol": 0, "burst": 2.3}
-        with pytest.raises(ValueError, match="positive"):
-            _validate_envelope_params(spec)
-
-    def test_negative_burst(self):
-        """Negative 'burst' raises ValueError."""
-        from cli_game import _validate_envelope_params
-
-        spec = {"name": 'Test', "max_vol": 10.0, "burst": -1.0}
-        with pytest.raises(ValueError, match="positive"):
-            _validate_envelope_params(spec)
-
-    def test_float_values(self):
-        """Float values (not just ints) are accepted."""
-        from cli_game import _validate_envelope_params
-
-        spec = {"name": 'Test', "max_vol": 10.0, "burst": 2.3}
-        result = _validate_envelope_params(spec)
-        assert result["max_vol"] == 10.0
-        assert result["burst_stretch_ratio"] == 2.3
-
-    def test_all_balloon_sizes_are_valid(self):
-        """Every balloon in BALLOON_SIZES passes validation."""
-        from cli_game import _validate_envelope_params, BALLOON_SIZES
-
-        for key, spec in BALLOON_SIZES.items():
-            result = _validate_envelope_params(spec)
-            assert result["max_vol"] > 0, f"{key}: max_vol should be positive"
-            assert result["burst_stretch_ratio"] > 0, f"{key}: burst should be positive"
+    def test_all_balloons_resolve(self):
+        """CATALOG.balloon() resolves every balloon id."""
+        for balloon in CATALOG.all_balloons():
+            resolved = CATALOG.balloon(balloon.id)
+            assert resolved.id == balloon.id
 
 
 class TestEnvelopeAwareFillCalculation:
-    """Verify that CLI fill calculation uses envelope parameters correctly."""
+    """Verify that fill calculation uses envelope parameters correctly."""
 
     def test_burst_ratio_affects_safe_mass(self):
         """Different burst_stretch_ratio values produce different safe limits."""
@@ -167,9 +111,23 @@ class TestEnvelopeAwareFillCalculation:
             )
             assert mass <= safe_max, f"{mode} mass ({mass}) should be <= safe max ({safe_max})"
 
+    def test_catalog_balloon_params_used_in_fill(self):
+        """A CATALOG balloon's burst_stretch_ratio is used in fill calc."""
+        balloon = CATALOG.balloon("s36")
+        # s36 has burst_stretch_ratio=2.3
+        mass = apply_fill_mode(
+            balloon.max_volume_m3, "helium", FillMode.NORMAL,
+            burst_stretch_ratio=balloon.burst_stretch_ratio,
+        )
+        safe_max = calculate_max_safe_gas_mass(
+            balloon.max_volume_m3, "helium",
+            burst_stretch_ratio=balloon.burst_stretch_ratio
+        )
+        assert mass <= safe_max
+
 
 class TestErrorHandling:
-    """Test error handling for malformed inputs in the CLI fill flow."""
+    """Test error handling for malformed inputs in the fill flow."""
 
     def test_invalid_gas_type_in_validation(self):
         """Unknown gas types are caught by the shared module."""
