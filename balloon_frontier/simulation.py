@@ -280,8 +280,31 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     # ── Weather: read modifiers from state ─────────────────
     weather_pressure_scale = getattr(state.envelope, 'weather_pressure_modifier', 1.0)
     weather_solar_mod = getattr(state.envelope, 'weather_solar_modifier', 1.0)
-    weather_burst_mod = getattr(state.envelope, 'weather_burst_risk_modifier', 1.0)
+    weather_burst_mod = getattr(state.envelope, 'weather_risk_modifier', 1.0)
     weather_drift_mult = getattr(state, 'weather_drift_multiplier', 1.0)
+
+    # Vertical weather air velocity (analogous to horizontal wind drift).
+    # The weather_ascent_multiplier represents a vertical air mass velocity
+    # (m/s) — updrafts (>0) push the balloon up, downdrafts (<0) push it down.
+    # We compute vertical drag from the velocity relative to this moving air
+    # mass, exactly like we do for horizontal wind.
+    weather_ascent_mult = getattr(state, 'weather_ascent_multiplier', 1.0)
+    v_rel_y_mps = float(state.velocity_mps) - weather_ascent_mult
+
+    # Recompute vertical drag from relative velocity (like horizontal drag).
+    # F_drag_vertical was originally computed with still-air velocity above.
+    # Replace it with drag from v_balloon - v_air.
+    F_drag_y_mag = drag_force(
+        v_rel_y_mps,
+        max(0.0, altitude_m0),
+        state.envelope.drag_coefficient,
+        area_m2,
+    )
+    drag_y_sign = -1.0 if v_rel_y_mps > 0 else (1.0 if v_rel_y_mps < 0 else 0.0)
+    F_drag_vertical = F_drag_y_mag * drag_y_sign
+
+    # Recompute net force with corrected vertical drag.
+    F_net = F_buoy + F_drag_vertical - F_weight
 
     # ── 2. Update velocity (semi-implicit Euler) ───────────
     if state.total_mass() > 0:
@@ -290,10 +313,6 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     else:
         acceleration_y = 0.0
         acceleration_x = 0.0
-
-    # Apply weather ascent modifier (updrafts/downdrafts affect vertical acceleration)
-    weather_ascent_mult = getattr(state, 'weather_ascent_multiplier', 1.0)
-    acceleration_y *= weather_ascent_mult
 
     state.vx_mps += acceleration_x * dt
     state.x_m += state.vx_mps * dt

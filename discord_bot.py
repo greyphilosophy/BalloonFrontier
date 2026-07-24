@@ -149,6 +149,8 @@ def run_simulation(
     env_config=None,
     weather_impacts=None,
     has_pressure_valve=False,  # Valve prevents burst by venting gas
+    launch_altitude_m=0.0,  # Physical altitude at launch site
+    wind_site_id="field",   # Site wind profile to use
 ):
     """Run fixed-step vertical simulation using the full physics engine.
 
@@ -200,12 +202,12 @@ def run_simulation(
         gas_mass_kg=gas_mass,
         payload_mass_kg=payload_mass,
         envelope=env_config,
-        altitude_m=0.0,
+        altitude_m=launch_altitude_m,
         gas_temperature_k=gas_temperature_k,
         weather_ascent_multiplier=env_config.weather_ascent_multiplier if weather_impacts else 1.0,
         weather_drift_multiplier=env_config.weather_drift_multiplier if weather_impacts else 1.0,
         wind_enabled=True,
-        wind_site_id="field",
+        wind_site_id=wind_site_id,
         ballast_mass_kg=0.0,  # User controls mass entirely via payloads -- no hidden ballast
         has_pressure_valve=has_pressure_valve,  # Valve prevents burst by venting gas
     )
@@ -981,6 +983,8 @@ class _LaunchButton(discord.ui.Button):
                 mission_assignment=mission_assignment,
                 weather_impacts=weather_impacts,
                 has_pressure_valve=has_pressure_valve,
+                launch_altitude_m=site_cond["launch_altitude"],
+                wind_site_id=state["site"],
             )
 
             payload_display = ", ".join(payload_names)
