@@ -1036,7 +1036,7 @@ class _LaunchButton(discord.ui.Button):
                 time_of_flight=time_of_flight,
                 telemetry=tel,
                 gas_name=gas_info[0],
-                gas_mass=result.launch_request.gas_mass_kg,
+                gas_mass=launch_request.gas_mass_kg,
                 env_name=env_info[0],
                 payload_names=payload_display,
                 site_name=site_info.name,
