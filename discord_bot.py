@@ -33,7 +33,7 @@ from balloon_frontier.flight_score import calculate_flight_score
 from balloon_frontier.medal_tier import get_medal_tier, get_medal_emoji, medal_tier_to_string
 from balloon_frontier.launch_sites import LaunchSiteInfo
 from balloon_frontier.narrative_result import format_discord_results
-from balloon_frontier.weather_event import generate_weather, weather_impact_on_flight, format_weather_briefing
+from balloon_frontier.weather_event import format_weather_briefing
 from balloon_frontier.missions import load_mission_directory
 from balloon_frontier.flight_service import flight_service, FlightServiceError
 from balloon_frontier.launch_result import LaunchRequest, FillMode
@@ -938,44 +938,6 @@ class _LaunchButton(discord.ui.Button):
             self._parent.state["gas_mass"] = gas_mass
 
         try:
-            payload_keys = list(state.get("payloads") or [])
-            payload_count = len(payload_keys) if payload_keys else 0
-            mission_count = choose_mission_count(payload_count)
-
-            mission_seed = seed_from_game_state(
-                gas=state["gas"],
-                envelope=state["envelope"],
-                payloads=payload_keys,
-                site=state["site"],
-            )
-            mission_assignment = assign_missions_to_flight(
-                payload_count=payload_count,
-                seed=mission_seed,
-                mission_count=mission_count,
-                selected_payloads=payload_keys,
-                launch_site=state["site"],
-            )
-
-            site_cond = self._parent._get_site_conditions()
-
-            # Generate weather based on launch configuration
-            weather = generate_weather(
-                site=state["site"],
-                gas=state["gas"],
-                envelope=state["envelope"],
-                payloads=payload_keys,
-                seed=mission_seed,
-            )
-            weather_dict = {
-                "name": weather.name,
-                "description": weather.description,
-                "severity": weather.severity,
-                "flight_modifier": weather.flight_modifier,
-            }
-
-            # Compute weather impacts and pass them to the simulation
-            weather_impacts = weather_impact_on_flight(weather)
-
             # Build LaunchRequest from Discord state
             fill_mode = FillMode(
                 self._parent.state.get("fill_mode", "auto")
@@ -993,14 +955,12 @@ class _LaunchButton(discord.ui.Button):
                 balloon_size=balloon_size,
             )
 
-            # Run the CPU-heavy simulation off the event loop.
+            # Delegate to the transport-neutral flight service.
+            # All orchestration (weather, missions, simulation) is owned by the service.
             try:
                 result = await asyncio.to_thread(
                     flight_service.run,
                     launch_request,
-                    weather_event=weather_dict,
-                    mission_assignment=mission_assignment,
-                    wind_site_id=state["site"],
                 )
             except FlightServiceError:
                 logger.exception("Flight service failed")
@@ -1037,6 +997,8 @@ class _LaunchButton(discord.ui.Button):
             medal_name = medal_tier_to_string(peak_alt)
             medal_emoji = get_medal_emoji(peak_alt)
 
+            # Resolve payload display names from Discord state
+            payload_keys = list(state.get("payloads") or [])
             payload_display = ", ".join(payload_names)
             if payload_keys and "none" not in payload_keys:
                 pass  # keep as is
@@ -1053,6 +1015,16 @@ class _LaunchButton(discord.ui.Button):
 
             # Get player ID from the interaction for progression tracking
             player_id = str(interaction.user.id) if hasattr(interaction, 'user') and interaction.user else "anonymous"
+
+            # Get weather and mission data from the prepared launch
+            prep = flight_service.prepare(launch_request)
+            weather_dict = {
+                "name": prep.weather.name if prep.weather else "",
+                "description": prep.weather.description if prep.weather else "",
+                "severity": prep.weather.severity if prep.weather else "",
+                "flight_modifier": prep.weather.flight_modifier if prep.weather else "",
+            }
+            mission_assignment = prep.mission_assignment
 
             # Build narrative result
             result_content = format_discord_results(
