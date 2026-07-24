@@ -335,10 +335,6 @@ def format_discord_results(
             lines.append(weather_event["description"])
         lines.append(f"{weather_event.get('severity', '')} — {weather_event.get('flight_modifier', '')}\n")
 
-    # Mission evaluation removed — formatter is presentation-only.
-    # Mission results are supplied by FlightService and rendered by the caller.
-    # The formatter no longer calls evaluate_and_update_progression().
-    mission_result = None
 
     # Narrative summary
     lines.append(generate_narrative_summary(
