@@ -209,7 +209,12 @@ class LaunchRequest:
 
     @property
     def payloads(self) -> List[PayloadDefinition]:
-        """Resolve all payload definitions."""
+        """Resolve all payload definitions.
+        
+        Note: "none" is a sentinel with no catalog entry and contributes
+        0 kg. If you want the old 1 kg default, explicitly include the
+        payload ID you want.
+        """
         return [CATALOG.payload(pid) for pid in self.payload_ids if pid != "none"]
 
     @property
@@ -248,19 +253,16 @@ class LaunchRequest:
             gas.id, ambient_temp, ambient_pressure
         )
 
-        # Ideal gas mass at burst volume * multiplier
+        # Ideal gas mass at burst volume * multiplier (already in kg)
         gas_mass = gas_density_val * burst_volume * multiplier
 
         # Clamp to balloon size fill range if specified
         if self.balloon and self.balloon.fill_range_g != (0, 0):
             min_g = float(self.balloon.fill_range_g[0])
             max_g = float(self.balloon.fill_range_g[1])
-            gas_mass_kg = gas_mass / 1000.0  # Convert g to kg
-            if gas_mass_kg < min_g / 1000.0:
-                gas_mass_kg = min_g / 1000.0
-            elif gas_mass_kg > max_g / 1000.0:
-                gas_mass_kg = max_g / 1000.0
-            return gas_mass_kg
+            min_mass_kg = min_g / 1000.0  # Limits are in grams, convert to kg
+            max_mass_kg = max_g / 1000.0  # Limits are in grams, convert to kg
+            return min(max(gas_mass, min_mass_kg), max_mass_kg)
 
         return gas_mass
 
@@ -290,8 +292,11 @@ class LaunchRequest:
         # Build payload mass sum
         payload_mass = self.total_payload_mass_kg
 
-        # Ballast: default 5 kg if not specified
-        ballast_mass = 5.0
+        # Check if payload includes a pressure valve
+        has_valve = any(p.has_valve for p in self.payloads)
+
+        # Ballast: default 0 kg (no hidden ballast)
+        ballast_mass = 0.0
 
         return SimulationState(
             altitude_m=site.altitude_m,
@@ -304,6 +309,7 @@ class LaunchRequest:
             wind_enabled=True,
             wind_site_id=site.id,
             terrain_base_altitude_offset_m=0.0,
+            has_pressure_valve=has_valve,
         )
 
     def to_result_summary(self) -> str:
@@ -364,7 +370,7 @@ class FlightResult:
         score: Flight score (computed by flight_score module).
     """
 
-    telemetry: List[TelemetryPoint]
+    telemetry: tuple[TelemetryPoint, ...]
     launch_request: LaunchRequest
 
     @property

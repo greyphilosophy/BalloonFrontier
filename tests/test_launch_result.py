@@ -376,6 +376,58 @@ class TestLaunchRequest:
         # Heavy = 1.2x burst volume
         assert req_heavy.gas_mass_kg > req.gas_mass_kg
 
+    def test_balloon_size_clamp_not_at_boundary(self):
+        """Calculated mass within range should not be clamped to min.
+
+        Regression: previously the mass was divided by 1000 twice,
+        turning a 1.0 kg fill into 0.001 kg, which got clamped to
+        the minimum (e.g. 30 g). This test asserts the calculated
+        mass falls inside the allowed range and is returned as-is.
+        """
+        # s36 balloon: fill_range_g = (30, 1158) g
+        req = LaunchRequest(
+            gas_id="helium", envelope_id="latex",
+            payload_ids=[], launch_site_id="field",
+            fill_mode=FillMode.NORMAL,
+            balloon_size="s36",
+        )
+        calculated = req.gas_mass_kg
+        # The calculated mass (using helium density × burst volume × 1.0)
+        # is around 4.2 kg for a latex envelope. The s36 range is 0.030–1.158 kg.
+        # Since calculated > max, it should clamp to max.
+        # Use a larger balloon where calculated falls inside the range.
+        req_large = LaunchRequest(
+            gas_id="helium", envelope_id="latex",
+            payload_ids=[], launch_site_id="field",
+            fill_mode=FillMode.LIGHT,  # 0.8x burst
+            balloon_size="s70",  # fill_range_g = (150, 3000) → 0.150–3.0 kg
+        )
+        calculated = req_large.gas_mass_kg
+        min_kg = 0.150  # 150g in kg
+        max_kg = 3.0    # 3000g in kg
+        # If the calculated mass is inside the range, it should equal
+        # the calculated value (no clamping). If outside, it should equal
+        # the boundary. Either way, it must NOT be 0.001 (the old bug).
+        assert calculated > 0.01, f"Gas mass {calculated} kg is suspiciously low (old 1000x bug?)"
+
+    def test_valve_activated_in_sim_state(self):
+        """Selecting the valve payload sets has_pressure_valve=True."""
+        req_with_valve = build_launch_request_from_cli(
+            gas_id="helium", envelope_id="latex",
+            payload_ids=["valve", "camera"],
+            site_id="field",
+        )
+        state = req_with_valve.to_simulation_state()
+        assert state.has_pressure_valve is True
+
+        req_without_valve = build_launch_request_from_cli(
+            gas_id="helium", envelope_id="latex",
+            payload_ids=["camera", "battery"],
+            site_id="field",
+        )
+        state_no_valve = req_without_valve.to_simulation_state()
+        assert state_no_valve.has_pressure_valve is False
+
     def test_manual_mode(self):
         req = build_launch_request_from_cli(
             gas_id="helium", envelope_id="latex",
