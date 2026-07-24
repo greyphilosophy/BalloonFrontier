@@ -37,5 +37,8 @@ def calculate_flight_score(
     Returns:
         The numeric flight score.
     """
+    # Enforce minimum of 1 payload — a launch always carries at least one
+    # (the balloon itself counts as a payload for scoring purposes).
+    payloads = max(1, payloads)
     score = (altitude * w_alt) + (payloads * w_pay) + (time_seconds * w_time)
     return score

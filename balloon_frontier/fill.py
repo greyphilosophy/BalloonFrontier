@@ -175,31 +175,11 @@ SAFE_FILL_PRESETS: dict[str, dict[str, float]] = {
     },
 }
 
-
-class FillMode(Enum):
-    """Fill mode for the launch state machine.
-
-    AUTO, LIGHT, NORMAL, HEAVY use pre-calculated optimal masses.
-    MANUAL lets the player specify an exact gas mass, optionally
-    clamped to a burst-safe range.
-    """
-    AUTO   = auto()  # Auto-optimised fill (alias for NORMAL)
-    LIGHT  = auto()  # 20% less gas — less free lift, slower ascent, higher burst
-    NORMAL = auto()  # Baseline optimal fill
-    HEAVY  = auto()  # 20% more gas — more free lift, faster ascent, earlier burst
-    MANUAL = auto()  # Player-specified exact mass
-
-    def get_multiplier(self) -> float:
-        """Get the mass multiplier for this fill mode (all except MANUAL)."""
-        if self == FillMode.MANUAL:
-            raise ValueError("MANUAL mode requires an explicit mass")
-        name = self.name.lower()
-        return FILL_MODE_MULTIPLIERS.get(name, MULTIPLIER_NORMAL)
-
-    def is_auto_mode(self) -> bool:
-        """Return True for AUTO/LIGHT/NORMAL/HEAVY (preset modes)."""
-        return self != FillMode.MANUAL
-
+# ── FillMode — canonical enum ──────────────────────────────────────
+# Import the single source of truth from catalog; re-export for
+# backward compatibility so callers that do `from fill import FillMode`
+# still work without changes.
+from balloon_frontier.catalog import FillMode  # noqa: F401
 
 # ── Auto-fill integration ─────────────────────────────────────────
 
