@@ -302,18 +302,31 @@ class FlightService:
             if launch_request.player_id and mission_results:
                 from balloon_frontier.progression import PlayerRegistry
                 player = PlayerRegistry.get_or_create(launch_request.player_id)
+                applied_rewards: list[str] = []
                 for mr in mission_results:
-                    if mr.completed:
-                        player.budget += mr.reward
-                        if mr.mission_id not in player.missions_completed:
-                            player.missions_completed.append(mr.mission_id)
-                        # Reputation gain proportional to mission budget
-                        rep_gain = min(int(mr.reward / 3000), 2)
-                        player.reputation += rep_gain
-                try:
-                    PlayerRegistry.flush_all()
-                except Exception:
-                    logger.exception("Failed to save player progression")
+                    if not mr.completed:
+                        continue
+
+                    if mr.mission_id in player.missions_completed:
+                        continue
+
+                    player.budget += mr.reward
+                    rep_gain = min(int(mr.reward / 3000), 2)
+                    player.reputation += rep_gain
+                    player.missions_completed.append(mr.mission_id)
+                    applied_rewards.append(mr.mission_id)
+
+                if applied_rewards:
+                    try:
+                        PlayerRegistry.flush_all()
+                    except Exception:
+                        logger.exception("Failed to save player progression")
+
+                for mission_id in applied_rewards:
+                    logger.info("Applied mission reward for %s: budget=%d, rep=%d",
+                              mission_id,
+                              next(mr.reward for mr in mission_results if mr.mission_id == mission_id),
+                              min(int(next(mr.reward for mr in mission_results if mr.mission_id == mission_id) / 3000), 2))
 
             # Build FlightOutcome with all metadata
             result = FlightOutcome(
