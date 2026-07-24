@@ -257,11 +257,12 @@ class LaunchRequest:
         gas_mass = gas_density_val * burst_volume * multiplier
 
         # Clamp to balloon size fill range if specified
+        # Limits are in grams, convert to kg; gas_mass is already in kg
         if self.balloon and self.balloon.fill_range_g != (0, 0):
             min_g = float(self.balloon.fill_range_g[0])
             max_g = float(self.balloon.fill_range_g[1])
-            min_mass_kg = min_g / 1000.0  # Limits are in grams, convert to kg
-            max_mass_kg = max_g / 1000.0  # Limits are in grams, convert to kg
+            min_mass_kg = min_g / 1000.0
+            max_mass_kg = max_g / 1000.0
             return min(max(gas_mass, min_mass_kg), max_mass_kg)
 
         return gas_mass

@@ -387,7 +387,7 @@ class TestLaunchRequest:
         # s36 balloon: fill_range_g = (30, 1158) g
         req = LaunchRequest(
             gas_id="helium", envelope_id="latex",
-            payload_ids=[], launch_site_id="field",
+            payload_ids=(), launch_site_id="field",
             fill_mode=FillMode.NORMAL,
             balloon_size="s36",
         )
@@ -398,7 +398,7 @@ class TestLaunchRequest:
         # Use a larger balloon where calculated falls inside the range.
         req_large = LaunchRequest(
             gas_id="helium", envelope_id="latex",
-            payload_ids=[], launch_site_id="field",
+            payload_ids=(), launch_site_id="field",
             fill_mode=FillMode.LIGHT,  # 0.8x burst
             balloon_size="s70",  # fill_range_g = (150, 3000) → 0.150–3.0 kg
         )
