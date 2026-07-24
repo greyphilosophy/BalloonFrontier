@@ -63,6 +63,26 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
+class FlightOutcome:
+    """Complete result of a flight pipeline run.
+
+    Wraps the simulation result with all metadata needed by transport layers
+    (Discord embeds, CLI output, progression updates) without requiring a
+    second prepare() call.
+
+    Attributes:
+        result: The FlightResult with telemetry.
+        weather: The generated weather event.
+        mission_assignment: The mission assignment dictionary.
+        weather_impacts: Computed weather impact modifiers.
+    """
+    result: FlightResult
+    weather: Optional[WeatherEvent] = None
+    mission_assignment: Optional[dict] = None
+    weather_impacts: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class LaunchPreparation:
     """Intermediate result of preparing a launch.
 
@@ -72,12 +92,14 @@ class LaunchPreparation:
         weather: Generated weather event (if applicable).
         mission_assignment: Assigned missions (if applicable).
         wind_site_id: Site wind profile identifier.
+        weather_impacts: Computed weather impact modifiers (burst_risk, etc.).
     """
     request: LaunchRequest
     sim_state: SimulationState
     weather: Optional[WeatherEvent] = None
     mission_assignment: Optional[dict] = None
     wind_site_id: str = "field"
+    weather_impacts: dict = field(default_factory=dict)
 
 
 class FlightServiceError(Exception):
@@ -151,18 +173,25 @@ class FlightService:
             launch_site=req.launch_site_id,
         )
 
+        # Compute weather impacts (applied in run())
+        if weather:
+            weather_impacts = weather_impact_on_flight(weather)
+        else:
+            weather_impacts = {}
+
         return LaunchPreparation(
             request=req,
             sim_state=sim_state,
             weather=weather,
             mission_assignment=mission_assignment,
             wind_site_id=wind_site_id,
+            weather_impacts=weather_impacts,
         )
 
     def run(
         self,
         launch_request: LaunchRequest,
-    ) -> FlightResult:
+    ) -> FlightOutcome:
         """Execute the full flight pipeline.
 
         Args:
@@ -180,14 +209,19 @@ class FlightService:
 
             # Apply weather impacts to the simulation state
             if prep.weather:
-                weather_impacts = weather_impact_on_flight(prep.weather)
-                # Apply weather modifiers to the envelope config
-                prep.sim_state.envelope.weather_burst_risk_modifier = weather_impacts.get('burst_risk', 1.0)
-                prep.sim_state.weather_ascent_multiplier = weather_impacts.get('ascent_rate', 1.0)
-                prep.sim_state.weather_drift_multiplier = weather_impacts.get('drift_factor', 1.0)
+                impacts = prep.weather_impacts
+                # Apply all weather modifiers to the envelope config and state
+                prep.sim_state.envelope.weather_burst_risk_modifier = impacts.get('burst_risk', 1.0)
+                prep.sim_state.envelope.weather_solar_modifier = impacts.get('thermal_efficiency', 1.0)
+                prep.sim_state.envelope.weather_pressure_modifier = impacts.get('pressure_modifier', 1.0)
+                prep.sim_state.weather_ascent_multiplier = impacts.get('ascent_rate', 1.0)
+                prep.sim_state.weather_drift_multiplier = impacts.get('drift_factor', 1.0)
 
-            # Determine simulation duration
-            is_mission = prep.mission_assignment is not None
+            # Determine simulation duration based on actual mission count
+            # Only explicitly-mission flights (with mission_ids in assignment) use
+            # mission_sim_time. Regular Discord/CLI launches use default_sim_time.
+            assignment = prep.mission_assignment or {}
+            is_mission = bool(assignment.get("mission_ids"))
             max_time = self.mission_sim_time if is_mission else self.default_sim_time
             max_steps = int(max_time / 0.1)
 
@@ -203,19 +237,30 @@ class FlightService:
 
             if not tel_full:
                 # Empty telemetry — return result with zeroed values
-                result = FlightResult(
-                    telemetry=(),
-                    launch_request=launch_request,
+                result = FlightOutcome(
+                    result=FlightResult(
+                        telemetry=(),
+                        launch_request=launch_request,
+                    ),
+                    weather=prep.weather,
+                    mission_assignment=assignment,
+                    weather_impacts=prep.weather_impacts,
                 )
                 return result
 
             # Convert raw telemetry dicts to TelemetryPoint objects
             points = telemetry_list_to_points(tel_full)
 
-            # Build FlightResult (telemetry is converted to tuple for immutability)
-            result = FlightResult(
-                telemetry=tuple(points),
-                launch_request=launch_request,
+            # Build FlightResult with mission/weather metadata so Discord doesn't
+            # need a second prepare() call.
+            result = FlightOutcome(
+                result=FlightResult(
+                    telemetry=tuple(points),
+                    launch_request=launch_request,
+                ),
+                weather=prep.weather,
+                mission_assignment=assignment,
+                weather_impacts=prep.weather_impacts,
             )
 
             return result

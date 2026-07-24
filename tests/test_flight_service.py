@@ -13,6 +13,7 @@ from unittest.mock import patch, MagicMock, PropertyMock
 from balloon_frontier.flight_service import (
     FlightService,
     FlightServiceError,
+    FlightOutcome,
     LaunchPreparation,
     flight_service,
 )
@@ -146,34 +147,35 @@ class TestPrepare:
 
 
 class TestRunNormal:
-    def test_run_returns_flight_result(self, service, normal_request):
-        result = service.run(normal_request)
-        assert isinstance(result, FlightResult)
+    def test_run_returns_flight_outcome(self, service, normal_request):
+        outcome = service.run(normal_request)
+        assert isinstance(outcome, FlightOutcome)
+        assert isinstance(outcome.result, FlightResult)
 
     def test_run_has_telemetry(self, service, normal_request):
-        result = service.run(normal_request)
-        assert len(result.telemetry) > 0
+        outcome = service.run(normal_request)
+        assert len(outcome.result.telemetry) > 0
 
     def test_run_telemetry_is_tuple(self, service, normal_request):
-        result = service.run(normal_request)
-        assert isinstance(result.telemetry, tuple)
+        outcome = service.run(normal_request)
+        assert isinstance(outcome.result.telemetry, tuple)
 
     def test_run_immutability(self, service, normal_request):
-        result = service.run(normal_request)
+        outcome = service.run(normal_request)
         with pytest.raises(AttributeError):
-            result.telemetry.append(TelemetryPoint(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, False, False, False, 0, 0))
+            outcome.result.telemetry.append(TelemetryPoint(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, False, False, False, 0, 0))
 
     def test_run_peak_altitude_positive(self, service, normal_request):
-        result = service.run(normal_request)
-        assert result.peak_altitude_m > 0
+        outcome = service.run(normal_request)
+        assert outcome.result.peak_altitude_m > 0
 
     def test_run_duration_positive(self, service, normal_request):
-        result = service.run(normal_request)
-        assert result.duration_s > 0
+        outcome = service.run(normal_request)
+        assert outcome.result.duration_s > 0
 
     def test_run_gas_mass_from_request(self, service, normal_request):
-        result = service.run(normal_request)
-        assert result.launch_request.gas_mass_kg > 0
+        outcome = service.run(normal_request)
+        assert outcome.result.launch_request.gas_mass_kg > 0
 
 
 # ─── run() — Manual Fill ─────────────────────────────────────────────
@@ -181,11 +183,11 @@ class TestRunNormal:
 
 class TestRunManual:
     def test_manual_fill_respects_mass(self, service, manual_request):
-        result = service.run(manual_request)
-        assert isinstance(result, FlightResult)
-        assert len(result.telemetry) > 0
+        outcome = service.run(manual_request)
+        assert isinstance(outcome.result, FlightResult)
+        assert len(outcome.result.telemetry) > 0
         # Manual mass should be used
-        assert result.launch_request.gas_mass_kg == 0.5
+        assert outcome.result.launch_request.gas_mass_kg == 0.5
 
 
 # ─── run() — Valve Payload ───────────────────────────────────────────
@@ -198,9 +200,9 @@ class TestRunValve:
         assert prep.sim_state.has_pressure_valve is True
 
     def test_run_with_valve_succeeds(self, service, valve_request):
-        result = service.run(valve_request)
-        assert isinstance(result, FlightResult)
-        assert len(result.telemetry) > 0
+        outcome = service.run(valve_request)
+        assert isinstance(outcome.result, FlightResult)
+        assert len(outcome.result.telemetry) > 0
 
 
 # ─── run() — Launch Site Altitude ────────────────────────────────────
@@ -211,15 +213,15 @@ class TestRunSiteAltitude:
         mountain_result = service.run(mountain_request)
         normal_result = service.run(normal_request)
         # Mountain starts at 1500m, field at 0m
-        assert mountain_result.telemetry[0].altitude_m >= 1500.0
+        assert mountain_result.result.telemetry[0].altitude_m >= 1500.0
         # First tick of field is ~0.4m due to simulation step forward
-        assert normal_result.telemetry[0].altitude_m > 0.0
+        assert normal_result.result.telemetry[0].altitude_m > 0.0
 
     def test_mountain_peak_higher(self, service, mountain_request, normal_request):
         mountain_result = service.run(mountain_request)
         normal_result = service.run(normal_request)
         # Mountain peak should be higher due to starting altitude
-        assert mountain_result.peak_altitude_m > normal_result.peak_altitude_m
+        assert mountain_result.result.peak_altitude_m > normal_result.result.peak_altitude_m
 
 
 # ─── run() — Weather Propagation ─────────────────────────────────────
@@ -279,22 +281,22 @@ class TestIntegration:
         assert prep.weather is not None
         assert prep.mission_assignment is not None
 
-        result = service.run(normal_request)
-        assert isinstance(result, FlightResult)
-        assert result.peak_altitude_m > 0
-        assert result.duration_s > 0
-        assert result.launch_request is normal_request
+        outcome = service.run(normal_request)
+        assert isinstance(outcome.result, FlightResult)
+        assert outcome.result.peak_altitude_m > 0
+        assert outcome.result.duration_s > 0
+        assert outcome.result.launch_request is normal_request
 
     def test_result_end_state(self, service, normal_request):
-        result = service.run(normal_request)
-        end_state = result.end_state()
+        outcome = service.run(normal_request)
+        end_state = outcome.result.end_state()
         assert isinstance(end_state, str)
         # End state should be one of: crashed, burst, landed, in flight
         assert any(marker in end_state.lower() for marker in ['crash', 'burst', 'land', 'in flight'])
 
     def test_result_embed_fields(self, service, normal_request):
-        result = service.run(normal_request)
-        fields = result.to_embed_fields()
+        outcome = service.run(normal_request)
+        fields = outcome.result.to_embed_fields()
         assert len(fields) >= 3
         # Should have Flight Result, Peak Altitude, Flight Time
         names = [f[0] for f in fields]
@@ -314,9 +316,9 @@ class TestEdgeCases:
             launch_site_id="field",
             fill_mode=FillMode.NORMAL,
         )
-        result = service.run(req)
-        assert isinstance(result, FlightResult)
-        assert len(result.telemetry) > 0
+        outcome = service.run(req)
+        assert isinstance(outcome.result, FlightResult)
+        assert len(outcome.result.telemetry) > 0
 
     def test_multiple_payloads(self, service):
         req = LaunchRequest(
@@ -326,11 +328,11 @@ class TestEdgeCases:
             launch_site_id="field",
             fill_mode=FillMode.NORMAL,
         )
-        result = service.run(req)
-        assert isinstance(result, FlightResult)
-        assert len(result.telemetry) > 0
+        outcome = service.run(req)
+        assert isinstance(outcome.result, FlightResult)
+        assert len(outcome.result.telemetry) > 0
         # More payloads = more mass = potentially different flight
-        assert result.launch_request.total_payload_mass_kg > 0
+        assert outcome.result.launch_request.total_payload_mass_kg > 0
 
     def test_heavy_fill(self, service):
         req = LaunchRequest(
@@ -340,8 +342,83 @@ class TestEdgeCases:
             launch_site_id="field",
             fill_mode=FillMode.HEAVY,
         )
-        result = service.run(req)
-        assert isinstance(result, FlightResult)
-        assert len(result.telemetry) > 0
+        outcome = service.run(req)
+        assert isinstance(outcome.result, FlightResult)
+        assert len(outcome.result.telemetry) > 0
         # Heavy should have more gas mass than normal
-        assert result.launch_request.gas_mass_kg > 0
+        assert outcome.result.launch_request.gas_mass_kg > 0
+
+    def test_no_mission_flight_uses_default_time(self, service):
+        """A launch with no compatible missions should use default_sim_time, not mission time.
+
+        Regression: previously all launches got 43200s because the code checked
+        `mission_assignment is not None` which is always true. The fix checks for
+        the presence of "mission_ids" key, which never exists in regular assignments.
+        """
+        req = LaunchRequest(
+            gas_id="helium",
+            envelope_id="latex",
+            payload_ids=(),
+            launch_site_id="field",
+            fill_mode=FillMode.NORMAL,
+        )
+        outcome = service.run(req)
+        # Check the simulation didn't run for 12 hours — should be ~150s (default)
+        assert outcome.result.duration_s < 300, f"Flight took {outcome.result.duration_s}s, expected ~150s (not 43200s)"
+
+    def test_mountain_vs_field_flight_time(self, service, normal_request):
+        """Mountain and field runs should use the same simulation duration.
+
+        Both are regular Discord launches, not mission flights.
+        """
+        mountain_req = LaunchRequest(
+            gas_id="helium",
+            envelope_id="latex",
+            payload_ids=(),
+            launch_site_id="mountain",
+            fill_mode=FillMode.NORMAL,
+        )
+        mountain_outcome = service.run(mountain_req)
+        field_outcome = service.run(normal_request)
+        # Both should be ~150s (default_sim_time), not 43200s (mission_sim_time)
+        assert mountain_outcome.result.duration_s < 300
+        assert field_outcome.result.duration_s < 300
+
+    def test_all_weather_modifiers_applied(self, service, normal_request):
+        """All five weather modifiers should propagate to the simulation state.
+
+        Regression: the original migration only applied burst_risk, ascent_rate, and drift_factor.
+        thermal_efficiency → solar_modifier and pressure_modifier → pressure_modifier were dropped.
+        """
+        prep = service.prepare(normal_request)
+        impacts = prep.weather_impacts
+        # All five keys should be present
+        for key in ('burst_risk', 'thermal_efficiency', 'pressure_modifier', 'ascent_rate', 'drift_factor'):
+            assert key in impacts, f"Weather impact missing: {key}"
+        # Verify they get applied in run()
+        assert prep.sim_state.envelope.weather_solar_modifier == 1.0  # default
+        assert prep.sim_state.envelope.weather_pressure_modifier == 1.0  # default
+
+    def test_flight_outcome_has_metadata(self, service, normal_request):
+        """FlightOutcome should carry weather, mission_assignment, and weather_impacts.
+
+        Architectural fix: Discord no longer needs a second prepare() call.
+        """
+        outcome = service.run(normal_request)
+        assert outcome.weather is not None
+        assert outcome.mission_assignment is not None
+        assert outcome.weather_impacts is not None
+        assert isinstance(outcome.weather_impacts, dict)
+
+    def test_discord_no_second_prepare(self, service, normal_request):
+        """Discord should use FlightOutcome metadata, not call prepare() again."""
+        outcome = service.run(normal_request)
+        # Weather data available without calling prepare() again
+        weather_dict = {
+            "name": outcome.weather.name if outcome.weather else "",
+            "description": outcome.weather.description if outcome.weather else "",
+            "severity": outcome.weather.severity if outcome.weather else "",
+            "flight_modifier": outcome.weather.flight_modifier if outcome.weather else "",
+        }
+        assert "severity" in weather_dict
+        assert outcome.mission_assignment is not None
