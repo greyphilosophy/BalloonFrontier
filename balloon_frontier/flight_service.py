@@ -59,6 +59,8 @@ from balloon_frontier.mission_selection import (
 )
 from balloon_frontier.flight_score import calculate_flight_score
 from balloon_frontier.medal_tier import get_medal_emoji, medal_tier_to_string
+from balloon_frontier.reward_service import RewardService
+from balloon_frontier.progression import PlayerRegistryRepository
 
 
 logger = logging.getLogger(__name__)
@@ -131,10 +133,16 @@ class FlightService:
         default_sim_time: float = 150.0,
         mission_sim_time: float = 43200.0,  # 12 hours
         mission_step_interval: float = 1.0,
+        reward_service: Optional[RewardService] = None,
     ) -> None:
         self.default_sim_time = default_sim_time
         self.mission_sim_time = mission_sim_time
         self.mission_step_interval = mission_step_interval
+        self.reward_service = (
+            reward_service
+            if reward_service is not None
+            else RewardService(PlayerRegistryRepository())
+        )
 
     def prepare(self, launch_request: LaunchRequest) -> LaunchPreparation:
         """Prepare a launch: resolve catalog, build SimulationState, assign missions & weather.
@@ -299,92 +307,11 @@ class FlightService:
             )
 
             # Apply mission rewards to player progression (if player_id provided)
-            applied_rewards: list[str] = []
-            flush_failed: bool = False
-            # Track per-mission deltas so we can roll back on persistence failure
-            reward_deltas: dict[str, tuple[int, int]] = {}  # mission_id -> (budget_delta, rep_delta)
-            # Missions whose reward was rolled back due to flush failure
-            rolled_back_rewards: set[str] = set()
-
-            if launch_request.player_id and mission_results:
-                from balloon_frontier.progression import PlayerRegistry
-                player = PlayerRegistry.get_or_create(launch_request.player_id)
-                for mr in mission_results:
-                    if not mr.completed:
-                        continue
-
-                    if mr.mission_id in player.missions_completed:
-                        continue
-
-                    player.budget += mr.reward
-                    rep_gain = min(int(mr.reward / 3000), 2)
-                    player.reputation += rep_gain
-                    player.missions_completed.append(mr.mission_id)
-                    applied_rewards.append(mr.mission_id)
-                    reward_deltas[mr.mission_id] = (mr.reward, rep_gain)
-
-                if applied_rewards:
-                    try:
-                        PlayerRegistry.flush_all()
-                    except Exception:
-                        logger.exception("Failed to save player progression")
-                        flush_failed = True
-                        # Roll back in-memory changes for all applied rewards
-                        for mission_id in applied_rewards:
-                            delta_budget, delta_rep = reward_deltas[mission_id]
-                            player.budget -= delta_budget
-                            player.reputation -= delta_rep
-                            player.missions_completed.remove(mission_id)
-                            rolled_back_rewards.add(mission_id)
-                        applied_rewards.clear()
-
-                for mission_id in applied_rewards:
-                    logger.info("Applied mission reward for %s: budget=%d, rep=%d",
-                              mission_id,
-                              next(mr.reward for mr in mission_results if mr.mission_id == mission_id),
-                              min(int(next(mr.reward for mr in mission_results if mr.mission_id == mission_id) / 3000), 2))
-
-            # Reconcile displayed reward with what was actually applied
             if launch_request.player_id:
-                applied_set = set(applied_rewards)
-                flush_failed_local = flush_failed
-
-                def _reconcile_mission(mr: MissionResult) -> MissionResult:
-                    if not mr.completed:
-                        return mr
-
-                    if mr.mission_id in rolled_back_rewards:
-                        # Persistence failed: reward was reverted in-memory
-                        return MissionResult(
-                            mission_id=mr.mission_id,
-                            completed=True,
-                            reward=0,
-                            explanation=(
-                                "Mission completed, but the reward could not be saved. "
-                                "Please try again."
-                            ),
-                        )
-
-                    if mr.mission_id in applied_set:
-                        # Reward was actually awarded
-                        return mr
-
-                    # Progression skipped: either already-completed or flush failed
-                    if flush_failed_local:
-                        return MissionResult(
-                            mission_id=mr.mission_id,
-                            completed=True,
-                            reward=0,
-                            explanation="Mission completed but reward could not be applied (progression error).",
-                        )
-                    return MissionResult(
-                        mission_id=mr.mission_id,
-                        completed=True,
-                        reward=0,
-                        explanation="Mission completed previously; no additional reward awarded.",
-                    )
-
-                mission_results = tuple(_reconcile_mission(mr) for mr in mission_results)
+                mission_results = self.reward_service.apply(
+                    player_id=launch_request.player_id,
+                    mission_results=mission_results,
+                )
 
             # Build FlightOutcome with all metadata
             result = FlightOutcome(

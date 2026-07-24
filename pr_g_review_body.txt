@@ -1,0 +1,95 @@
+## Code Review — PR G: Extract RewardService and PlayerRepository
+
+### Overall impression
+Nice extract. The code does exactly what it should: strips ~80 lines of persistence side-effect code from `FlightService`, replaces it with a 3-phase apply→flush/rollback→reconcile pipeline in `RewardService`, and introduces a clean `PlayerRepository` protocol for future SQLite migration.
+
+All 984 tests pass (969 original + 15 new). Lint clean. Mergeable.
+
+---
+
+### 🔴 Medium
+
+**1. `reward_service.py` line 106 — `logger.exception` swallows the traceback on flush failure**
+
+```python
+try:
+    self.repository.flush_all()
+except Exception:
+    logger.exception("Failed to save player progression")
+```
+
+This is fine for the existing behavior, but consider whether the exception should be re-raised or wrapped in a domain-specific exception so callers can distinguish "partial flush failed" from "hard failure". For now it's consistent with the original, so not blocking.
+
+**2. `reward_service.py` line 142 — Repeated lookup of the same mission in the log loop**
+
+```python
+mr_entry = next(
+    mr for mr in mission_results if mr.mission_id == mission_id
+)
+rep_for_entry = min(int(mr_entry.reward / 3000), 2)
+```
+
+This is an O(n²) scan over `mission_results` inside the log loop. Functionally fine for small mission counts, but since we already build `reward_deltas` with the reward amount, we could use that. Not a correctness issue, just a minor optimization.
+
+**3. `progression.py` — `PlayerRepository` Protocol has no implementation for `flush_all` return value**
+
+```python
+def flush_all(self) -> int:
+    """..."""
+```
+
+Protocol methods without bodies default to returning `None` in Pyright's view. Add `...` body to make the abstract contract explicit and suppress the LSP warning:
+
+```python
+def flush_all(self) -> int:
+    """..."""
+    ...  # noqa: WPS428
+```
+
+---
+
+### 🟢 Low / Nitpick
+
+**4. `progression.py` — Missing newline at end of file**
+
+```
+return PlayerRegistry.flush_all()\ No newline at end of file
+```
+
+Add a trailing newline to keep `diff`-tools happy.
+
+**5. `reward_service.py` docstring example references `MissionResult` without import**
+
+The usage example in the module docstring uses `MissionResult(...)` but `MissionResult` isn't imported at runtime (only under `TYPE_CHECKING`). The example should either import `MissionResult` or reference it as `from balloon_frontier.launch_result import MissionResult`.
+
+**6. Test: `CapturingRepository` could be shared as a conftest fixture**
+
+The `CapturingRepository` mock class is useful beyond this test file. Consider extracting to `tests/conftest.py` so future PRs (e.g. the MissionEvaluator extraction) can reuse it.
+
+**7. `flight_service.py` — The `Optional[RewardService]` default is implicit**
+
+```python
+reward_service: Optional[RewardService] = None,
+self.reward_service = reward_service or RewardService(
+    PlayerRegistryRepository(),
+)
+```
+
+This is fine, but consider documenting that passing `None` explicitly triggers the default. Some callers might want to inject `None` intentionally. A sentinel like `_DEFAULT = object()` would make the intent explicit.
+
+---
+
+### ✅ What's good
+
+- The 3-phase structure (apply → flush/rollback → reconcile) is clean and testable
+- `PlayerRepository` Protocol enables future SQLite migration without touching FlightService
+- `PlayerRegistryRepository` adapter keeps the existing `PlayerRegistry` API unchanged
+- Test coverage hits all four reconcile paths: applied, rolled-back, previously-completed, progression-error
+- The retry-after-failure test (`test_flush_failure_then_success`) is valuable — it proves the rollback actually resets state
+- `flight_service.py` went from 607 → 535 lines (-72 lines), significantly cleaner
+
+---
+
+### Verdict: APPROVED (as a review comment, not an official approval per user's convention)
+
+No blocking issues. The Medium items are pre-existing-consistency observations or minor cleanups. Ready to merge with or without these addressed.
