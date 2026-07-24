@@ -555,16 +555,14 @@ class MissionAssignment:
     Attributes:
         mission_ids: Tuple of mission identifiers assigned to this flight.
         seed: Deterministic seed used for selection (reproducible).
-        mission_count: Number of missions assigned.
     """
     mission_ids: tuple[str, ...] = ()
     seed: Optional[int] = None
-    mission_count: int = 0
 
-    def __post_init__(self) -> None:
-        # Keep mission_count consistent with mission_ids
-        if self.mission_count == 0 and self.mission_ids:
-            object.__setattr__(self, 'mission_count', len(self.mission_ids))
+    @property
+    def mission_count(self) -> int:
+        """Number of missions assigned (derived from mission_ids)."""
+        return len(self.mission_ids)
 
 
 @dataclass(frozen=True, slots=True)

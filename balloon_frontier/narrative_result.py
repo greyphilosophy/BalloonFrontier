@@ -335,24 +335,10 @@ def format_discord_results(
             lines.append(weather_event["description"])
         lines.append(f"{weather_event.get('severity', '')} — {weather_event.get('flight_modifier', '')}\n")
 
-    # Mission evaluation (handle both typed MissionAssignment and legacy dict)
+    # Mission evaluation removed — formatter is presentation-only.
+    # Mission results are supplied by FlightService and rendered by the caller.
+    # The formatter no longer calls evaluate_and_update_progression().
     mission_result = None
-    mission_ids_list: list[str] = []
-    if mission_assignment:
-        if isinstance(mission_assignment, dict):
-            mission_ids_list = mission_assignment.get("missions", [])
-        else:
-            # Typed MissionAssignment
-            mission_ids_list = list(mission_assignment.mission_ids) if mission_assignment.mission_ids else []
-    if mission_ids_list:
-        payload_list = [p.strip() for p in payload_names.replace(" + ", ",").lower().split(",")] if payload_names else ["none"]
-
-        mission_result = evaluate_and_update_progression(
-            telemetry=telemetry,
-            mission_ids=mission_ids_list,
-            payloads=payload_list,
-            player_id=player_id,
-        )
 
     # Narrative summary
     lines.append(generate_narrative_summary(
