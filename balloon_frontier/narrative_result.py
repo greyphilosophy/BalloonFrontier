@@ -343,7 +343,7 @@ def format_discord_results(
         landed=landed,
         crashed=crashed,
         time_of_flight=time_of_flight,
-        mission_result=mission_result,
+        mission_result=None,
         weather_briefing=None,
     ))
 
