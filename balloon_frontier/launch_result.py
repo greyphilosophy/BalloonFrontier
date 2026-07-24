@@ -325,7 +325,7 @@ class LaunchRequest:
             envelope=env_config,
             wind_enabled=True,
             wind_site_id=site.id,
-            terrain_base_altitude_offset_m=0.0,
+            terrain_base_altitude_offset_m=site.altitude_m,
             has_pressure_valve=has_valve,
         )
 
