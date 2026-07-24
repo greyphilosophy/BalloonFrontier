@@ -214,20 +214,16 @@ def get_choice(max_val, prompt):
 
 def show_results(outcome: FlightOutcome, balloon_key, gas_type, gas_mass, payloads):
     """Display flight results with medal and stats."""
-    from balloon_frontier.flight_score import calculate_flight_score
-    from balloon_frontier.medal_tier import medal_tier_to_string, get_medal_emoji
-
     result = outcome.result
 
     # Check if valve was selected
     has_valve = any(pid == "valve" for pid in payloads if pid != "none")
     valve_note = " 🛡️" if has_valve else ""
 
-    # Compute score and medal from result properties (mimics Discord callback)
-    payload_count = max(1, len([pid for pid in payloads if pid != "none"]))
-    score = calculate_flight_score(result.peak_altitude_m, payload_count, result.duration_s)
-    medal_name = medal_tier_to_string(result.peak_altitude_m)
-    medal_emoji = get_medal_emoji(result.peak_altitude_m)
+    # Use score and medal computed by FlightService (no local recomputation)
+    score = outcome.score
+    medal_name = outcome.medal_name
+    medal_emoji = outcome.medal_emoji
 
     print("\n  ╔═══════════════════════════════════════════════╗")
     print("  ║              🎈 FLIGHT RESULTS 🎈             ║")
@@ -266,11 +262,16 @@ def show_results(outcome: FlightOutcome, balloon_key, gas_type, gas_mass, payloa
         if outcome.weather.description:
             print(f"             {outcome.weather.description}")
 
-    # Show missions if assigned
-    if outcome.mission_assignment:
-        mission_ids = outcome.mission_assignment.get("mission_ids", [])
-        if mission_ids:
-            print(f"\n  Missions:   {', '.join(mission_ids)}")
+    # Show missions and results if assigned
+    if outcome.mission_assignment and outcome.mission_assignment.mission_ids:
+        mission_ids = outcome.mission_assignment.mission_ids
+        print(f"\n  Missions:   {', '.join(mission_ids)}")
+
+        # Show detailed mission results
+        for mr in outcome.mission_results:
+            status = "✅" if mr.completed else "❌"
+            reward_str = f" (+{mr.reward} credits)" if mr.reward else ""
+            print(f"    {status} {mr.mission_id}{reward_str}: {mr.explanation}")
 
 
 def play():

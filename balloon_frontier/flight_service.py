@@ -40,6 +40,8 @@ from balloon_frontier.launch_result import (
     FlightResult,
     TelemetryPoint,
     telemetry_list_to_points,
+    MissionAssignment,
+    MissionResult,
 )
 from balloon_frontier.simulation import (
     run_simulation as run_full_simulation,
@@ -72,13 +74,21 @@ class FlightOutcome:
 
     Attributes:
         result: The FlightResult with telemetry.
+        score: Flight score (computed from peak altitude, payload count, duration).
+        medal_name: Medal tier name (e.g. "BRONZE", "SILVER", "GOLD", "PLATINUM").
+        medal_emoji: Emoji representation of the medal tier (e.g. "🥉", "🥈", "🥇", "💎").
         weather: The generated weather event.
-        mission_assignment: The mission assignment dictionary.
+        mission_assignment: Assigned missions for this flight (typed).
+        mission_results: Evaluation results for each assigned mission.
         weather_impacts: Computed weather impact modifiers.
     """
     result: FlightResult
+    score: float = 0.0
+    medal_name: str = "NONE"
+    medal_emoji: str = "⚪"
     weather: Optional[WeatherEvent] = None
-    mission_assignment: Optional[dict] = None
+    mission_assignment: Optional[MissionAssignment] = None
+    mission_results: tuple[MissionResult, ...] = ()
     weather_impacts: dict = field(default_factory=dict)
 
 
@@ -220,8 +230,8 @@ class FlightService:
             # Determine simulation duration based on actual mission count
             # Only explicitly-mission flights (with mission_ids in assignment) use
             # mission_sim_time. Regular Discord/CLI launches use default_sim_time.
-            assignment = prep.mission_assignment or {}
-            is_mission = bool(assignment.get("mission_ids"))
+            assignment_dict = prep.mission_assignment or {}
+            is_mission = bool(assignment_dict.get("mission_ids"))
             max_time = self.mission_sim_time if is_mission else self.default_sim_time
             max_steps = int(max_time / 0.1)
 
@@ -237,13 +247,22 @@ class FlightService:
 
             if not tel_full:
                 # Empty telemetry — return result with zeroed values
+                mission_ids_tuple = tuple(assignment_dict.get("mission_ids", []))
+                mission_assign = MissionAssignment(
+                    mission_ids=mission_ids_tuple,
+                    seed=assignment_dict.get("seed"),
+                )
                 result = FlightOutcome(
                     result=FlightResult(
                         telemetry=(),
                         launch_request=launch_request,
                     ),
+                    score=0.0,
+                    medal_name="NONE",
+                    medal_emoji="⚪",
                     weather=prep.weather,
-                    mission_assignment=assignment,
+                    mission_assignment=mission_assign,
+                    mission_results=(),
                     weather_impacts=prep.weather_impacts,
                 )
                 return result
@@ -251,15 +270,54 @@ class FlightService:
             # Convert raw telemetry dicts to TelemetryPoint objects
             points = telemetry_list_to_points(tel_full)
 
-            # Build FlightResult with mission/weather metadata so Discord doesn't
-            # need a second prepare() call.
+            # Compute peak altitude and duration from telemetry (before building FlightResult)
+            peak_altitude_m = max((tp.altitude_m for tp in points), default=0.0)
+            duration_s = points[-1].time_s if points else 0.0
+
+            # Convert dict assignment to typed MissionAssignment
+            mission_ids_tuple = tuple(assignment_dict.get("mission_ids", []))
+            mission_assign = MissionAssignment(
+                mission_ids=mission_ids_tuple,
+                seed=assignment_dict.get("seed"),
+            )
+
+            # Convert to dict for backward compatibility with format_discord_results
+            mission_dict = {
+                "mission_ids": mission_ids_tuple,
+                "seed": assignment_dict.get("seed"),
+                "missions": list(mission_ids_tuple),
+                "mission_count": len(mission_ids_tuple),
+            }
+
+            # Compute score and medal from result properties
+            payload_count = max(1, len([pid for pid in launch_request.payload_ids if pid != "none"]))
+            score = calculate_flight_score(
+                peak_altitude_m,
+                payload_count,
+                duration_s,
+            )
+            medal_name = medal_tier_to_string(peak_altitude_m)
+            medal_emoji = get_medal_emoji(peak_altitude_m)
+
+            # Evaluate missions
+            mission_results = self._evaluate_missions(
+                telemetry=tuple(points),
+                mission_assignment=mission_assign,
+                launch_request=launch_request,
+            )
+
+            # Build FlightOutcome with all metadata
             result = FlightOutcome(
                 result=FlightResult(
                     telemetry=tuple(points),
                     launch_request=launch_request,
                 ),
+                score=score,
+                medal_name=medal_name,
+                medal_emoji=medal_emoji,
                 weather=prep.weather,
-                mission_assignment=assignment,
+                mission_assignment=mission_assign,
+                mission_results=mission_results,
                 weather_impacts=prep.weather_impacts,
             )
 
@@ -268,6 +326,106 @@ class FlightService:
         except Exception as e:
             logger.exception("Flight simulation failed")
             raise FlightServiceError(f"Flight simulation failed: {e}") from e
+
+    def _evaluate_missions(
+        self,
+        telemetry: tuple[TelemetryPoint, ...],
+        mission_assignment: MissionAssignment,
+        launch_request: LaunchRequest,
+    ) -> tuple[MissionResult, ...]:
+        """Evaluate mission completion based on flight results.
+
+        Args:
+            telemetry: Flight telemetry data.
+            mission_assignment: The assigned missions.
+            launch_request: The original launch configuration.
+
+        Returns:
+            Tuple of MissionResult objects.
+        """
+        from balloon_frontier.missions import MISSIONS
+
+        if not mission_assignment.mission_ids:
+            return ()
+
+        results: list[MissionResult] = []
+        peak_altitude = max((tp.altitude_m for tp in telemetry), default=0.0)
+        duration = telemetry[-1].time_s if telemetry else 0.0
+        has_landed = any(tp.landed for tp in telemetry)
+        has_crashed = any(tp.crashed for tp in telemetry)
+        burst = any(tp.burst for tp in telemetry)
+
+        for mission_id in mission_assignment.mission_ids:
+            mission = MISSIONS.get(mission_id)
+            if mission is None:
+                results.append(MissionResult(
+                    mission_id=mission_id,
+                    completed=False,
+                    reward=0,
+                    explanation=f"Mission {mission_id} not found",
+                ))
+                continue
+
+            completed = self._check_mission_completion(
+                mission=mission,
+                peak_altitude=peak_altitude,
+                duration=duration,
+                has_landed=has_landed,
+                has_crashed=has_crashed,
+                burst=burst,
+            )
+
+            reward = mission.budget if completed else 0
+            explanation = self._generate_mission_explanation(
+                mission=mission,
+                completed=completed,
+                peak_altitude=peak_altitude,
+            )
+
+            results.append(MissionResult(
+                mission_id=mission_id,
+                completed=completed,
+                reward=reward,
+                explanation=explanation,
+            ))
+
+        return tuple(results)
+
+    def _check_mission_completion(
+        self,
+        mission,
+        peak_altitude: float,
+        duration: float,
+        has_landed: bool,
+        has_crashed: bool,
+        burst: bool,
+    ) -> bool:
+        """Check if a mission's objectives were completed."""
+        for objective in mission.objectives:
+            if objective.type == "reach_altitude":
+                minimum_m = objective.params.get('minimum_m', 0)
+                if peak_altitude < minimum_m:
+                    return False
+            elif objective.type == "recover_data":
+                if not has_landed or has_crashed:
+                    return False
+            elif objective.type == "fly_distance":
+                distance_m = objective.params.get('minimum_m', 0)
+                if not has_landed:
+                    return False
+        return True
+
+    def _generate_mission_explanation(
+        self,
+        mission,
+        completed: bool,
+        peak_altitude: float,
+    ) -> str:
+        """Generate a human-readable explanation for mission result."""
+        if completed:
+            return f"Mission {mission.title} completed! Budget {mission.budget} credits awarded."
+        else:
+            return f"Mission {mission.title} not completed. No budget awarded."
 
 
 # Module-level singleton

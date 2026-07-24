@@ -335,15 +335,21 @@ def format_discord_results(
             lines.append(weather_event["description"])
         lines.append(f"{weather_event.get('severity', '')} — {weather_event.get('flight_modifier', '')}\n")
 
-    # Mission evaluation
+    # Mission evaluation (handle both typed MissionAssignment and legacy dict)
     mission_result = None
-    if mission_assignment and mission_assignment.get("missions"):
-        mission_ids = mission_assignment["missions"]
+    mission_ids_list: list[str] = []
+    if mission_assignment:
+        if isinstance(mission_assignment, dict):
+            mission_ids_list = mission_assignment.get("missions", [])
+        else:
+            # Typed MissionAssignment
+            mission_ids_list = list(mission_assignment.mission_ids) if mission_assignment.mission_ids else []
+    if mission_ids_list:
         payload_list = [p.strip() for p in payload_names.replace(" + ", ",").lower().split(",")] if payload_names else ["none"]
 
         mission_result = evaluate_and_update_progression(
             telemetry=telemetry,
-            mission_ids=mission_ids,
+            mission_ids=mission_ids_list,
             payloads=payload_list,
             player_id=player_id,
         )
