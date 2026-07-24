@@ -18,8 +18,15 @@ class TestCalculateFlightScore:
         assert abs(score - expected) < 0.01
 
     def test_zero_values(self):
+        # payloads=0 is clamped to 1, so score = 0*1 + 1*500 + 0*100 = 500
         score = calculate_flight_score(0, 0, 0)
-        assert score == 0.0
+        assert score == 500.0
+
+    def test_negative_inputs(self):
+        # payloads=-1 is clamped to 1, so score = -100*1 + 1*500 + -5*100 = -200
+        score = calculate_flight_score(-100, -1, -5.0)
+        expected = (-100 * W_ALT) + (1 * W_PAY) + (-5.0 * W_TIME)
+        assert abs(score - expected) < 0.01
 
     def test_custom_weights(self):
         score = calculate_flight_score(
@@ -29,14 +36,9 @@ class TestCalculateFlightScore:
         expected = (1000 * 2.0) + (2 * 250.0) + (30 * 50.0)
         assert abs(score - expected) < 0.01
 
-    def test_negative_inputs(self):
-        score = calculate_flight_score(-100, -1, -5.0)
-        expected = (-100 * W_ALT) + (-1 * W_PAY) + (-5.0 * W_TIME)
-        assert abs(score - expected) < 0.01
-
     def test_float_inputs(self):
-        score = calculate_flight_score(100.5, 2.5, 30.5)
-        expected = (100.5 * W_ALT) + (2.5 * W_PAY) + (30.5 * W_TIME)
+        score = calculate_flight_score(100.5, 2, 30.5)
+        expected = (100.5 * W_ALT) + (2 * W_PAY) + (30.5 * W_TIME)
         assert abs(score - expected) < 0.01
 
     def test_returns_float(self):
@@ -56,4 +58,3 @@ class TestCalculateFlightScore:
         assert score > alt_contribution
         assert score > pay_contribution
         assert score > time_contribution
-

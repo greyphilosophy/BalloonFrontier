@@ -164,10 +164,11 @@ class TestScoreCalculationConsistency:
         assert int(score) == total
         assert f"TOTAL: {total:,} pts" in breakdown
 
-    def test_score_zero_inputs(self):
+    def test_zero_inputs(self):
+        # payload=0 is clamped to 1, so score = 0*1 + 1*500 + 0*100 = 500
         score = calculate_flight_score(0, 0, 0)
-        assert score == 0.0
+        assert score == 500.0
 
-    def test_score_negative_altitude(self):
+    def test_negative_altitude(self):
         score = calculate_flight_score(-100, 1, 10)
         assert score == -100 * 1.0 + 1 * 500 + 10 * 100
