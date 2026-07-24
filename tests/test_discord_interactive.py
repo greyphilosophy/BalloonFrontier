@@ -66,12 +66,11 @@ def configurator():
 
     # Also unlock the "anonymous" player created by BalloonConfigurator
     # in case it's a different instance from the registry lookup
-    from balloon_frontier.progression import PlayerState
     for pid in ["anonymous", "123456789"]:
-        p = PlayerRegistry.get_or_create(pid)
-        p.unlocked_envelopes = [e.id for e in ENVELOPES]
-        p.unlocked_payloads = [p.id for p in PAYLOAD_UNLOCKS]
-        p.unlocked_sites = [s.id for s in SITES]
+        ps = PlayerRegistry.get_or_create(pid)
+        ps.unlocked_envelopes = [e.id for e in ENVELOPES]
+        ps.unlocked_payloads = [p.id for p in PAYLOAD_UNLOCKS]
+        ps.unlocked_sites = [s.id for s in SITES]
 
     return c
 
