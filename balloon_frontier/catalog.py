@@ -99,6 +99,10 @@ class FillMode(str, Enum):
         }
         return _mults[self.value]
 
+    def is_auto_mode(self) -> bool:
+        """Return True for AUTO/LIGHT/NORMAL/HEAVY (preset modes)."""
+        return self != FillMode.MANUAL
+
 
 # ═══════════════════════════════════════════════════════════
 # Dataclasses

@@ -35,6 +35,8 @@ from balloon_frontier.launch_sites import LaunchSiteInfo
 from balloon_frontier.narrative_result import format_discord_results
 from balloon_frontier.weather_event import generate_weather, weather_impact_on_flight, format_weather_briefing
 from balloon_frontier.missions import load_mission_directory
+from balloon_frontier.flight_service import flight_service, FlightServiceError
+from balloon_frontier.launch_result import LaunchRequest, FillMode
 from balloon_frontier.progression import (
     PlayerRegistry,
     ENVELOPES as PROGRESSION_ENVELOPES,
@@ -974,18 +976,66 @@ class _LaunchButton(discord.ui.Button):
             # Compute weather impacts and pass them to the simulation
             weather_impacts = weather_impact_on_flight(weather)
 
-            # Run the CPU-heavy simulation off the event loop.
-            tel, summary = await asyncio.to_thread(
-                run_simulation,
-                state["gas"], gas_mass, site_cond["gas_temperature"], payload_mass,
-                env_info[3], env_info[1], env_info[4],
-                envelope_mass_kg=env_info[2],
-                mission_assignment=mission_assignment,
-                weather_impacts=weather_impacts,
-                has_pressure_valve=has_pressure_valve,
-                launch_altitude_m=site_cond["launch_altitude"],
-                wind_site_id=state["site"],
+            # Build LaunchRequest from Discord state
+            fill_mode = FillMode(
+                self._parent.state.get("fill_mode", "auto")
             )
+            manual_mass = self._parent.state.get("manual_gas_mass")
+            balloon_size = None  # TODO: surface balloon size selector
+
+            launch_request = LaunchRequest(
+                gas_id=state["gas"],
+                envelope_id=state["envelope"],
+                payload_ids=tuple(state.get("payloads") or []),
+                launch_site_id=state["site"],
+                fill_mode=fill_mode,
+                manual_gas_mass_kg=manual_mass,
+                balloon_size=balloon_size,
+            )
+
+            # Run the CPU-heavy simulation off the event loop.
+            try:
+                result = await asyncio.to_thread(
+                    flight_service.run,
+                    launch_request,
+                    weather_event=weather_dict,
+                    mission_assignment=mission_assignment,
+                    wind_site_id=state["site"],
+                )
+            except FlightServiceError:
+                logger.exception("Flight service failed")
+                await interaction.edit_original_response(
+                    content="\u274c The launch simulation failed. Please try again.",
+                    view=None,
+                )
+                return
+
+            # Extract telemetry for chart (convert tuple back to list of dicts)
+            tel = [
+                {
+                    "time": tp.time_s,
+                    "alt": tp.altitude_m,
+                    "vel": tp.velocity_mps,
+                    "burst": tp.burst,
+                    "landed": tp.landed,
+                    "crashed": tp.crashed,
+                }
+                for tp in result.telemetry
+            ]
+
+            # Access FlightResult properties (immutable, derived)
+            peak_alt = result.peak_altitude_m
+            time_of_flight = result.duration_s
+            burst = result.burst
+            landed = result.landed
+            crashed = result.crashed
+
+            # Compute score and medal (from flight_score module)
+            payload_count = 1  # At least 1 for scoring
+
+            score = calculate_flight_score(peak_alt, payload_count, time_of_flight)
+            medal_name = medal_tier_to_string(peak_alt)
+            medal_emoji = get_medal_emoji(peak_alt)
 
             payload_display = ", ".join(payload_names)
             if payload_keys and "none" not in payload_keys:
@@ -1006,14 +1056,14 @@ class _LaunchButton(discord.ui.Button):
 
             # Build narrative result
             result_content = format_discord_results(
-                peak_altitude=summary.get("peak_altitude", 0),
-                burst=summary.get("burst", False),
-                landed=summary.get("landed", False),
-                crashed=summary.get("crashed", False),
-                time_of_flight=summary.get("time_of_flight", 0),
+                peak_altitude=peak_alt,
+                burst=burst,
+                landed=landed,
+                crashed=crashed,
+                time_of_flight=time_of_flight,
                 telemetry=tel,
                 gas_name=gas_info[0],
-                gas_mass=gas_mass,
+                gas_mass=result.launch_request.gas_mass_kg,
                 env_name=env_info[0],
                 payload_names=payload_display,
                 site_name=site_info.name,
