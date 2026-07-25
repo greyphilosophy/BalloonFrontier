@@ -431,3 +431,55 @@ class PlayerRegistry:
             key=lambda p: getattr(p, key, 0),
             reverse=True,
         )
+
+
+# ── Repository pattern (PR G) ─────────────────────────────────────────
+# Decouples flight logic from persistence so the backing store
+# can change (JSON/global → SQLite / API) without touching
+# the flight pipeline.
+
+from typing import Protocol, runtime_checkable
+
+
+@runtime_checkable
+class PlayerRepository(Protocol):
+    """Read/write contract for player persistence.
+
+    Implementations:
+
+    * PlayerRegistryRepository (default) — wraps PlayerRegistry in-memory
+      JSON-backed storage.
+
+    * (Future) SqlitePlayerRepository — reads/writes an SQLite database
+      so the game no longer needs global state.
+    """
+
+    def get(self, player_id: str) -> PlayerState:
+        """Return player state; create defaults if unknown.
+
+        May raise on I/O errors that prevent loading.
+        """
+
+    def save(self, player: PlayerState) -> None:
+        """Persist player state to the backing store.
+
+        May raise on I/O errors.
+        """
+
+
+class PlayerRegistryRepository:
+    """Repository adapter that delegates to PlayerRegistry.
+
+    Implements PlayerRepository so callers depend on the Protocol
+    rather than the concrete class.
+    """
+
+    def get(self, player_id: str) -> PlayerState:
+        return PlayerRegistry.get_or_create(player_id)
+
+    def save(self, player: PlayerState) -> None:
+        player.save()
+
+    def flush_all(self) -> int:
+        """Save all in-memory players.  Returns count saved."""
+        return PlayerRegistry.flush_all()
