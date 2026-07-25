@@ -102,7 +102,7 @@ PAYLOAD_UNLOCKS: List[PayloadUnlock] = [
     PayloadUnlock("parachute", "Parachute", 0, 0, 2.0, "recovery", "Slows descent on landing"),
     PayloadUnlock("parafoil", "Parafoil", 0, 0, 3.5, "recovery", "Gliding parachute for horizontal control"),
     PayloadUnlock("ballast", "Ballast (Sand)", 0, 0, 15.0, "ballast", "Adjustable weight for fine control"),
-    PayloadUnlock("pressure_valve", "Pressure Release Valve", 0, 0, 0.5, "vent", "Vents excess gas to prevent burst"),
+    PayloadUnlock("valve", "Pressure Release Valve", 0, 0, 0.5, "vent", "Vents excess gas to prevent burst"),
     PayloadUnlock("propeller_pod", "Propeller Pod", 0, 0, 4.0, "control", "Motor-driven propeller for drift control"),
     PayloadUnlock("gps_receiver", "GPS Receiver", 0, 0, 0.7, "sensor", "Tracks horizontal position"),
     PayloadUnlock("barometer", "Barometer", 0, 0, 0.5, "sensor", "Measures ambient pressure"),
