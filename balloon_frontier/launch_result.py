@@ -51,6 +51,7 @@ from balloon_frontier.catalog import (
     PayloadDefinition,
     SiteDefinition,
     FillMode,
+    ImplementationStatus,
 )
 
 
@@ -162,9 +163,15 @@ class LaunchRequest:
         for pid in self.payload_ids:
             if pid != "none":
                 try:
-                    CATALOG.payload(pid)
+                    payload = CATALOG.payload(pid)
                 except KeyError:
                     raise ValueError(f"Unknown payload: {pid!r}")
+
+                if payload.implementation_status == ImplementationStatus.STUBBED:
+                    raise ValueError(
+                        f"{payload.name} is not available: "
+                        f"{payload.unavailable_reason}"
+                    )
 
         # Validate site
         try:

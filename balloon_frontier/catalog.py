@@ -104,6 +104,13 @@ class FillMode(str, Enum):
         return self != FillMode.MANUAL
 
 
+class ImplementationStatus(str, Enum):
+    """Whether a payload's special behavior is integrated into the runtime."""
+
+    IMPLEMENTED = "implemented"
+    STUBBED = "stubbed"
+
+
 # ═══════════════════════════════════════════════════════════
 # Dataclasses
 # ═══════════════════════════════════════════════════════════
@@ -202,13 +209,23 @@ class PayloadDefinition:
         cost: Cost in-game currency.
         has_valve: Whether this payload is the pressure release valve.
         min_reputation: Minimum reputation to unlock (0 = always available).
-    """
+
+        implementation_status: Whether this payload's special behavior is
+            integrated into the runtime.
+        capabilities: A stable declaration of what the payload provides.
+        unavailable_reason: Human-readable reason shown to players when
+            ``implementation_status=STUBBED``.
+        """
     id: str
     name: str
     mass_kg: float
     cost: int = 0
     has_valve: bool = False
     min_reputation: int = 0
+
+    implementation_status: ImplementationStatus = ImplementationStatus.IMPLEMENTED
+    capabilities: Tuple[str, ...] = field(default_factory=tuple)
+    unavailable_reason: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -317,14 +334,93 @@ class _Catalog:
             PayloadDefinition("ballast",     "Ballast (Sand)",  15.0, 300,  False),
             PayloadDefinition("parachute",   "Parachute",        2.0, 600,  False),
             PayloadDefinition("flight_computer", "Flight Computer",  1.2, 2000, False),
-            PayloadDefinition("valve",       "Pressure Valve",   0.3, 250,  True),
-            # Extras — not in UI yet but in progression
-            PayloadDefinition("barometer",   "Barometer",        0.5, 0,    False),
-            PayloadDefinition("gps_receiver","GPS Receiver",     0.7, 0,    False),
-            PayloadDefinition("parafoil",    "Parafoil",         3.5, 0,    False),
-            PayloadDefinition("propeller_pod","Propeller Pod",   4.0, 0,    False),
-            PayloadDefinition("solar_panel", "Solar Panel",      1.0, 0,    False),
-            PayloadDefinition("thermometer", "Thermometer",      0.3, 0,    False),
+            PayloadDefinition(
+                "valve",
+                "Pressure Valve",
+                0.3,
+                250,
+                True,
+                capabilities=("venting",),
+            ),
+            # Extras — registered in progression but not yet integrated
+            PayloadDefinition(
+                "barometer",
+                "Barometer",
+                0.5,
+                0,
+                False,
+                implementation_status=ImplementationStatus.STUBBED,
+                capabilities=("environment_measurement",),
+                unavailable_reason=(
+                    "Barometric pressure sensing and any effects on gameplay "
+                    "have not been implemented yet."
+                ),
+            ),
+            PayloadDefinition(
+                "gps_receiver",
+                "GPS Receiver",
+                0.7,
+                0,
+                False,
+                implementation_status=ImplementationStatus.STUBBED,
+                capabilities=("recover_data",),
+                unavailable_reason=(
+                    "GPS-based mission/recovery mechanics have not been "
+                    "implemented yet."
+                ),
+            ),
+            PayloadDefinition(
+                "parafoil",
+                "Parafoil",
+                3.5,
+                0,
+                False,
+                implementation_status=ImplementationStatus.STUBBED,
+                capabilities=("glide_landing",),
+                unavailable_reason=(
+                    "Parafoil glide landing mechanics are not available in the "
+                    "current simulation."
+                ),
+            ),
+            PayloadDefinition(
+                "propeller_pod",
+                "Propeller Pod",
+                4.0,
+                0,
+                False,
+                implementation_status=ImplementationStatus.STUBBED,
+                capabilities=("horizontal_control",),
+                unavailable_reason=(
+                    "Propulsion/horizontal control during descent is not "
+                    "implemented yet."
+                ),
+            ),
+            PayloadDefinition(
+                "solar_panel",
+                "Solar Panel",
+                1.0,
+                0,
+                False,
+                implementation_status=ImplementationStatus.STUBBED,
+                capabilities=("power_generation",),
+                unavailable_reason=(
+                    "Solar power generation and battery recharging have not "
+                    "been implemented yet."
+                ),
+            ),
+            PayloadDefinition(
+                "thermometer",
+                "Thermometer",
+                0.3,
+                0,
+                False,
+                implementation_status=ImplementationStatus.STUBBED,
+                capabilities=("environment_measurement",),
+                unavailable_reason=(
+                    "Thermal/environment sensing and any related gameplay "
+                    "effects have not been implemented yet."
+                ),
+            ),
             # "none" is a special sentinel; not registered as a real payload
         )
 
