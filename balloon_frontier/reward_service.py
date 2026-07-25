@@ -100,13 +100,13 @@ class RewardService:
             reward_deltas[mr.mission_id] = (mr.reward, rep_gain)
 
         # Phase 2: Persist (save), rollback on failure
-        flush_failed: bool = False
+        save_failed: bool = False
         if applied_rewards:
             try:
                 self.repository.save(player)
             except Exception:
                 logger.exception("Failed to save player progression")
-                flush_failed = True
+                save_failed = True
                 # Roll back in-memory changes for all applied rewards
                 for mission_id in applied_rewards:
                     delta_budget, delta_rep = reward_deltas[mission_id]
@@ -116,7 +116,7 @@ class RewardService:
                     rolled_back_rewards.add(mission_id)
                 applied_rewards.clear()
 
-        # Phase 3: Log applied rewards (only if flush succeeded)
+        # Phase 3: Log applied rewards (only if save succeeded)
         if applied_rewards:
             for mission_id in applied_rewards:
                 mr_entry = next(
@@ -153,8 +153,8 @@ class RewardService:
                 # Reward was actually awarded
                 return mr
 
-            # Progression skipped: either already-completed or flush failed
-            if flush_failed:
+            # Progression skipped: either already-completed or save failed
+            if save_failed:
                 return MissionResult(
                     mission_id=mr.mission_id,
                     completed=True,
