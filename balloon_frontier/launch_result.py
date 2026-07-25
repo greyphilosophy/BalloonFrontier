@@ -169,8 +169,8 @@ class LaunchRequest:
 
                 if payload.implementation_status == ImplementationStatus.STUBBED:
                     raise ValueError(
-                        f"Payload {pid!r} is currently stubbed/not integrated: "
-                        f"capabilities={payload.capabilities!r}"
+                        f"{payload.name} is not available: "
+                        f"{payload.unavailable_reason}"
                     )
 
         # Validate site

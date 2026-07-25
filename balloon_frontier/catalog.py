@@ -213,7 +213,9 @@ class PayloadDefinition:
         implementation_status: Whether this payload's special behavior is
             integrated into the runtime.
         capabilities: A stable declaration of what the payload provides.
-    """
+        unavailable_reason: Human-readable reason shown to players when
+            ``implementation_status=STUBBED``.
+        """
     id: str
     name: str
     mass_kg: float
@@ -223,6 +225,7 @@ class PayloadDefinition:
 
     implementation_status: ImplementationStatus = ImplementationStatus.IMPLEMENTED
     capabilities: Tuple[str, ...] = field(default_factory=tuple)
+    unavailable_reason: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -348,6 +351,10 @@ class _Catalog:
                 False,
                 implementation_status=ImplementationStatus.STUBBED,
                 capabilities=("environment_measurement",),
+                unavailable_reason=(
+                    "Barometric pressure sensing and any effects on gameplay "
+                    "have not been implemented yet."
+                ),
             ),
             PayloadDefinition(
                 "gps_receiver",
@@ -357,6 +364,10 @@ class _Catalog:
                 False,
                 implementation_status=ImplementationStatus.STUBBED,
                 capabilities=("recover_data",),
+                unavailable_reason=(
+                    "GPS-based mission/recovery mechanics have not been "
+                    "implemented yet."
+                ),
             ),
             PayloadDefinition(
                 "parafoil",
@@ -366,6 +377,10 @@ class _Catalog:
                 False,
                 implementation_status=ImplementationStatus.STUBBED,
                 capabilities=("glide_landing",),
+                unavailable_reason=(
+                    "Parafoil glide landing mechanics are not available in the "
+                    "current simulation."
+                ),
             ),
             PayloadDefinition(
                 "propeller_pod",
@@ -375,6 +390,10 @@ class _Catalog:
                 False,
                 implementation_status=ImplementationStatus.STUBBED,
                 capabilities=("horizontal_control",),
+                unavailable_reason=(
+                    "Propulsion/horizontal control during descent is not "
+                    "implemented yet."
+                ),
             ),
             PayloadDefinition(
                 "solar_panel",
@@ -384,6 +403,10 @@ class _Catalog:
                 False,
                 implementation_status=ImplementationStatus.STUBBED,
                 capabilities=("power_generation",),
+                unavailable_reason=(
+                    "Solar power generation and battery recharging have not "
+                    "been implemented yet."
+                ),
             ),
             PayloadDefinition(
                 "thermometer",
@@ -393,6 +416,10 @@ class _Catalog:
                 False,
                 implementation_status=ImplementationStatus.STUBBED,
                 capabilities=("environment_measurement",),
+                unavailable_reason=(
+                    "Thermal/environment sensing and any related gameplay "
+                    "effects have not been implemented yet."
+                ),
             ),
             # "none" is a special sentinel; not registered as a real payload
         )
