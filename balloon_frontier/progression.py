@@ -64,28 +64,28 @@ class SiteUnlock:
 
 ENVELOPES: List[EnvelopeUnlock] = [
     EnvelopeUnlock(
-        id="latex", name="Latex Party Balloon",
-        cost=0, min_reputation=0,
-        max_volume_m3=10.0, burst_stretch_ratio=3.0,
-        contained_gas=True, mass_kg=0.5,
-        description="The classic: light, stretchy, bursts at 3x volume"),
+        id="latex", name="Latex Weather Balloon",
+        cost=2000, min_reputation=0,
+        max_volume_m3=10.0, burst_stretch_ratio=2.5,
+        contained_gas=True, mass_kg=1.0,
+        description="The classic: light, stretchy, bursts at 2.5x volume"),
     EnvelopeUnlock(
-        id="mylar", name="Mylar Weather Balloon",
-        cost=1000, min_reputation=5,
-        max_volume_m3=200.0, burst_stretch_ratio=2.5,
-        contained_gas=True, mass_kg=2.0,
+        id="mylar", name="Mylar Party Balloon",
+        cost=500, min_reputation=5,
+        max_volume_m3=200.0, burst_stretch_ratio=3.0,
+        contained_gas=True, mass_kg=0.05,
         description="Durable and gas-tight for longer flights"),
     EnvelopeUnlock(
         id="zero_pressure", name="Zero-Pressure Polyethylene",
-        cost=3000, min_reputation=10,
-        max_volume_m3=300.0, burst_stretch_ratio=2.0,
-        contained_gas=False, mass_kg=5.0,
+        cost=15000, min_reputation=10,
+        max_volume_m3=300.0, burst_stretch_ratio=1.8,
+        contained_gas=False, mass_kg=18.0,
         description="Vents excess gas — survives higher but loses lift"),
     EnvelopeUnlock(
         id="blimp", name="Small Non-Rigid Blimp",
-        cost=5000, min_reputation=20,
-        max_volume_m3=500.0, burst_stretch_ratio=1.5,
-        contained_gas=True, mass_kg=12.0,
+        cost=50000, min_reputation=20,
+        max_volume_m3=500.0, burst_stretch_ratio=2.0,
+        contained_gas=True, mass_kg=45.0,
         description="Big and sturdy — carries everything"),
 ]
 
@@ -102,7 +102,7 @@ PAYLOAD_UNLOCKS: List[PayloadUnlock] = [
     PayloadUnlock("parachute", "Parachute", 0, 0, 2.0, "recovery", "Slows descent on landing"),
     PayloadUnlock("parafoil", "Parafoil", 0, 0, 3.5, "recovery", "Gliding parachute for horizontal control"),
     PayloadUnlock("ballast", "Ballast (Sand)", 0, 0, 15.0, "ballast", "Adjustable weight for fine control"),
-    PayloadUnlock("valve", "Pressure Release Valve", 0, 0, 0.5, "vent", "Vents excess gas to prevent burst"),
+    PayloadUnlock("valve", "Pressure Valve", 250, 0, 0.3, "vent", "Vents excess gas to prevent burst"),
     PayloadUnlock("propeller_pod", "Propeller Pod", 0, 0, 4.0, "control", "Motor-driven propeller for drift control"),
     PayloadUnlock("gps_receiver", "GPS Receiver", 0, 0, 0.7, "sensor", "Tracks horizontal position"),
     PayloadUnlock("barometer", "Barometer", 0, 0, 0.5, "sensor", "Measures ambient pressure"),
@@ -111,7 +111,6 @@ PAYLOAD_UNLOCKS: List[PayloadUnlock] = [
     PayloadUnlock("radio", "Radio Repeater", 0, 0, 2.0, "sensor", "Transmit telemetry data back to base"),
     PayloadUnlock("weather_sensor", "Weather Sensor", 0, 0, 0.8, "sensor", "Temperature, pressure, humidity"),
     PayloadUnlock("solar_panel", "Solar Panel", 0, 0, 1.0, "power", "Converts sunlight to power"),
-    PayloadUnlock("none", "None", 0, 0, 1.0, "misc", "Default light payload"),
     # Advanced — require reputation >= 3
     PayloadUnlock(
         "heater", "Heater", 250, 3, 2.5, "heater",

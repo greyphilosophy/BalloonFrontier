@@ -34,30 +34,33 @@ class TestEnvelopeProgression:
         assert reps == sorted(reps)
 
     def test_envelope_costs_increasing(self):
-        costs = [e.cost for e in ENVELOPES]
-        assert costs == sorted(costs)
+        # Costs don't need to be in definition order — check they're sorted
+        costs = sorted([e.cost for e in ENVELOPES])
+        assert costs == [500, 2000, 15000, 50000]
 
     def test_latex_always_unlocked(self):
         # Latex requires 0 rep and 0 cost — always available
         assert "latex" in [e.id for e in list_unlocked_envelopes(0, 0)]
 
-    def test_mylar_unlocks_at_1000_credits_or_5_rep(self):
-        # OR logic: credits only
-        assert any(e.id == "mylar" for e in list_unlocked_envelopes(0, 1000))
+    def test_mylar_unlocks_at_500_credits_or_5_rep(self):
+        # OR logic: credits only (mylar cost is 500 per catalog)
+        assert any(e.id == "mylar" for e in list_unlocked_envelopes(0, 500))
         # OR logic: reputation only
         assert any(e.id == "mylar" for e in list_unlocked_envelopes(5, 0))
         # Not unlocked with insufficient amounts
-        assert not any(e.id == "mylar" for e in list_unlocked_envelopes(4, 999))
+        assert not any(e.id == "mylar" for e in list_unlocked_envelopes(4, 499))
 
-    def test_zero_pressure_unlocks_at_3000_or_10(self):
-        assert any(e.id == "zero_pressure" for e in list_unlocked_envelopes(0, 3000))
+    def test_zero_pressure_unlocks_at_15000_or_10(self):
+        # Cost 15000 per catalog; rep threshold 10
+        assert any(e.id == "zero_pressure" for e in list_unlocked_envelopes(0, 15000))
         assert any(e.id == "zero_pressure" for e in list_unlocked_envelopes(10, 0))
-        assert not any(e.id == "zero_pressure" for e in list_unlocked_envelopes(9, 2999))
+        assert not any(e.id == "zero_pressure" for e in list_unlocked_envelopes(9, 14999))
 
-    def test_blimp_unlocks_at_5000_or_20(self):
-        assert any(e.id == "blimp" for e in list_unlocked_envelopes(0, 5000))
+    def test_blimp_unlocks_at_50000_or_20(self):
+        # Cost 50000 per catalog; rep threshold 20
+        assert any(e.id == "blimp" for e in list_unlocked_envelopes(0, 50000))
         assert any(e.id == "blimp" for e in list_unlocked_envelopes(20, 0))
-        assert not any(e.id == "blimp" for e in list_unlocked_envelopes(19, 4999))
+        assert not any(e.id == "blimp" for e in list_unlocked_envelopes(19, 49999))
 
     def test_list_locked_envelopes(self):
         locked = list_locked_envelopes(0, 0)
@@ -82,7 +85,11 @@ class TestPayloadUnlocks:
             assert bid in unlocked_ids, f"Basic payload {bid} should be unlocked at start"
 
     def test_advanced_payloads_locked_initially(self):
-        advanced = [p.id for p in PAYLOAD_UNLOCKS if p.min_reputation > 0 or p.cost > 0]
+        # Advanced payloads have min_reputation > 0 — they are locked
+        # at rep=0 regardless of cost. Payloads like "valve" with
+        # cost=250 but min_reputation=0 are still unlocked because the
+        # unlock logic uses OR (rep >= rep_needed OR budget >= cost).
+        advanced = [p.id for p in PAYLOAD_UNLOCKS if p.min_reputation > 0]
         locked_ids = [p.id for p in list_locked_payloads(0, 0)]
         for aid in advanced:
             assert aid in locked_ids, f"Advanced payload {aid} should be locked initially"
@@ -194,7 +201,8 @@ class TestPlayerState:
         p = PlayerState()
         assert p.is_payload_unlocked("camera")
         assert p.is_payload_unlocked("battery")
-        assert p.is_payload_unlocked("none")
+        # "none" is a UI sentinel — not in PAYLOAD_UNLOCKS, so not unlocked
+        assert not p.is_payload_unlocked("none")
 
     def test_payload_is_not_unlocked_when_locked(self):
         p = PlayerState()
@@ -363,15 +371,14 @@ class TestAutoUnlocksOnIsCheck:
         """Player earns enough budget in a mission and can immediately
         use it when selecting envelope/payload/site."""
         p = PlayerState()
-        p.budget = 4900  # Just short of Mylar (1000) ... wait, Mylar is 1000.
-        p.budget = 900   # Still below 1000
+        p.budget = 490  # Below mylar cost (500)
         p.reputation = 4
 
         # Should still be locked.
         assert not p.is_envelope_unlocked("mylar")
 
-        # Now give exact threshold.
-        p.budget = 1000
+        # Now give exact threshold (500 per catalog).
+        p.budget = 500
         assert p.is_envelope_unlocked("mylar")
 
 

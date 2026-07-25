@@ -178,7 +178,11 @@ class TestPayloadDefinition:
 
     def test_all_payloads_exist(self):
         payloads = CATALOG.all_payloads()
-        assert len(payloads) == 9  # 8 real + pressure valve
+        # Core: camera, radio, weather_sensor, battery, heater, ballast,
+        # parachute, flight_computer, valve (9)
+        # Extras (not yet in UI): barometer, gps_receiver, parafoil,
+        # propeller_pod, solar_panel, thermometer (6)
+        assert len(payloads) == 15  # 15 registered payloads
 
     def test_camera(self):
         p = CATALOG.payload("camera")

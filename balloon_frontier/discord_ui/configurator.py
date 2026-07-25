@@ -40,6 +40,7 @@ ENVELOPE_OPTIONS = {
 }
 
 PAYLOAD_OPTIONS = {
+    # Core — exposed in the Discord payload menu
     "camera": ("Camera", 1.5, 500, False),
     "radio": ("Radio Repeater", 2.0, 800, False),
     "weather_sensor": ("Weather Sensor", 0.8, 1200, False),
@@ -49,7 +50,20 @@ PAYLOAD_OPTIONS = {
     "parachute": ("Parachute", 2.0, 600, False),
     "flight_computer": ("Flight Computer", 1.2, 2000, False),
     "valve": ("Pressure Valve", 0.3, 250, True),
-    "none": ("None", 1.0, 100, False),
+    "none": ("None", 0.0, 0, False),
+}
+
+# Extras defined in the catalog and progression but not yet exposed in the
+# Discord UI.  Players cannot select these until simulation behaviour is
+# implemented (propeller_pod, parafoil, solar_panel are especially important
+# to hide because players will reasonably expect them to affect the flight).
+EXTRA_PAYLOADS_NOT_IN_UI = {
+    "barometer": ("Barometer", 0.5, 0, False),
+    "gps_receiver": ("GPS Receiver", 0.7, 0, False),
+    "parafoil": ("Parafoil", 3.5, 0, False),
+    "propeller_pod": ("Propeller Pod", 4.0, 0, False),
+    "solar_panel": ("Solar Panel", 1.0, 0, False),
+    "thermometer": ("Thermometer", 0.3, 0, False),
 }
 
 SITE_OPTIONS = {

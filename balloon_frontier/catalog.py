@@ -270,16 +270,16 @@ class _Catalog:
         # ── Envelopes (Discord-style) ────────────────────
         self._register(
             EnvelopeDefinition(
-                id="mylar", name="Mylar Party Balloon",
-                max_volume_m3=200.0, mass_kg=0.05,
-                drag_coefficient=2.0, burst_stretch_ratio=3.0,
-                contained_gas=True, cost=500, safe_fill_fraction=0.55,
-            ),
-            EnvelopeDefinition(
                 id="latex", name="Latex Weather Balloon",
                 max_volume_m3=10.0, mass_kg=1.0,
                 drag_coefficient=3.0, burst_stretch_ratio=2.5,
                 contained_gas=True, cost=2000, safe_fill_fraction=0.6,
+            ),
+            EnvelopeDefinition(
+                id="mylar", name="Mylar Party Balloon",
+                max_volume_m3=200.0, mass_kg=0.05,
+                drag_coefficient=2.0, burst_stretch_ratio=3.0,
+                contained_gas=True, cost=500, safe_fill_fraction=0.55,
             ),
             EnvelopeDefinition(
                 id="zero_pressure", name="Zero-Pressure Polyethylene",
@@ -318,6 +318,13 @@ class _Catalog:
             PayloadDefinition("parachute",   "Parachute",        2.0, 600,  False),
             PayloadDefinition("flight_computer", "Flight Computer",  1.2, 2000, False),
             PayloadDefinition("valve",       "Pressure Valve",   0.3, 250,  True),
+            # Extras — not in UI yet but in progression
+            PayloadDefinition("barometer",   "Barometer",        0.5, 0,    False),
+            PayloadDefinition("gps_receiver","GPS Receiver",     0.7, 0,    False),
+            PayloadDefinition("parafoil",    "Parafoil",         3.5, 0,    False),
+            PayloadDefinition("propeller_pod","Propeller Pod",   4.0, 0,    False),
+            PayloadDefinition("solar_panel", "Solar Panel",      1.0, 0,    False),
+            PayloadDefinition("thermometer", "Thermometer",      0.3, 0,    False),
             # "none" is a special sentinel; not registered as a real payload
         )
 
