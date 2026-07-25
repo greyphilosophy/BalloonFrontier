@@ -65,27 +65,27 @@ class SiteUnlock:
 ENVELOPES: List[EnvelopeUnlock] = [
     EnvelopeUnlock(
         id="latex", name="Latex Weather Balloon",
-        cost=0, min_reputation=0,
-        max_volume_m3=10.0, burst_stretch_ratio=3.0,
-        contained_gas=True, mass_kg=0.5,
-        description="The classic: light, stretchy, bursts at 3x volume"),
+        cost=2000, min_reputation=0,
+        max_volume_m3=10.0, burst_stretch_ratio=2.5,
+        contained_gas=True, mass_kg=1.0,
+        description="The classic: light, stretchy, bursts at 2.5x volume"),
     EnvelopeUnlock(
         id="mylar", name="Mylar Party Balloon",
-        cost=1000, min_reputation=5,
-        max_volume_m3=200.0, burst_stretch_ratio=2.5,
-        contained_gas=True, mass_kg=2.0,
+        cost=500, min_reputation=5,
+        max_volume_m3=200.0, burst_stretch_ratio=3.0,
+        contained_gas=True, mass_kg=0.05,
         description="Durable and gas-tight for longer flights"),
     EnvelopeUnlock(
         id="zero_pressure", name="Zero-Pressure Polyethylene",
-        cost=3000, min_reputation=10,
-        max_volume_m3=300.0, burst_stretch_ratio=2.0,
-        contained_gas=False, mass_kg=5.0,
+        cost=15000, min_reputation=10,
+        max_volume_m3=300.0, burst_stretch_ratio=1.8,
+        contained_gas=False, mass_kg=18.0,
         description="Vents excess gas — survives higher but loses lift"),
     EnvelopeUnlock(
         id="blimp", name="Small Non-Rigid Blimp",
-        cost=5000, min_reputation=20,
-        max_volume_m3=500.0, burst_stretch_ratio=1.5,
-        contained_gas=True, mass_kg=12.0,
+        cost=50000, min_reputation=20,
+        max_volume_m3=500.0, burst_stretch_ratio=2.0,
+        contained_gas=True, mass_kg=45.0,
         description="Big and sturdy — carries everything"),
 ]
 
@@ -111,7 +111,6 @@ PAYLOAD_UNLOCKS: List[PayloadUnlock] = [
     PayloadUnlock("radio", "Radio Repeater", 0, 0, 2.0, "sensor", "Transmit telemetry data back to base"),
     PayloadUnlock("weather_sensor", "Weather Sensor", 0, 0, 0.8, "sensor", "Temperature, pressure, humidity"),
     PayloadUnlock("solar_panel", "Solar Panel", 0, 0, 1.0, "power", "Converts sunlight to power"),
-    PayloadUnlock("none", "None", 0, 0, 1.0, "misc", "Default light payload"),
     # Advanced — require reputation >= 3
     PayloadUnlock(
         "heater", "Heater", 250, 3, 2.5, "heater",
