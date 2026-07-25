@@ -394,15 +394,16 @@ class PlayerState:
         """Check all equipment against thresholds and apply new unlocks.
 
         Returns a list of newly unlocked names (from catalog).
+        Only IDs are stored in the player's save data; names are derived
+        from catalog at runtime for display.
         """
         new_unlocks: List[str] = []
 
-        # Envelopes
+        # Envelopes — only store IDs, not names
         for r in ENVELOPE_RULES:
             if r.id not in self.unlocked_envelopes:
                 if self.reputation >= r.min_reputation or (r.unlock_cost > 0 and self.budget >= r.unlock_cost):
                     self.unlocked_envelopes.append(r.id)
-                    self.unlocked_envelopes.append(CATALOG.envelope(r.id).name)  # compat: store name too
                     new_unlocks.append(CATALOG.envelope(r.id).name)
 
         # Payloads

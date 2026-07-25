@@ -238,5 +238,100 @@ class TestNoneNotInProgression:
         assert "none" not in ids
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Player save format — IDs only, no display names
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestPlayerSaveFormat:
+    """unlocked_envelopes/payloads/sites must contain only catalog IDs.
+
+    Display names are derived from CATALOG at runtime for display.
+    Storing names in save data causes stale references when catalog items
+    are renamed and inflates save size.
+    """
+
+    def test_unlocked_envelopes_contain_only_ids(self):
+        """After _check_and_apply_unlocks(), every value in unlocked_envelopes
+        must be a valid catalog envelope ID — never a display name."""
+        from balloon_frontier.progression import PlayerState
+
+        catalog_ids = {e.id for e in CATALOG.all_envelopes()}
+
+        player = PlayerState()
+        # Trigger all unlocks by giving enough budget
+        player.budget = 999999
+        player.reputation = 999
+        new_unlocks = player._check_and_apply_unlocks()
+
+        for envelope_id in player.unlocked_envelopes:
+            assert envelope_id in catalog_ids, (
+                f"unlocked_envelopes contains non-ID: {envelope_id!r}\n"
+                f"Expected only catalog IDs: {catalog_ids}"
+            )
+
+    def test_unlocked_envelopes_no_display_names(self):
+        """No display name should appear in unlocked_envelopes."""
+        from balloon_frontier.progression import PlayerState
+
+        catalog_names = {e.name for e in CATALOG.all_envelopes()}
+
+        player = PlayerState()
+        player.budget = 999999
+        player.reputation = 999
+        player._check_and_apply_unlocks()
+
+        for envelope_id in player.unlocked_envelopes:
+            assert envelope_id not in catalog_names, (
+                f"unlocked_envelopes contains display name: {envelope_id!r}\n"
+                f"This should be an ID (e.g. 'mylar'), not a name"
+            )
+
+    def test_unlocked_envelopes_count_matches_catalog(self):
+        """Each unlocked envelope should add exactly one ID, not two."""
+        from balloon_frontier.progression import PlayerState
+
+        player = PlayerState()
+        player.budget = 999999
+        player.reputation = 999
+        player._check_and_apply_unlocks()
+
+        # All 4 envelopes should be unlocked
+        assert len(player.unlocked_envelopes) == 4, (
+            f"Expected 4 IDs, got {len(player.unlocked_envelopes)}: {player.unlocked_envelopes}"
+        )
+
+    def test_unlocked_payloads_contain_only_ids(self):
+        """Payloads follow the same rule: IDs only."""
+        from balloon_frontier.progression import PlayerState
+
+        catalog_ids = {p.id for p in CATALOG.all_payloads() if p.id != "none"}
+
+        player = PlayerState()
+        player.budget = 999999
+        player.reputation = 999
+        player._check_and_apply_unlocks()
+
+        for payload_id in player.unlocked_payloads:
+            assert payload_id in catalog_ids, (
+                f"unlocked_payloads contains non-ID: {payload_id!r}"
+            )
+
+    def test_unlocked_sites_contain_only_ids(self):
+        """Sites follow the same rule: IDs only."""
+        from balloon_frontier.progression import PlayerState
+
+        catalog_ids = {s.id for s in CATALOG.all_sites()}
+
+        player = PlayerState()
+        player.reputation = 999
+        player._check_and_apply_unlocks()
+
+        for site_id in player.unlocked_sites:
+            assert site_id in catalog_ids, (
+                f"unlocked_sites contains non-ID: {site_id!r}"
+            )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
