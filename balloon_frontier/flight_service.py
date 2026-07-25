@@ -59,6 +59,7 @@ from balloon_frontier.mission_selection import (
 )
 from balloon_frontier.flight_score import calculate_flight_score
 from balloon_frontier.medal_tier import get_medal_emoji, medal_tier_to_string
+from balloon_frontier.mission_evaluator import MissionEvaluator
 from balloon_frontier.reward_service import RewardService
 from balloon_frontier.progression import PlayerRegistryRepository
 
@@ -134,6 +135,7 @@ class FlightService:
         mission_sim_time: float = 43200.0,  # 12 hours
         mission_step_interval: float = 1.0,
         reward_service: Optional[RewardService] = None,
+        mission_evaluator: Optional[MissionEvaluator] = None,
     ) -> None:
         self.default_sim_time = default_sim_time
         self.mission_sim_time = mission_sim_time
@@ -142,6 +144,11 @@ class FlightService:
             reward_service
             if reward_service is not None
             else RewardService(PlayerRegistryRepository())
+        )
+        self.mission_evaluator = (
+            mission_evaluator
+            if mission_evaluator is not None
+            else MissionEvaluator()
         )
 
     def prepare(self, launch_request: LaunchRequest) -> LaunchPreparation:
@@ -300,10 +307,10 @@ class FlightService:
             medal_emoji = get_medal_emoji(peak_altitude_m)
 
             # Evaluate missions
-            mission_results = self._evaluate_missions(
+            mission_results = self.mission_evaluator.evaluate(
+                request=launch_request,
                 telemetry=tuple(points),
-                mission_assignment=mission_assign,
-                launch_request=launch_request,
+                assignment=mission_assign,
             )
 
             # Apply mission rewards to player progression (if player_id provided)
@@ -333,202 +340,6 @@ class FlightService:
         except Exception as e:
             logger.exception("Flight simulation failed")
             raise FlightServiceError(f"Flight simulation failed: {e}") from e
-
-    def _evaluate_missions(
-        self,
-        telemetry: tuple[TelemetryPoint, ...],
-        mission_assignment: MissionAssignment,
-        launch_request: LaunchRequest,
-    ) -> tuple[MissionResult, ...]:
-        """Evaluate mission completion based on flight results.
-
-        Args:
-            telemetry: Flight telemetry data.
-            mission_assignment: The assigned missions.
-            launch_request: The original launch configuration.
-
-        Returns:
-            Tuple of MissionResult objects.
-        """
-        from balloon_frontier.missions import MISSIONS
-
-        if not mission_assignment.mission_ids:
-            return ()
-
-        results: list[MissionResult] = []
-        peak_altitude = max((tp.altitude_m for tp in telemetry), default=0.0)
-        duration = telemetry[-1].time_s if telemetry else 0.0
-        has_landed = any(tp.landed for tp in telemetry)
-        has_crashed = any(tp.crashed for tp in telemetry)
-        burst = any(tp.burst for tp in telemetry)
-
-        for mission_id in mission_assignment.mission_ids:
-            mission = MISSIONS.get(mission_id)
-            if mission is None:
-                results.append(MissionResult(
-                    mission_id=mission_id,
-                    completed=False,
-                    reward=0,
-                    explanation=f"Mission {mission_id} not found",
-                ))
-                continue
-
-            # Enforce mission configuration requirements before objective evaluation
-            selected = set(launch_request.payload_ids) - {"none"}
-            required = set(mission.required_payloads)
-            if not required.issubset(selected):
-                missing = required - selected
-                results.append(MissionResult(
-                    mission_id=mission_id,
-                    completed=False,
-                    reward=0,
-                    explanation=f"Mission {mission_id} failed: missing required payloads: {', '.join(sorted(missing))}",
-                ))
-                continue
-
-            if launch_request.launch_site_id != mission.launch_site:
-                results.append(MissionResult(
-                    mission_id=mission_id,
-                    completed=False,
-                    reward=0,
-                    explanation=f"Mission {mission_id} failed: launch site {launch_request.launch_site_id!r} does not match required site {mission.launch_site!r}",
-                ))
-                continue
-
-            completed = self._check_mission_completion(
-                mission=mission,
-                peak_altitude=peak_altitude,
-                duration=duration,
-                has_landed=has_landed,
-                has_crashed=has_crashed,
-                burst=burst,
-                telemetry=telemetry,
-                mission_id=mission_id,
-                launch_request=launch_request,
-            )
-
-            reward = mission.budget if completed else 0
-            explanation = self._generate_mission_explanation(
-                mission=mission,
-                completed=completed,
-                peak_altitude=peak_altitude,
-            )
-
-            results.append(MissionResult(
-                mission_id=mission_id,
-                completed=completed,
-                reward=reward,
-                explanation=explanation,
-            ))
-
-        return tuple(results)
-
-    def _check_mission_completion(
-        self,
-        mission,
-        peak_altitude: float,
-        duration: float,
-        has_landed: bool,
-        has_crashed: bool,
-        burst: bool,
-        telemetry: tuple,
-        mission_id: str,
-        launch_request,
-    ) -> bool:
-        """Check if a mission's objectives were completed.
-
-        Handles every objective type present in the mission catalog:
-        - reach_altitude: peak altitude >= minimum_m
-        - recover_data: landed and not crashed
-        - capture_photo: payload has camera and photo quality sufficient
-        - float_duration: flight duration >= target hours
-        - station_keep: balloon stayed near target altitude for sufficient steps
-        - fly_distance: horizontal travel >= minimum_m
-
-        Unknown objective types fail closed.
-        """
-        # Pre-compute horizontal distance travelled (for fly_distance)
-        if telemetry and len(telemetry) > 1:
-            start_x = telemetry[0].x_m
-            end_x = telemetry[-1].x_m
-            distance_travelled_m = abs(end_x - start_x)
-        else:
-            distance_travelled_m = 0.0
-
-        for objective in mission.objectives:
-            obj_type = objective.type
-
-            if obj_type == "reach_altitude":
-                minimum_m = objective.params.get('minimum_m', 0)
-                if peak_altitude < minimum_m:
-                    return False
-
-            elif obj_type == "recover_data":
-                if not has_landed or has_crashed:
-                    return False
-
-            elif obj_type == "capture_photo":
-                # Photo capture requires camera payload in launch config
-                selected_local = set(launch_request.payload_ids) - {"none"}
-                if "camera" not in selected_local:
-                    return False
-                # Quality scales with altitude up to the target quality threshold
-                min_quality = objective.params.get('minimum_quality', 0.5)
-                quality = min(peak_altitude / 50000.0, 1.0)
-                if burst:
-                    quality *= 0.5
-                if quality < min_quality:
-                    return False
-
-            elif obj_type == "float_duration":
-                target_hours = objective.params.get('target_hours', 0)
-                actual_hours = duration / 3600.0
-                if actual_hours < target_hours:
-                    return False
-
-            elif obj_type == "station_keep":
-                # Station keep: percentage of steps within ±500m of target
-                target_alt = objective.params.get('target_altitude_m', 0)
-                tolerance = 500.0
-                in_range_steps = sum(
-                    1 for tp in telemetry
-                    if abs(tp.altitude_m - target_alt) <= tolerance
-                )
-                max_steps = max(len(telemetry), 1)
-                fraction = in_range_steps / max_steps
-                # Require at least 50% of steps in station-keeping range
-                if fraction < 0.5:
-                    return False
-
-            elif obj_type == "fly_distance":
-                # Horizontal distance must be >= minimum_m requirement
-                minimum_m = objective.params.get('minimum_m', 0)
-                if distance_travelled_m < minimum_m:
-                    return False
-
-            else:
-                # Unknown objective types fail closed with logging
-                logger.error(
-                    "Unsupported mission objective type '%s' in mission '%s'. "
-                    "Objective will cause mission failure.",
-                    obj_type,
-                    getattr(mission, 'id', mission_id),
-                )
-                return False
-
-        return True
-
-    def _generate_mission_explanation(
-        self,
-        mission,
-        completed: bool,
-        peak_altitude: float,
-    ) -> str:
-        """Generate a human-readable explanation for mission result."""
-        if completed:
-            return f"Mission {mission.title} completed! Budget {mission.budget} credits awarded."
-        else:
-            return f"Mission {mission.title} not completed. No budget awarded."
 
 
 # Module-level singleton
