@@ -28,6 +28,12 @@ class ScenarioDefinition:
     title: str = ""
     objective_ids: Tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        # Prevent duplicate objective ids from being silently collapsed by
+        # ScenarioSession's objective_complete dict.
+        if len(set(self.objective_ids)) != len(self.objective_ids):
+            raise ValueError("Scenario objective IDs must be unique")
+
 
 @dataclass
 class ScenarioSession:
@@ -36,6 +42,10 @@ class ScenarioSession:
     Stores:
     - The caller-provided ``game_state`` reference (no deep copy).
     - Scenario-local objective completion state.
+
+    ``objective_complete`` may be supplied by callers to restore progress.
+    Any missing objective ids are treated as incomplete (False). Any unknown
+    objective ids are rejected.
     """
 
     game_state: Any
@@ -43,9 +53,25 @@ class ScenarioSession:
     objective_complete: Dict[str, bool] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        # Initialize known objectives as incomplete.
-        # (Using the definition prevents silent typo acceptance.)
-        self.objective_complete = {oid: False for oid in self.definition.objective_ids}
+        known_ids = set(self.definition.objective_ids)
+
+        # If the caller didn't supply progress, initialize everything to False.
+        if not self.objective_complete:
+            self.objective_complete = {
+                oid: False for oid in self.definition.objective_ids
+            }
+            return
+
+        unknown_ids = set(self.objective_complete) - known_ids
+        if unknown_ids:
+            raise ValueError(f"Unknown objective IDs: {sorted(unknown_ids)}")
+
+        # Fill any missing known objective ids with False and preserve the
+        # caller-provided values for known ids.
+        self.objective_complete = {
+            objective_id: bool(self.objective_complete.get(objective_id, False))
+            for objective_id in self.definition.objective_ids
+        }
 
     @property
     def scenario_id(self) -> str:
