@@ -71,7 +71,8 @@ async def on_message(message):
 @bot.command(name="launch")
 async def cmd_launch(ctx):
     """Open the balloon configurator wizard."""
-    view = BalloonConfigurator()
+    from balloon_frontier.flight_service import flight_service
+    view = BalloonConfigurator(service=flight_service)
     content = view._build_config_text()
     msg = await ctx.send(content, view=view)
     view._msg = msg

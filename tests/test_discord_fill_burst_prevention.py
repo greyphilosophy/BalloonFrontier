@@ -1,5 +1,6 @@
 import sys
 
+from unittest.mock import MagicMock, AsyncMock, patch
 sys.path.insert(0, "/home/greyphilosophy/projects/BalloonFrontier")
 
 import pytest
@@ -10,7 +11,7 @@ from discord_bot import BalloonConfigurator, ENVELOPE_OPTIONS, PAYLOAD_OPTIONS, 
 @pytest.mark.parametrize("envelope_key", list(ENVELOPE_OPTIONS.keys()))
 @pytest.mark.parametrize("fill_mode", ["auto", "light", "normal", "heavy"])
 def test_discord_presets_do_not_instantly_burst(envelope_key, fill_mode):
-    cfg = BalloonConfigurator()
+    cfg = BalloonConfigurator(service=MagicMock())
     cfg.state["gas"] = "helium"
     cfg.state["envelope"] = envelope_key
     cfg.state["fill_mode"] = fill_mode

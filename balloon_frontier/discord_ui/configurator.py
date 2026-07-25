@@ -122,7 +122,12 @@ class BalloonConfigurator(discord.ui.View):
         return True
 
     # ── Initialization ───────────────────────────────────────────
-    def __init__(self):
+    def __init__(self, service: "FlightService"):
+        """Construct the configurator wizard.
+
+        Args:
+            service: FlightService instance (REQUIRED — must be injected by caller).
+        """
         super().__init__(timeout=300)
         self.state = {
             "gas": "helium",
@@ -137,6 +142,7 @@ class BalloonConfigurator(discord.ui.View):
         self._current_step = _Step.CHOOSE_GAS
         self._msg = None
         self._next_btn = None
+        self._service = service
 
         # Buttons that persist across all steps.
         self.add_item(_BackButton(self))
@@ -424,7 +430,7 @@ class BalloonConfigurator(discord.ui.View):
                 self.add_item(_OptionButton(i, f"Choose site {i}", self._on_site))
         elif self._current_step == _Step.REVIEW_LAUNCH:
             from balloon_frontier.discord_ui.modals import _LaunchButton
-            self.add_item(_LaunchButton(self))
+            self.add_item(_LaunchButton(self, service=self._service))
 
     # ── Gas mass helpers ──────────────────────────────────────────
 

@@ -30,7 +30,7 @@ from balloon_frontier.discord_ui.modals import (
     _ManualGasMassModal,
     _LaunchButton,
 )
-from balloon_frontier.discord_ui.launch_handler import run_simulation
+from balloon_frontier.discord_ui.launch_handler import run_launch, run_simulation
 from balloon_frontier.discord_ui.result_renderer import (
     format_score_breakdown,
     make_result_embed,
@@ -118,7 +118,7 @@ class TestSuccessfulLaunchFlow:
 
     def test_configurator_builds_config_text(self):
         """BalloonConfigurator._build_config_text() produces valid content."""
-        config = BalloonConfigurator()
+        config = BalloonConfigurator(service=MagicMock())
         content = config._build_config_text()
         assert "Helium" in content
         assert "Latex Weather Balloon" in content
@@ -128,7 +128,7 @@ class TestSuccessfulLaunchFlow:
     def test_launch_request_construction(self):
         """FlightService receives a properly constructed LaunchRequest."""
         # Verify that the configurator state produces a valid LaunchRequest
-        config = BalloonConfigurator()
+        config = BalloonConfigurator(service=MagicMock())
         launch_request = LaunchRequest(
             gas_id=config.state["gas"],
             envelope_id=config.state["envelope"],
@@ -372,3 +372,159 @@ class TestBackwardCompatibility:
         assert bot.get_command("help") is not None
         assert bot.get_command("physics") is not None
         assert bot.get_command("profile") is not None
+
+
+# ─── 11. P1 regression tests (PR L) ──────────────────────────────────
+
+class TestPlayerIdRegression:
+    """Test that player_id is correctly passed to LaunchRequest.
+
+    Verifies the P1 fix: Discord mission rewards persist only when
+    LaunchRequest.player_id is set BEFORE FlightService.run().
+    """
+
+    @pytest.fixture
+    def fake_outcome(self):
+        """Create a minimal FlightOutcome."""
+        def factory():
+            result_obj = MagicMock()
+            result_obj.telemetry = ()
+            result_obj.peak_altitude_m = 25000.0
+            result_obj.duration_s = 120.0
+            result_obj.burst = False
+            result_obj.landed = True
+            result_obj.crashed = False
+
+            weather = WeatherEvent(
+                wind_gust_factor=1.0,
+                temp_anomaly_k=0.0,
+                cloud_density=0.0,
+                pressure_offset_pa=0.0,
+                storm_risk=0.0,
+                name="Clear Skies",
+                description="Sunny day",
+                flight_modifier="Normal conditions",
+            )
+
+            mission_assign = MissionAssignment(
+                mission_ids=(),
+                seed=42,
+            )
+
+            return FlightOutcome(
+                result=result_obj,
+                score=25000.0,
+                medal_name="GOLD",
+                medal_emoji="🥇",
+                weather=weather,
+                mission_assignment=mission_assign,
+                mission_results=(),
+                weather_impacts={},
+            )
+        return factory
+
+    @pytest.fixture
+    def fake_flight_service(self, fake_outcome):
+        """Create a mock FlightService that records the request."""
+        captured_request = []
+
+        class MockService:
+            def run(self, launch_request):
+                captured_request.append(launch_request)
+                return fake_outcome()
+
+        return MockService(), captured_request
+
+    def test_player_id_passed_to_launch_request(self, fake_flight_service):
+        """run_launch passes the Discord user ID into LaunchRequest."""
+        mock_service, captured_request = fake_flight_service
+
+        mock_interaction = MagicMock()
+        mock_interaction.user.id = 123456789
+        mock_interaction.response.defer = AsyncMock()
+        mock_interaction.edit_original_response = AsyncMock()
+
+        config = BalloonConfigurator(service=mock_service)
+
+        captured_args = []
+
+        def capture_to_thread(func, *args, **kwargs):
+            captured_args.append((func, args, kwargs))
+            return func(*args, **kwargs)
+
+        with patch('balloon_frontier.discord_ui.launch_handler.format_discord_results', return_value="Result"):
+            with patch('balloon_frontier.discord_ui.launch_handler.asyncio.to_thread', side_effect=capture_to_thread):
+                asyncio.run(
+                    run_launch(config, mock_interaction, service=config._service)
+                )
+
+        assert len(captured_args) == 1
+        func, args, kwargs = captured_args[0]
+        assert len(args) == 1
+        request = args[0]
+        assert request.player_id == "123456789"
+
+        # Also verify the mock service's run was called
+        assert len(captured_request) == 1
+
+    def test_player_id_anonymous_without_interaction_user(self, fake_flight_service):
+        """run_launch uses 'anonymous' when interaction has no user."""
+        mock_service, captured_request = fake_flight_service
+
+        mock_interaction = MagicMock()
+        mock_interaction.user = None  # No user on interaction
+        mock_interaction.response.defer = AsyncMock()
+        mock_interaction.edit_original_response = AsyncMock()
+
+        config = BalloonConfigurator(service=mock_service)
+
+        captured_args = []
+
+        def capture_to_thread(func, *args, **kwargs):
+            captured_args.append((func, args, kwargs))
+            return func(*args, **kwargs)
+
+        with patch('balloon_frontier.discord_ui.launch_handler.format_discord_results', return_value="Result"):
+            with patch('balloon_frontier.discord_ui.launch_handler.asyncio.to_thread', side_effect=capture_to_thread):
+                asyncio.run(
+                    run_launch(config, mock_interaction, service=config._service)
+                )
+
+        assert len(captured_args) == 1
+        assert len(captured_request) == 1
+        assert captured_request[0].player_id == "anonymous"
+
+
+class TestDIInjection:
+    """Test that FlightService is dependency-injected into run_launch.
+
+    Verifies the P1 fix: run_launch() accepts a required service parameter
+    — the caller must pass a FlightService instance (no fallback to singleton).
+    """
+
+    def test_run_launch_accepts_service_parameter(self):
+        """run_launch() has a service parameter."""
+        import inspect
+        sig = inspect.signature(run_launch)
+        params = list(sig.parameters.keys())
+        assert "service" in params
+
+    def test_service_parameter_is_required(self):
+        """service parameter has no default — caller must pass it."""
+        import inspect
+        sig = inspect.signature(run_launch)
+        assert sig.parameters["service"].default is inspect.Parameter.empty
+
+    def test_launch_button_passes_service(self):
+        """_LaunchButton accepts and stores a service parameter."""
+        mock_parent = MagicMock()
+        mock_service = MagicMock()
+
+        btn = _LaunchButton(mock_parent, service=mock_service)
+        assert btn._service is mock_service
+
+    def test_di_chained_through_configurator(self):
+        """BalloonConfigurator stores and passes service to _LaunchButton."""
+        mock_service = MagicMock()
+        config = BalloonConfigurator(service=mock_service)
+        assert config._service is mock_service
