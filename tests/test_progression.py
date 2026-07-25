@@ -82,7 +82,11 @@ class TestPayloadUnlocks:
             assert bid in unlocked_ids, f"Basic payload {bid} should be unlocked at start"
 
     def test_advanced_payloads_locked_initially(self):
-        advanced = [p.id for p in PAYLOAD_UNLOCKS if p.min_reputation > 0 or p.cost > 0]
+        # Advanced payloads have min_reputation > 0 — they are locked
+        # at rep=0 regardless of cost. Payloads like "valve" with
+        # cost=250 but min_reputation=0 are still unlocked because the
+        # unlock logic uses OR (rep >= rep_needed OR budget >= cost).
+        advanced = [p.id for p in PAYLOAD_UNLOCKS if p.min_reputation > 0]
         locked_ids = [p.id for p in list_locked_payloads(0, 0)]
         for aid in advanced:
             assert aid in locked_ids, f"Advanced payload {aid} should be locked initially"

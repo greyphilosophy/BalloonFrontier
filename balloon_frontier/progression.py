@@ -64,13 +64,13 @@ class SiteUnlock:
 
 ENVELOPES: List[EnvelopeUnlock] = [
     EnvelopeUnlock(
-        id="latex", name="Latex Party Balloon",
+        id="latex", name="Latex Weather Balloon",
         cost=0, min_reputation=0,
         max_volume_m3=10.0, burst_stretch_ratio=3.0,
         contained_gas=True, mass_kg=0.5,
         description="The classic: light, stretchy, bursts at 3x volume"),
     EnvelopeUnlock(
-        id="mylar", name="Mylar Weather Balloon",
+        id="mylar", name="Mylar Party Balloon",
         cost=1000, min_reputation=5,
         max_volume_m3=200.0, burst_stretch_ratio=2.5,
         contained_gas=True, mass_kg=2.0,
@@ -102,7 +102,7 @@ PAYLOAD_UNLOCKS: List[PayloadUnlock] = [
     PayloadUnlock("parachute", "Parachute", 0, 0, 2.0, "recovery", "Slows descent on landing"),
     PayloadUnlock("parafoil", "Parafoil", 0, 0, 3.5, "recovery", "Gliding parachute for horizontal control"),
     PayloadUnlock("ballast", "Ballast (Sand)", 0, 0, 15.0, "ballast", "Adjustable weight for fine control"),
-    PayloadUnlock("valve", "Pressure Release Valve", 0, 0, 0.5, "vent", "Vents excess gas to prevent burst"),
+    PayloadUnlock("valve", "Pressure Valve", 250, 0, 0.3, "vent", "Vents excess gas to prevent burst"),
     PayloadUnlock("propeller_pod", "Propeller Pod", 0, 0, 4.0, "control", "Motor-driven propeller for drift control"),
     PayloadUnlock("gps_receiver", "GPS Receiver", 0, 0, 0.7, "sensor", "Tracks horizontal position"),
     PayloadUnlock("barometer", "Barometer", 0, 0, 0.5, "sensor", "Measures ambient pressure"),

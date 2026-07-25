@@ -49,7 +49,14 @@ PAYLOAD_OPTIONS = {
     "parachute": ("Parachute", 2.0, 600, False),
     "flight_computer": ("Flight Computer", 1.2, 2000, False),
     "valve": ("Pressure Valve", 0.3, 250, True),
-    "none": ("None", 1.0, 100, False),
+    # Extras available in progression but not yet exposed in UI
+    "barometer": ("Barometer", 0.5, 0, False),
+    "gps_receiver": ("GPS Receiver", 0.7, 0, False),
+    "parafoil": ("Parafoil", 3.5, 0, False),
+    "propeller_pod": ("Propeller Pod", 4.0, 0, False),
+    "solar_panel": ("Solar Panel", 1.0, 0, False),
+    "thermometer": ("Thermometer", 0.3, 0, False),
+    "none": ("None", 0.0, 0, False),
 }
 
 SITE_OPTIONS = {
