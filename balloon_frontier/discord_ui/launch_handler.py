@@ -10,11 +10,12 @@ importing the module-level singleton.
 
 import asyncio
 import logging
-from typing import Optional
+import os
+from typing import TYPE_CHECKING, Optional
 
 import discord
 
-from balloon_frontier.flight_service import flight_service, FlightServiceError
+from balloon_frontier.flight_service import FlightService, FlightServiceError
 from balloon_frontier.flight_score import calculate_flight_score
 from balloon_frontier.launch_result import LaunchRequest, FillMode, MissionAssignment
 from balloon_frontier.medal_tier import get_medal_emoji, medal_tier_to_string
@@ -24,6 +25,9 @@ from balloon_frontier.simulation import SimulationState, EnvelopeConfig, run_sim
 from balloon_frontier.discord_ui.result_renderer import make_result_embed, format_score_breakdown
 from balloon_frontier.ascii_chart import chart_to_string
 
+if TYPE_CHECKING:
+    from balloon_frontier.discord_ui.configurator import BalloonConfigurator  # noqa: F401
+
 logger = logging.getLogger(__name__)
 
 # ─── Mission lazy-load guard ──────────────────────────────────────────
@@ -31,17 +35,22 @@ _missions_loaded = False
 
 
 def _ensure_missions_loaded():
-    """Lazily load missions so they are available for evaluation."""
+    """Lazily load missions so they are available for evaluation.
+
+    Logs failures instead of silently swallowing them so that if the
+    mission directory cannot be loaded the problem is visible in logs.
+    Once attempted, it never retries (even on failure).
+    """
     global _missions_loaded
     if _missions_loaded:
         return
+    _missions_loaded = True
     try:
         here = os.path.dirname(os.path.abspath(__file__))
         mission_dir = os.path.join(here, "..", "data", "missions")
         load_mission_directory(mission_dir)
     except Exception:
-        pass
-    _missions_loaded = True
+        logger.exception("Failed to load mission directory")
 
 
 # ─── Simulation helper (retained for backward compat) ─────────────────
@@ -166,27 +175,28 @@ def run_simulation(
 
 # ─── Launch handler (DI-wired) ───────────────────────────────────────
 
-async def run_launch(configurator: "BalloonConfigurator", interaction: discord.Interaction):
+async def run_launch(
+    configurator: "BalloonConfigurator",
+    interaction: discord.Interaction,
+    service: FlightService,
+):
     """Handle the launch button press: build request, fly, render result.
 
     Args:
         configurator: The BalloonConfigurator instance with flight config state.
         interaction: The Discord interaction that triggered the launch.
+        service: FlightService instance (REQUIRED — must be injected by caller).
     """
-    import os
-    import asyncio
-
-    from balloon_frontier.flight_service import flight_service, FlightServiceError
-    from balloon_frontier.flight_score import calculate_flight_score
-    from balloon_frontier.launch_result import LaunchRequest, FillMode, MissionAssignment
-    from balloon_frontier.medal_tier import get_medal_emoji, medal_tier_to_string
-    from balloon_frontier.missions import load_mission_directory
-    from balloon_frontier.narrative_result import format_discord_results
-    from balloon_frontier.discord_ui.result_renderer import make_result_embed, format_score_breakdown
-    from balloon_frontier.ascii_chart import chart_to_string
-
     # Defer immediately so the event loop isn't blocked.
     await interaction.response.defer(thinking=True, ephemeral=False)
+
+    # Extract player ID *before* request construction so FlightService
+    # can apply mission rewards to the correct player.
+    player_id = (
+        str(interaction.user.id)
+        if hasattr(interaction, "user") and interaction.user
+        else "anonymous"
+    )
 
     state = configurator.state
     from balloon_frontier.discord_ui.configurator import (
@@ -222,13 +232,14 @@ async def run_launch(configurator: "BalloonConfigurator", interaction: discord.I
             launch_site_id=state["site"],
             fill_mode=fill_mode,
             manual_gas_mass_kg=manual_mass,
+            player_id=player_id,  # P1 fix: pass player ID to service
             balloon_size=balloon_size,
         )
 
         # Delegate to the transport-neutral flight service.
         try:
             result = await asyncio.to_thread(
-                flight_service.run,
+                service.run,
                 launch_request,
             )
         except FlightServiceError:

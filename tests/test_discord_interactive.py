@@ -54,7 +54,7 @@ def configurator():
     """
     from discord_bot import BalloonConfigurator
     from balloon_frontier.progression import ENVELOPES, PAYLOAD_UNLOCKS, SITES, PlayerRegistry
-    c = BalloonConfigurator()
+    c = BalloonConfigurator(service=MagicMock())
 
     # Unlock all players in the shared registry — the fixture creates one
     # via _get_player_state() (ID "anonymous"), but test interactions use
@@ -432,7 +432,7 @@ class TestManualGasMassModal:
         """Mocked modal submission writes valid float to state."""
         from discord_bot import _ManualGasMassModal, BalloonConfigurator
 
-        cfg = BalloonConfigurator()
+        cfg = BalloonConfigurator(service=MagicMock())
         cfg.state["fill_mode"] = "manual"
         cfg.state["manual_gas_mass"] = None
 
@@ -453,7 +453,7 @@ class TestManualGasMassModal:
     def test_modal_submit_invalid_sends_error(self):
         from discord_bot import _ManualGasMassModal, BalloonConfigurator
 
-        cfg = BalloonConfigurator()
+        cfg = BalloonConfigurator(service=MagicMock())
         modal = _ManualGasMassModal(cfg)
         type(modal.mass_input).value = PropertyMock(return_value="abc")
 
@@ -465,7 +465,7 @@ class TestManualGasMassModal:
     def test_modal_submit_clamps_negative(self):
         from discord_bot import _ManualGasMassModal, BalloonConfigurator
 
-        cfg = BalloonConfigurator()
+        cfg = BalloonConfigurator(service=MagicMock())
         cfg.state["fill_mode"] = "manual"
         modal = _ManualGasMassModal(cfg)
         type(modal.mass_input).value = PropertyMock(return_value="-5.0")

@@ -16,6 +16,7 @@ References:
 import os
 import sys
 
+from unittest.mock import MagicMock, AsyncMock, patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
@@ -33,7 +34,7 @@ def test_parent_view_has_run_checks():
     """
     from discord_bot import BalloonConfigurator
 
-    config = BalloonConfigurator()
+    config = BalloonConfigurator(service=MagicMock())
     assert hasattr(config, "_run_checks"), (
         "BalloonConfigurator needs a _run_checks method. Without it, selecting "
         "a dropdown triggers: AttributeError: 'BalloonConfigurator' object has "
@@ -47,7 +48,7 @@ def test_parent_run_checks_is_callable():
 
     from discord_bot import BalloonConfigurator
 
-    config = BalloonConfigurator()
+    config = BalloonConfigurator(service=MagicMock())
     method = getattr(config, "_run_checks")
     assert asyncio.iscoroutinefunction(method), (
         "_run_checks should be an async method so Item._run_checks can await it"
@@ -60,7 +61,7 @@ def test_parent_run_checks_returns_true():
 
     from discord_bot import BalloonConfigurator
 
-    config = BalloonConfigurator()
+    config = BalloonConfigurator(service=MagicMock())
     # Run the coroutine in an event loop
     async def _run():
         return await config._run_checks(MockInteraction())
@@ -96,7 +97,7 @@ def test_children_exist():
     """Ensure the configurator has button children (step-based UI)."""
     from discord_bot import BalloonConfigurator
 
-    config = BalloonConfigurator()
+    config = BalloonConfigurator(service=MagicMock())
     # The step-based UI uses _OptionButton / _NextButton / _LaunchButton
     # children (button-based) instead of _Select dropdowns.
     # At minimum, we expect the Back button plus step-specific option buttons.

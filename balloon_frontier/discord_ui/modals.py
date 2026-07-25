@@ -79,9 +79,10 @@ class _ManualGasMassModal(discord.ui.Modal):
 class _LaunchButton(discord.ui.Button):
     """Launch button that delegates to launch_handler."""
 
-    def __init__(self, parent, label="\U0001f680 Launch", callback=None):
+    def __init__(self, parent, service: "FlightService", label: str = "\U0001f680 Launch"):
         super().__init__(label=label, style=discord.ButtonStyle.success)
         self._parent = parent
+        self._service = service
 
     async def callback(self, interaction):
-        await launch_handler.run_launch(self._parent, interaction)
+        await launch_handler.run_launch(self._parent, interaction, service=self._service)

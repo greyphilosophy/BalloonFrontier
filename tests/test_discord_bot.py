@@ -3,6 +3,7 @@
 import os
 import sys
 
+from unittest.mock import MagicMock, AsyncMock, patch
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -47,7 +48,7 @@ class TestRunSimulation:
         assert isinstance(summary, dict)
 
     def test_selected_site_temperature_affects_initial_conditions(self):
-        config = BalloonConfigurator()
+        config = BalloonConfigurator(service=MagicMock())
 
         # Field: +0°C offset
         config.state["site"] = "field"
@@ -275,27 +276,27 @@ class TestBotSafety:
 
 class TestBalloonConfigurator:
     def test_configurator_state_initialized(self):
-        config = BalloonConfigurator()
+        config = BalloonConfigurator(service=MagicMock())
         assert config.state["gas"] == "helium"
         assert config.state["envelope"] == "latex"
         assert config.state["site"] == "field"
 
     def test_build_config_text_returns_string(self):
-        config = BalloonConfigurator()
+        config = BalloonConfigurator(service=MagicMock())
         text = config._build_config_text()
         assert isinstance(text, str)
         assert "Balloon Configuration" in text
 
     def test_handle_select_updates_state(self):
         """Player configures gas via the interactive workflow."""
-        config = BalloonConfigurator()
+        config = BalloonConfigurator(service=MagicMock())
         config.state["gas"] = "hot_air"
         config._compute_gas_mass()
         assert config.state["gas"] == "hot_air"
 
     def test_handle_select_updates_payloads_as_list(self):
         """Player selects multiple payloads and gas mass recalculates."""
-        config = BalloonConfigurator()
+        config = BalloonConfigurator(service=MagicMock())
         config.state["payloads"] = ["camera", "radio"]
         config._compute_gas_mass()
         assert config.state["payloads"] == ["camera", "radio"]

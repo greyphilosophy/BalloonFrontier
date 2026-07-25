@@ -12,6 +12,7 @@ sys.path.insert(0, "/home/greyphilosophy/projects/BalloonFrontier")
 
 import pytest
 
+from unittest.mock import MagicMock, AsyncMock, patch
 from discord_bot import (
     run_simulation,
     make_result_embed,
@@ -30,7 +31,7 @@ class TestFullGameplayFlow:
 
     def test_player_can_start_and_see_default_config(self):
         """Player opens /launch and sees a default balloon configuration."""
-        config = BalloonConfigurator()
+        config = BalloonConfigurator(service=MagicMock())
         text = config._build_config_text()
         assert "Balloon Configuration" in text
         assert "Helium" in text
@@ -39,7 +40,7 @@ class TestFullGameplayFlow:
 
     def test_player_can_configure_gas_then_launch(self):
         """Player changes gas type and launches — simulation runs successfully."""
-        config = BalloonConfigurator()
+        config = BalloonConfigurator(service=MagicMock())
         config.state["gas"] = "hydrogen"
         config._compute_gas_mass()
         assert config.state["gas"] == "hydrogen"
@@ -73,7 +74,7 @@ class TestFullGameplayFlow:
 
     def test_player_can_try_different_envelopes(self):
         """Player can try all 4 envelope types — each is selectable."""
-        config = BalloonConfigurator()
+        config = BalloonConfigurator(service=MagicMock())
         for env_key in ENVELOPE_OPTIONS:
             config.state["envelope"] = env_key
             config._compute_gas_mass()
@@ -162,7 +163,7 @@ class TestConfigurationEdgeCases:
 
     def test_multiple_payloads_sum_mass_correctly(self):
         """Selecting multiple payloads correctly sums their masses."""
-        config = BalloonConfigurator()
+        config = BalloonConfigurator(service=MagicMock())
         config.state["payloads"] = ["camera", "radio", "weather_sensor"]
         config._compute_gas_mass()
         total = sum(PAYLOAD_OPTIONS[p][1] for p in config.state["payloads"])
@@ -171,14 +172,14 @@ class TestConfigurationEdgeCases:
 
     def test_config_text_shows_total_mass(self):
         """The configuration text displays the total mass correctly."""
-        config = BalloonConfigurator()
+        config = BalloonConfigurator(service=MagicMock())
         text = config._build_config_text()
         assert "Total mass" in text
         assert "kg" in text
 
     def test_switching_gas_updates_display(self):
         """Changing the gas type updates the config display."""
-        config = BalloonConfigurator()
+        config = BalloonConfigurator(service=MagicMock())
         config.state["gas"] = "hydrogen"
         config._compute_gas_mass()
         text = config._build_config_text()
@@ -186,7 +187,7 @@ class TestConfigurationEdgeCases:
 
     def test_configurator_timeout_is_reasonable(self):
         """The view has a reasonable 5-minute timeout."""
-        config = BalloonConfigurator()
+        config = BalloonConfigurator(service=MagicMock())
         assert config.timeout == 300
 
 
@@ -197,7 +198,7 @@ class TestCompletePlaySession:
 
     def test_complete_session_helium_latex(self):
         """Full session: Helium balloon, latex envelope, open field."""
-        config = BalloonConfigurator()
+        config = BalloonConfigurator(service=MagicMock())
         config.state["payloads"] = ["camera"]
         config._compute_gas_mass()
 
@@ -221,7 +222,7 @@ class TestCompletePlaySession:
 
     def test_complete_session_hydrogen_blimp(self):
         """Full session: Hydrogen blimp with multiple payloads."""
-        config = BalloonConfigurator()
+        config = BalloonConfigurator(service=MagicMock())
         config.state["gas"] = "hydrogen"
         config._compute_gas_mass()
         config.state["envelope"] = "blimp"
@@ -249,7 +250,7 @@ class TestCompletePlaySession:
 
     def test_complete_session_hot_air_mylar(self):
         """Full session: Hot air, mylar balloon."""
-        config = BalloonConfigurator()
+        config = BalloonConfigurator(service=MagicMock())
         config.state["gas"] = "hot_air"
         config._compute_gas_mass()
         config.state["envelope"] = "mylar"
