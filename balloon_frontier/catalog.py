@@ -104,6 +104,13 @@ class FillMode(str, Enum):
         return self != FillMode.MANUAL
 
 
+class ImplementationStatus(str, Enum):
+    """Whether a payload's special behavior is integrated into the runtime."""
+
+    IMPLEMENTED = "implemented"
+    STUBBED = "stubbed"
+
+
 # ═══════════════════════════════════════════════════════════
 # Dataclasses
 # ═══════════════════════════════════════════════════════════
@@ -202,6 +209,10 @@ class PayloadDefinition:
         cost: Cost in-game currency.
         has_valve: Whether this payload is the pressure release valve.
         min_reputation: Minimum reputation to unlock (0 = always available).
+
+        implementation_status: Whether this payload's special behavior is
+            integrated into the runtime.
+        capabilities: A stable declaration of what the payload provides.
     """
     id: str
     name: str
@@ -209,6 +220,9 @@ class PayloadDefinition:
     cost: int = 0
     has_valve: bool = False
     min_reputation: int = 0
+
+    implementation_status: ImplementationStatus = ImplementationStatus.IMPLEMENTED
+    capabilities: Tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True, slots=True)
@@ -317,14 +331,69 @@ class _Catalog:
             PayloadDefinition("ballast",     "Ballast (Sand)",  15.0, 300,  False),
             PayloadDefinition("parachute",   "Parachute",        2.0, 600,  False),
             PayloadDefinition("flight_computer", "Flight Computer",  1.2, 2000, False),
-            PayloadDefinition("valve",       "Pressure Valve",   0.3, 250,  True),
-            # Extras — not in UI yet but in progression
-            PayloadDefinition("barometer",   "Barometer",        0.5, 0,    False),
-            PayloadDefinition("gps_receiver","GPS Receiver",     0.7, 0,    False),
-            PayloadDefinition("parafoil",    "Parafoil",         3.5, 0,    False),
-            PayloadDefinition("propeller_pod","Propeller Pod",   4.0, 0,    False),
-            PayloadDefinition("solar_panel", "Solar Panel",      1.0, 0,    False),
-            PayloadDefinition("thermometer", "Thermometer",      0.3, 0,    False),
+            PayloadDefinition(
+                "valve",
+                "Pressure Valve",
+                0.3,
+                250,
+                True,
+                capabilities=("venting",),
+            ),
+            # Extras — registered in progression but not yet integrated
+            PayloadDefinition(
+                "barometer",
+                "Barometer",
+                0.5,
+                0,
+                False,
+                implementation_status=ImplementationStatus.STUBBED,
+                capabilities=("environment_measurement",),
+            ),
+            PayloadDefinition(
+                "gps_receiver",
+                "GPS Receiver",
+                0.7,
+                0,
+                False,
+                implementation_status=ImplementationStatus.STUBBED,
+                capabilities=("recover_data",),
+            ),
+            PayloadDefinition(
+                "parafoil",
+                "Parafoil",
+                3.5,
+                0,
+                False,
+                implementation_status=ImplementationStatus.STUBBED,
+                capabilities=("glide_landing",),
+            ),
+            PayloadDefinition(
+                "propeller_pod",
+                "Propeller Pod",
+                4.0,
+                0,
+                False,
+                implementation_status=ImplementationStatus.STUBBED,
+                capabilities=("horizontal_control",),
+            ),
+            PayloadDefinition(
+                "solar_panel",
+                "Solar Panel",
+                1.0,
+                0,
+                False,
+                implementation_status=ImplementationStatus.STUBBED,
+                capabilities=("power_generation",),
+            ),
+            PayloadDefinition(
+                "thermometer",
+                "Thermometer",
+                0.3,
+                0,
+                False,
+                implementation_status=ImplementationStatus.STUBBED,
+                capabilities=("environment_measurement",),
+            ),
             # "none" is a special sentinel; not registered as a real payload
         )
 
