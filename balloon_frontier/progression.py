@@ -7,232 +7,364 @@ and accumulate reputation from consistent flights.
 Unlock conditions use OR logic — meeting EITHER the credit threshold
 OR the reputation threshold is sufficient.
 
+Game DATA lives in CATALOG.  Progression defines only the unlock rules
+(cost + reputation thresholds).  Helper functions return combined views
+that preserve every attribute old code expects.
+
 Reference: GDD Sections 20, 21.
 """
 
 import json
-import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
+
+from balloon_frontier.catalog import CATALOG, PayloadDefinition, EnvelopeDefinition, SiteDefinition
 
 
-# ── Data classes ──────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════
+# UnlockRule — progression-only data
+# ═══════════════════════════════════════════════════════════════════════════
 
-@dataclass
-class EnvelopeUnlock:
-    """Defines when and how an envelope type unlocks."""
+
+@dataclass(frozen=True)
+class UnlockRule:
+    """Defines when an item unlocks — nothing more.
+
+    All physical / display data is resolved from CATALOG at lookup time.
+    """
     id: str
-    name: str
-    cost: int                     # Budget needed to unlock
-    min_reputation: int           # Reputation needed to unlock
-    max_volume_m3: float
-    burst_stretch_ratio: float
-    contained_gas: bool
-    mass_kg: float
+    unlock_cost: int = 0
+    min_reputation: int = 0
+    category: str = ""
     description: str = ""
 
-
-@dataclass
-class PayloadUnlock:
-    """Defines an unlockable payload."""
-    id: str
-    name: str
-    cost: int                     # Budget needed to unlock
-    min_reputation: int           # Reputation needed to unlock
-    mass_kg: float
-    tag: str                      # sensor, power, recovery, control, ballast, heater
-    description: str = ""
+    @property
+    def cost(self) -> int:
+        """Alias for compatibility."""
+        return self.unlock_cost
 
 
-@dataclass
-class SiteUnlock:
-    """Defines an unlockable launch site."""
-    id: str
-    name: str
-    cost: int                     # Budget needed to unlock
-    min_reputation: int           # Reputation needed to unlock
-    altitude_m: float
-    description: str = ""
-    temperature_offset_k: float = 0.0
-    wind_strength: float = 0.0
+# ── Envelope unlock rules ──────────────────────────────────────────────
+# CATALOG has mass, volume, stretch, contained_gas, name, drag.
+# Progression only gates them.
 
-
-# ── Envelope progression tree ────────────────────────────────────────
-# GDD §20: unlock at 1000 credits OR 5 rep (Mylar), 3000 OR 10 (Zero-P),
-#          5000 OR 20 (Blimp). Latex always available.
-
-ENVELOPES: List[EnvelopeUnlock] = [
-    EnvelopeUnlock(
-        id="latex", name="Latex Weather Balloon",
-        cost=2000, min_reputation=0,
-        max_volume_m3=10.0, burst_stretch_ratio=2.5,
-        contained_gas=True, mass_kg=1.0,
-        description="The classic: light, stretchy, bursts at 2.5x volume"),
-    EnvelopeUnlock(
-        id="mylar", name="Mylar Party Balloon",
-        cost=500, min_reputation=5,
-        max_volume_m3=200.0, burst_stretch_ratio=3.0,
-        contained_gas=True, mass_kg=0.05,
-        description="Durable and gas-tight for longer flights"),
-    EnvelopeUnlock(
-        id="zero_pressure", name="Zero-Pressure Polyethylene",
-        cost=15000, min_reputation=10,
-        max_volume_m3=300.0, burst_stretch_ratio=1.8,
-        contained_gas=False, mass_kg=18.0,
-        description="Vents excess gas — survives higher but loses lift"),
-    EnvelopeUnlock(
-        id="blimp", name="Small Non-Rigid Blimp",
-        cost=50000, min_reputation=20,
-        max_volume_m3=500.0, burst_stretch_ratio=2.0,
-        contained_gas=True, mass_kg=45.0,
-        description="Big and sturdy — carries everything"),
+ENVELOPE_RULES: List[UnlockRule] = [
+    UnlockRule(id="latex", unlock_cost=2000, min_reputation=0),
+    UnlockRule(id="mylar", unlock_cost=500, min_reputation=5),
+    UnlockRule(id="zero_pressure", unlock_cost=15000, min_reputation=10),
+    UnlockRule(id="blimp", unlock_cost=50000, min_reputation=20),
 ]
 
+# ── Payload unlock rules ───────────────────────────────────────────────
+# CATALOG has mass, cost, has_valve. Progression only gates.
 
-# ── Payload unlock tiers ──────────────────────────────────────────────
-# Basic payloads (camera, radio, weather_sensor, barometer, thermometer,
-# battery, solar_panel, parachute, parafoil, gps_receiver, ballast,
-# pressure_valve, propeller_pod, none) always available.
-# Advanced payloads (heater, flight_computer) need reputation >= 3.
-
-PAYLOAD_UNLOCKS: List[PayloadUnlock] = [
-    # Always available
-    PayloadUnlock("battery", "Battery Pack", 0, 0, 3.0, "power", "Stores electrical power"),
-    PayloadUnlock("parachute", "Parachute", 0, 0, 2.0, "recovery", "Slows descent on landing"),
-    PayloadUnlock("parafoil", "Parafoil", 0, 0, 3.5, "recovery", "Gliding parachute for horizontal control"),
-    PayloadUnlock("ballast", "Ballast (Sand)", 0, 0, 15.0, "ballast", "Adjustable weight for fine control"),
-    PayloadUnlock("valve", "Pressure Valve", 250, 0, 0.3, "vent", "Vents excess gas to prevent burst"),
-    PayloadUnlock("propeller_pod", "Propeller Pod", 0, 0, 4.0, "control", "Motor-driven propeller for drift control"),
-    PayloadUnlock("gps_receiver", "GPS Receiver", 0, 0, 0.7, "sensor", "Tracks horizontal position"),
-    PayloadUnlock("barometer", "Barometer", 0, 0, 0.5, "sensor", "Measures ambient pressure"),
-    PayloadUnlock("thermometer", "Thermometer", 0, 0, 0.3, "sensor", "Tracks ambient temperature"),
-    PayloadUnlock("camera", "Camera", 0, 0, 1.5, "sensor", "Still camera for horizon photos"),
-    PayloadUnlock("radio", "Radio Repeater", 0, 0, 2.0, "sensor", "Transmit telemetry data back to base"),
-    PayloadUnlock("weather_sensor", "Weather Sensor", 0, 0, 0.8, "sensor", "Temperature, pressure, humidity"),
-    PayloadUnlock("solar_panel", "Solar Panel", 0, 0, 1.0, "power", "Converts sunlight to power"),
+PAYLOAD_RULES: List[UnlockRule] = [
+    # Always available (cost=0, min_reputation=0)
+    UnlockRule(id="battery", category="power"),
+    UnlockRule(id="parachute", category="recovery"),
+    UnlockRule(id="parafoil", category="recovery"),
+    UnlockRule(id="ballast", category="ballast"),
+    UnlockRule(id="valve", unlock_cost=250, category="vent"),
+    UnlockRule(id="propeller_pod", category="control"),
+    UnlockRule(id="gps_receiver", category="sensor"),
+    UnlockRule(id="barometer", category="sensor"),
+    UnlockRule(id="thermometer", category="sensor"),
+    UnlockRule(id="camera", category="sensor"),
+    UnlockRule(id="radio", category="sensor"),
+    UnlockRule(id="weather_sensor", category="sensor"),
+    UnlockRule(id="solar_panel", category="power"),
     # Advanced — require reputation >= 3
-    PayloadUnlock(
-        "heater", "Heater", 250, 3, 2.5, "heater",
-        "Warm the gas to boost lift — advanced technology"),
-    PayloadUnlock(
-        "flight_computer", "Flight Computer", 750, 3, 1.2, "sensor",
-        "Tracks altitude, temp, velocity — advanced avionics"),
+    UnlockRule(id="heater", unlock_cost=250, min_reputation=3, category="heater"),
+    UnlockRule(id="flight_computer", unlock_cost=750, min_reputation=3, category="sensor"),
+]
+
+# ── Site unlock rules ──────────────────────────────────────────────────
+# CATALOG has altitude, gas_temperature, wind_strength, temperature_offset.
+
+SITE_RULES: List[UnlockRule] = [
+    UnlockRule(id="field", min_reputation=0),
+    UnlockRule(id="rooftop", min_reputation=3),
+    UnlockRule(id="mountain", min_reputation=8),
 ]
 
 
-# ── Site unlock tiers ─────────────────────────────────────────────────
-# Open Field: default
-# Rooftop:  reputation >= 3
-# Mountain Ridge: reputation >= 8
+# ═══════════════════════════════════════════════════════════════════════════
+# Compat views — combine catalog data + rule for API compatibility
+# ═══════════════════════════════════════════════════════════════════════════
 
-SITES: List[SiteUnlock] = [
-    SiteUnlock(
-        id="field", name="Open Field",
-        cost=0, min_reputation=0,
-        altitude_m=0.0,
-        description="Flat terrain, mild crosswind"),
-    SiteUnlock(
-        id="rooftop", name="Urban Rooftop",
-        cost=0, min_reputation=3,
-        altitude_m=50.0, temperature_offset_k=3.0, wind_strength=3.0,
-        description="Warm microclimate, moderate wind"),
-    SiteUnlock(
-        id="mountain", name="Mountain Ridge",
-        cost=0, min_reputation=8,
-        altitude_m=1500.0, temperature_offset_k=-5.0, wind_strength=4.0,
-        description="Elevated, colder, stronger wind"),
-]
+
+@dataclass(frozen=True)
+class UnlockableEnvelope:
+    """Envelope with both catalog definition and unlock rule."""
+    definition: EnvelopeDefinition
+    rule: UnlockRule
+
+    @property
+    def id(self) -> str:
+        return self.definition.id
+
+    @property
+    def name(self) -> str:
+        return self.definition.name
+
+    @property
+    def cost(self) -> int:
+        return self.rule.unlock_cost
+
+    @property
+    def min_reputation(self) -> int:
+        return self.rule.min_reputation
+
+    @property
+    def max_volume_m3(self) -> float:
+        return self.definition.max_volume_m3
+
+    @property
+    def burst_stretch_ratio(self) -> float:
+        return self.definition.burst_stretch_ratio
+
+    @property
+    def contained_gas(self) -> bool:
+        return self.definition.contained_gas
+
+    @property
+    def mass_kg(self) -> float:
+        return self.definition.mass_kg
+
+    @property
+    def drag_coefficient(self) -> float:
+        return self.definition.drag_coefficient
+
+    @property
+    def safe_fill_fraction(self) -> float:
+        return self.definition.safe_fill_fraction
+
+    @property
+    def description(self) -> str:
+        return self.definition.description
+
+
+@dataclass(frozen=True)
+class UnlockablePayload:
+    """Payload with both catalog definition and unlock rule."""
+    definition: PayloadDefinition
+    rule: UnlockRule
+
+    @property
+    def id(self) -> str:
+        return self.definition.id
+
+    @property
+    def name(self) -> str:
+        return self.definition.name
+
+    @property
+    def cost(self) -> int:
+        return self.rule.unlock_cost
+
+    @property
+    def min_reputation(self) -> int:
+        return self.rule.min_reputation
+
+    @property
+    def mass_kg(self) -> float:
+        return self.definition.mass_kg
+
+    @property
+    def tag(self) -> str:
+        return self.rule.category
+
+    @property
+    def has_valve(self) -> bool:
+        return self.definition.has_valve
+
+    @property
+    def description(self) -> str:
+        return self.definition.description
+
+
+@dataclass(frozen=True)
+class UnlockableSite:
+    """Site with both catalog definition and unlock rule."""
+    definition: SiteDefinition
+    rule: UnlockRule
+
+    @property
+    def id(self) -> str:
+        return self.definition.id
+
+    @property
+    def name(self) -> str:
+        return self.definition.name
+
+    @property
+    def cost(self) -> int:
+        return self.rule.unlock_cost
+
+    @property
+    def min_reputation(self) -> int:
+        return self.rule.min_reputation
+
+    @property
+    def altitude_m(self) -> float:
+        return self.definition.altitude_m
+
+    @property
+    def wind_strength(self) -> float:
+        return self.definition.wind_strength
+
+    @property
+    def temperature_offset_k(self) -> float:
+        return self.definition.temperature_offset_k
+
+    @property
+    def gas_temperature_k(self) -> float:
+        return self.definition.gas_temperature_k
+
+    @property
+    def description(self) -> str:
+        return self.definition.description
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Helpers — return compat views, iterate rules + catalog
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def _all_envelope_views() -> List[UnlockableEnvelope]:
+    return [
+        UnlockableEnvelope(CATALOG.envelope(r.id), r) for r in ENVELOPE_RULES
+    ]
+
+
+def _all_payload_views() -> List[UnlockablePayload]:
+    return [
+        UnlockablePayload(CATALOG.payload(r.id), r) for r in PAYLOAD_RULES
+    ]
+
+
+def _all_site_views() -> List[UnlockableSite]:
+    return [
+        UnlockableSite(CATALOG.site(r.id), r) for r in SITE_RULES
+    ]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Backward-compat aliases (for tests and code that import by these names)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+# Old code: from progression import PayloadUnlock/EnvelopeUnlock/SiteUnlock
+# We alias the compat view types so isinstance(x, PayloadUnlock) still works.
+
+PayloadUnlock = UnlockablePayload
+EnvelopeUnlock = UnlockableEnvelope
+SiteUnlock = UnlockableSite
+
+# Old code: ENVELOPES, PAYLOAD_UNLOCKS, SITES as lists of the compat views.
+ENVELOPES = _all_envelope_views()
+PAYLOAD_UNLOCKS = _all_payload_views()
+SITES = _all_site_views()
 
 
 # ── Envelope helpers ──────────────────────────────────────────────────
 
 def get_unlock_path() -> List[str]:
-    """Return the unlock order for envelopes."""
-    return [e.id for e in ENVELOPES]
+    """Return the unlock order for envelopes (IDs in definition order)."""
+    return [e.id for e in ENVELOPE_RULES]
 
 
-def get_envelope(env_id: str) -> EnvelopeUnlock:
-    """Get an envelope by ID."""
-    for e in ENVELOPES:
-        if e.id == env_id:
-            return e
-    return ENVELOPES[0]
+def get_envelope(env_id: str) -> UnlockableEnvelope:
+    """Get an envelope by ID, returning a compat view with catalog + rule."""
+    for r in ENVELOPE_RULES:
+        if r.id == env_id:
+            return UnlockableEnvelope(CATALOG.envelope(env_id), r)
+    # Fallback: default to first envelope
+    return UnlockableEnvelope(CATALOG.envelope(ENVELOPE_RULES[0].id), ENVELOPE_RULES[0])
 
 
-def list_unlocked_envelopes(reputation: int, budget: int) -> List[EnvelopeUnlock]:
+def list_unlocked_envelopes(reputation: int, budget: int) -> List[UnlockableEnvelope]:
     """List envelopes the player has unlocked based on reputation or budget.
 
     Unlock uses OR logic: meet EITHER the reputation OR the cost threshold.
     Budget gates only apply when cost > 0.
     """
     unlocked = []
-    for e in ENVELOPES:
-        if e.min_reputation == 0 and e.cost == 0:
-            # Always available (latex)
+    for r in ENVELOPE_RULES:
+        e = UnlockableEnvelope(CATALOG.envelope(r.id), r)
+        if r.min_reputation == 0 and r.unlock_cost == 0:
             unlocked.append(e)
-        elif reputation >= e.min_reputation or (e.cost > 0 and budget >= e.cost):
+        elif reputation >= r.min_reputation or (r.unlock_cost > 0 and budget >= r.unlock_cost):
             unlocked.append(e)
     return unlocked
 
 
-def list_locked_envelopes(reputation: int, budget: int) -> List[EnvelopeUnlock]:
-    """Return envelopes that are currently locked, sorted by closeness."""
-    return [e for e in ENVELOPES if e not in list_unlocked_envelopes(reputation, budget)]
+def list_locked_envelopes(reputation: int, budget: int) -> List[UnlockableEnvelope]:
+    """Return envelopes that are currently locked."""
+    unlocked_ids = {e.id for e in list_unlocked_envelopes(reputation, budget)}
+    return [e for e in _all_envelope_views() if e.id not in unlocked_ids]
 
 
-def envelope_needs(reputation: int, budget: int, env: EnvelopeUnlock) -> str:
+def envelope_needs(reputation: int, budget: int, env: UnlockableEnvelope) -> str:
     """Return a human-readable string describing what's needed to unlock an envelope."""
-    rep_ok = reputation >= env.min_reputation
-    budget_ok = budget >= env.cost
+    rep_ok = reputation >= env.rule.min_reputation
+    budget_ok = budget >= env.rule.unlock_cost
 
     if rep_ok and budget_ok:
         return ""  # already unlocked (shouldn't happen)
     if rep_ok:
-        return f"{env.cost - budget} more credits"
+        return f"{env.rule.unlock_cost - budget} more credits"
     if budget_ok:
-        return f"{env.min_reputation - reputation} more reputation"
+        return f"{env.rule.min_reputation - reputation} more reputation"
     # Need both — pick whichever is closer proportionally
-    rep_pct = reputation / env.min_reputation if env.min_reputation > 0 else 1.0
-    budget_pct = budget / env.cost if env.cost > 0 else 1.0
+    rep_pct = reputation / env.rule.min_reputation if env.rule.min_reputation > 0 else 1.0
+    budget_pct = budget / env.rule.unlock_cost if env.rule.unlock_cost > 0 else 1.0
     if rep_pct < budget_pct:
-        return f"{env.min_reputation - reputation} more reputation"
-    return f"{env.cost - budget} more credits"
+        return f"{env.rule.min_reputation - reputation} more reputation"
+    return f"{env.rule.unlock_cost - budget} more credits"
 
 
 # ── Payload helpers ───────────────────────────────────────────────────
 
-def list_unlocked_payloads(reputation: int, budget: int) -> List[PayloadUnlock]:
+def list_unlocked_payloads(reputation: int, budget: int) -> List[UnlockablePayload]:
     """List payloads the player can use based on reputation or budget."""
     unlocked = []
-    for p in PAYLOAD_UNLOCKS:
-        if reputation >= p.min_reputation or (p.cost > 0 and budget >= p.cost):
+    for r in PAYLOAD_RULES:
+        p = UnlockablePayload(CATALOG.payload(r.id), r)
+        if reputation >= r.min_reputation or (r.unlock_cost > 0 and budget >= r.unlock_cost):
             unlocked.append(p)
     return unlocked
 
 
-def list_locked_payloads(reputation: int, budget: int) -> List[PayloadUnlock]:
+def list_locked_payloads(reputation: int, budget: int) -> List[UnlockablePayload]:
     """Return payloads that are currently locked."""
-    return [p for p in PAYLOAD_UNLOCKS if p not in list_unlocked_payloads(reputation, budget)]
+    unlocked_ids = {p.id for p in list_unlocked_payloads(reputation, budget)}
+    return [p for p in _all_payload_views() if p.id not in unlocked_ids]
 
 
 # ── Site helpers ──────────────────────────────────────────────────────
 
-def list_unlocked_sites(reputation: int, budget: int) -> List[SiteUnlock]:
+def list_unlocked_sites(reputation: int, budget: int) -> List[UnlockableSite]:
     """List sites the player can launch from."""
     unlocked = []
-    for s in SITES:
-        if reputation >= s.min_reputation or (s.cost > 0 and budget >= s.cost):
+    for r in SITE_RULES:
+        s = UnlockableSite(CATALOG.site(r.id), r)
+        if reputation >= r.min_reputation or (r.unlock_cost > 0 and budget >= r.unlock_cost):
             unlocked.append(s)
     return unlocked
 
 
-def list_locked_sites(reputation: int, budget: int) -> List[SiteUnlock]:
+def list_locked_sites(reputation: int, budget: int) -> List[UnlockableSite]:
     """Return sites that are currently locked."""
-    return [s for s in SITES if s not in list_unlocked_sites(reputation, budget)]
+    unlocked_ids = {s.id for s in list_unlocked_sites(reputation, budget)}
+    return [s for s in _all_site_views() if s.id not in unlocked_ids]
 
 
-# ── Player state ──────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════
+# Player state
+# ═══════════════════════════════════════════════════════════════════════
+
 
 class PlayerState:
     """Tracks a player's progression state."""
@@ -261,34 +393,32 @@ class PlayerState:
     def _check_and_apply_unlocks(self) -> List[str]:
         """Check all equipment against thresholds and apply new unlocks.
 
-        Budget gates only apply when cost > 0; if cost == 0 the item is gated
-        solely by reputation.  This prevents sites/payloads with cost=0 from
-        instantaneously unlocking.
-
-        Returns a list of newly unlocked names.
+        Returns a list of newly unlocked names (from catalog).
+        Only IDs are stored in the player's save data; names are derived
+        from catalog at runtime for display.
         """
         new_unlocks: List[str] = []
 
-        # Envelopes
-        for e in ENVELOPES:
-            if e.id not in self.unlocked_envelopes:
-                if self.reputation >= e.min_reputation or (e.cost > 0 and self.budget >= e.cost):
-                    self.unlocked_envelopes.append(e.id)
-                    new_unlocks.append(e.name)
+        # Envelopes — only store IDs, not names
+        for r in ENVELOPE_RULES:
+            if r.id not in self.unlocked_envelopes:
+                if self.reputation >= r.min_reputation or (r.unlock_cost > 0 and self.budget >= r.unlock_cost):
+                    self.unlocked_envelopes.append(r.id)
+                    new_unlocks.append(CATALOG.envelope(r.id).name)
 
         # Payloads
-        for p in PAYLOAD_UNLOCKS:
-            if p.id not in self.unlocked_payloads:
-                if self.reputation >= p.min_reputation or (p.cost > 0 and self.budget >= p.cost):
-                    self.unlocked_payloads.append(p.id)
-                    new_unlocks.append(p.name)
+        for r in PAYLOAD_RULES:
+            if r.id not in self.unlocked_payloads:
+                if self.reputation >= r.min_reputation or (r.unlock_cost > 0 and self.budget >= r.unlock_cost):
+                    self.unlocked_payloads.append(r.id)
+                    new_unlocks.append(CATALOG.payload(r.id).name)
 
         # Sites
-        for s in SITES:
-            if s.id not in self.unlocked_sites:
-                if self.reputation >= s.min_reputation or (s.cost > 0 and self.budget >= s.cost):
-                    self.unlocked_sites.append(s.id)
-                    new_unlocks.append(s.name)
+        for r in SITE_RULES:
+            if r.id not in self.unlocked_sites:
+                if self.reputation >= r.min_reputation or (r.unlock_cost > 0 and self.budget >= r.unlock_cost):
+                    self.unlocked_sites.append(r.id)
+                    new_unlocks.append(CATALOG.site(r.id).name)
 
         return new_unlocks
 
@@ -341,7 +471,7 @@ class PlayerState:
     def status_summary(self) -> str:
         """Return a short summary string for Discord display."""
         lines = [
-            f"\u26a1 **{self.player_id}'s Status**",
+            f"⚡ **{self.player_id}'s Status**",
             f"  Reputation: {self.reputation}",
             f"  Budget: ${self.budget}",
             f"  Flights: {self.total_flights} ({self.successful_flights} successful)",
@@ -349,11 +479,7 @@ class PlayerState:
         return "\n".join(lines)
 
     def save(self, path: Optional[str] = None):
-        """Save player state to JSON.
-
-        Args:
-            path: Optional path. If None, saves to PlayerRegistry._save_dir / {player_id}.json
-        """
+        """Save player state to JSON."""
         if path is None:
             save_path = PlayerRegistry._save_dir / f"{self._player_id}.json"
         else:
@@ -372,12 +498,7 @@ class PlayerState:
 
     @classmethod
     def load(cls, path_or_player_id: Optional[str] = None, path: Optional[str] = None) -> "PlayerState":
-        """Load player state from JSON.
-
-        When path_or_player_id is an existing file path, it is used directly.
-        Otherwise it is treated as a player_id and resolved to
-        ~/.balloon_frontier/{player_id}.json.
-        """
+        """Load player state from JSON."""
         if path is not None:
             save_path = Path(path).expanduser()
         elif path_or_player_id is not None and Path(path_or_player_id).expanduser().exists():
@@ -395,6 +516,11 @@ class PlayerState:
         return cls()
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Player registry (unchanged)
+# ═══════════════════════════════════════════════════════════════════════
+
+
 class PlayerRegistry:
     """Simple in-memory player registry with per-player file persistence."""
     _players: Dict[str, PlayerState] = {}
@@ -403,7 +529,6 @@ class PlayerRegistry:
     @classmethod
     def get_or_create(cls, player_id: str) -> PlayerState:
         if player_id not in cls._players:
-            # Try to load from disk first.
             player_state = PlayerState.load(player_id)
             player_state._player_id = player_id
             cls._players[player_id] = player_state
@@ -432,10 +557,10 @@ class PlayerRegistry:
         )
 
 
-# ── Repository pattern (PR G) ─────────────────────────────────────────
-# Decouples flight logic from persistence so the backing store
-# can change (JSON/global → SQLite / API) without touching
-# the flight pipeline.
+# ═══════════════════════════════════════════════════════════════════════════
+# Repository pattern (PR G) — unchanged
+# ═══════════════════════════════════════════════════════════════════════
+
 
 from typing import Protocol, runtime_checkable
 
@@ -467,11 +592,7 @@ class PlayerRepository(Protocol):
 
 
 class PlayerRegistryRepository:
-    """Repository adapter that delegates to PlayerRegistry.
-
-    Implements PlayerRepository so callers depend on the Protocol
-    rather than the concrete class.
-    """
+    """Repository adapter that delegates to PlayerRegistry."""
 
     def get(self, player_id: str) -> PlayerState:
         return PlayerRegistry.get_or_create(player_id)
