@@ -61,6 +61,18 @@ def test_configuration_remains_locked_after_ready():
         session.set_configuration({"gas": "hydrogen"})
 
 
+def test_lifecycle_fields_are_read_only():
+    session = configured_session()
+
+    with pytest.raises(AttributeError):
+        session.state = SessionState.COMPLETED
+    with pytest.raises(AttributeError):
+        session.launch_result = {"peak_altitude_m": 99999}
+
+    assert session.state is SessionState.CONFIGURING
+    assert session.launch_result is None
+
+
 def test_complete_lifecycle_retains_result():
     session = configured_session()
     session.mark_ready()
