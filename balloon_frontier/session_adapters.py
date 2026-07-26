@@ -11,6 +11,13 @@ from .game_session import SessionState
 from .session_controller import SessionPlan, SessionRegistry, plan_session
 
 
+class _NoOpRewardService:
+    """Leave mission results untouched until tutorial evaluation is complete."""
+
+    def apply(self, *, player_id: str, mission_results: tuple) -> tuple:
+        return mission_results
+
+
 def configuration_from_launch_request(request: Any) -> dict[str, Any]:
     return {
         "gas": request.gas_id,
@@ -38,12 +45,18 @@ def prepare_cli_session(
 
 
 class _PlannedFlightService(FlightService):
-    def __init__(self, source: FlightService, plan: SessionPlan) -> None:
+    def __init__(
+        self,
+        source: FlightService,
+        plan: SessionPlan,
+        *,
+        apply_rewards: bool = True,
+    ) -> None:
         super().__init__(
             default_sim_time=source.default_sim_time,
             mission_sim_time=source.mission_sim_time,
             mission_step_interval=source.mission_step_interval,
-            reward_service=source.reward_service,
+            reward_service=source.reward_service if apply_rewards else _NoOpRewardService(),
             mission_evaluator=source.mission_evaluator,
         )
         self._source = source
@@ -84,11 +97,22 @@ class SessionAwareFlightService:
         self.last_plan = plan
         plan.session.launch()
         try:
-            outcome = _PlannedFlightService(self.service, plan).run(request)
-            if plan.session.mode is GameMode.TUTORIAL:
+            is_tutorial = plan.session.mode is GameMode.TUTORIAL
+            outcome = _PlannedFlightService(
+                self.service,
+                plan,
+                apply_rewards=not is_tutorial,
+            ).run(request)
+            if is_tutorial:
                 from .tutorial import evaluate_tutorial_outcome
 
                 outcome = evaluate_tutorial_outcome(request, outcome)
+                if request.player_id:
+                    final_results = self.service.reward_service.apply(
+                        player_id=request.player_id,
+                        mission_results=outcome.mission_results,
+                    )
+                    outcome = replace(outcome, mission_results=final_results)
             plan.session.complete(outcome)
             return outcome
         except Exception:
