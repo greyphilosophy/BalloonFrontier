@@ -23,21 +23,42 @@ def test_normalizes_mode_selection():
     assert GameSession(mode=2).mode is GameMode.STORY
 
 
-def test_rejects_blank_session_id():
-    with pytest.raises(ValueError, match="session_id"):
-        GameSession(mode=GameMode.TUTORIAL, session_id=" ")
+def test_rejects_invalid_session_id():
+    for session_id in (" ", 123, None):
+        with pytest.raises(ValueError, match="session_id"):
+            GameSession(mode=GameMode.TUTORIAL, session_id=session_id)
 
 
-def test_configuration_is_copied_and_required():
-    values = {"balloon": "36-inch"}
+def test_configuration_is_copied_frozen_and_required():
+    values = {"balloon": "36-inch", "payloads": ["camera"]}
     session = GameSession(mode=GameMode.TUTORIAL)
     session.set_configuration(values)
+
     values["balloon"] = "150-inch"
-    assert session.configuration == {"balloon": "36-inch"}
+    values["payloads"].append("radio")
+    assert session.configuration == {
+        "balloon": "36-inch",
+        "payloads": ("camera",),
+    }
+
+    with pytest.raises(TypeError):
+        session.configuration["balloon"] = "150-inch"
+    with pytest.raises(AttributeError):
+        session.configuration["payloads"].append("radio")
 
     empty = GameSession(mode=GameMode.TUTORIAL)
     with pytest.raises(ValueError, match="must not be empty"):
         empty.set_configuration({})
+
+
+def test_configuration_remains_locked_after_ready():
+    session = configured_session()
+    session.mark_ready()
+
+    with pytest.raises(TypeError):
+        session.configuration["gas"] = "hydrogen"
+    with pytest.raises(ValueError, match="requires state configuring"):
+        session.set_configuration({"gas": "hydrogen"})
 
 
 def test_complete_lifecycle_retains_result():
