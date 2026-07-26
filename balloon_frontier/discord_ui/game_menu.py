@@ -62,9 +62,6 @@ class GameModeView(discord.ui.View):
         )
         wrapped = BalloonClusterFlightService(session_service)
 
-        # Apply wizard-specific mixins only when the configured class exposes the
-        # real configurator contract. Tests and alternate transports may replace
-        # BalloonConfigurator with a minimal stand-in that intentionally omits it.
         supports_wizard_mixins = all(
             hasattr(BalloonConfigurator, name)
             for name in ("build_buttons", "_compute_gas_mass", "_build_config_text")
@@ -79,6 +76,10 @@ class GameModeView(discord.ui.View):
             ensure_discord_tutorial_options()
             if supports_wizard_mixins:
                 configurator_mixins.insert(0, TutorialConfiguratorMixin)
+        elif mode is GameMode.STORY and supports_wizard_mixins:
+            from balloon_frontier.story import StoryConfiguratorMixin
+
+            configurator_mixins.insert(0, StoryConfiguratorMixin)
 
         if configurator_mixins:
             configurator_type = type(
