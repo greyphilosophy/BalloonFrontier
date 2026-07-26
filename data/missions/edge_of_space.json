@@ -1,0 +1,21 @@
+{
+  "id": "edge_of_space",
+  "title": "Edge of Space",
+  "description": "Your latest balloon video earned a little revenue, and viewers are waiting for the maiden flight of your newest design. Send a camera high enough to reveal Earth's curvature on a very tight hobbyist budget.",
+  "launch_site": "field",
+  "budget": 1500,
+  "required_payloads": ["camera"],
+  "objectives": [
+    {
+      "type": "reach_altitude",
+      "params": {"minimum_m": 30000},
+      "description": "Reach 30 km altitude."
+    },
+    {
+      "type": "capture_photo",
+      "params": {"minimum_quality": 0.3},
+      "description": "Record usable edge-of-space footage."
+    }
+  ],
+  "difficulty": 2
+}
