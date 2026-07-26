@@ -26,6 +26,7 @@ class AtmosphereLayer:
 class AtmosphereProfile:
     layers: tuple[AtmosphereLayer, ...]
     weather: WeatherEvent
+    wind_measurements_available: bool = False
 
     def __post_init__(self) -> None:
         if any(
@@ -38,6 +39,7 @@ class AtmosphereProfile:
         return {
             "layers": [asdict(layer) for layer in self.layers],
             "weather": asdict(self.weather),
+            "wind_measurements_available": self.wind_measurements_available,
         }
 
     @classmethod
@@ -58,6 +60,9 @@ class AtmosphereProfile:
         return cls(
             layers=tuple(layers),
             weather=WeatherEvent(**data["weather"]),
+            wind_measurements_available=bool(
+                data.get("wind_measurements_available", False)
+            ),
         )
 
 
@@ -66,6 +71,7 @@ class RecordedAtmosphereProvider:
     """Interpolate a saved vertical sounding through ``AtmosphereProvider``."""
 
     profile: AtmosphereProfile
+    wind_fallback: AtmosphereProvider | None = None
     _altitudes: tuple[float, ...] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -78,27 +84,56 @@ class RecordedAtmosphereProvider:
         )
 
     def sample(self, altitude_m: float, *, time_s: float = 0.0) -> AtmosphereSample:
-        del time_s  # A sounding is currently a static vertical profile.
         altitude = max(0.0, float(altitude_m))
         layers = self.profile.layers
         if altitude <= layers[0].altitude_m:
-            return _sample_from_layer(altitude, layers[0])
-        if altitude >= layers[-1].altitude_m:
-            return _sample_from_layer(altitude, layers[-1])
+            sample = _sample_from_layer(altitude, layers[0])
+        elif altitude >= layers[-1].altitude_m:
+            sample = _sample_from_layer(altitude, layers[-1])
+        else:
+            upper_index = bisect_right(self._altitudes, altitude)
+            lower = layers[upper_index - 1]
+            upper = layers[upper_index]
+            fraction = (altitude - lower.altitude_m) / (
+                upper.altitude_m - lower.altitude_m
+            )
+            sample = AtmosphereSample(
+                altitude_m=altitude,
+                temperature_k=_interpolate(
+                    lower.temperature_k,
+                    upper.temperature_k,
+                    fraction,
+                ),
+                pressure_pa=_interpolate(
+                    lower.pressure_pa,
+                    upper.pressure_pa,
+                    fraction,
+                ),
+                wind_x_mps=_interpolate(
+                    lower.wind_x_mps,
+                    upper.wind_x_mps,
+                    fraction,
+                ),
+                wind_y_mps=_interpolate(
+                    lower.wind_y_mps,
+                    upper.wind_y_mps,
+                    fraction,
+                ),
+            )
 
-        upper_index = bisect_right(self._altitudes, altitude)
-        lower = layers[upper_index - 1]
-        upper = layers[upper_index]
-        fraction = (altitude - lower.altitude_m) / (
-            upper.altitude_m - lower.altitude_m
-        )
-        return AtmosphereSample(
-            altitude_m=altitude,
-            temperature_k=_interpolate(lower.temperature_k, upper.temperature_k, fraction),
-            pressure_pa=_interpolate(lower.pressure_pa, upper.pressure_pa, fraction),
-            wind_x_mps=_interpolate(lower.wind_x_mps, upper.wind_x_mps, fraction),
-            wind_y_mps=_interpolate(lower.wind_y_mps, upper.wind_y_mps, fraction),
-        )
+        if (
+            not self.profile.wind_measurements_available
+            and self.wind_fallback is not None
+        ):
+            fallback = self.wind_fallback.sample(altitude, time_s=time_s)
+            return AtmosphereSample(
+                altitude_m=sample.altitude_m,
+                temperature_k=sample.temperature_k,
+                pressure_pa=sample.pressure_pa,
+                wind_x_mps=fallback.wind_x_mps,
+                wind_y_mps=fallback.wind_y_mps,
+            )
+        return sample
 
 
 def _interpolate(lower: float, upper: float, fraction: float) -> float:
@@ -134,6 +169,7 @@ def profile_from_telemetry(
     )
     layers: list[AtmosphereLayer] = []
     next_altitude = 0.0
+    telemetry_has_wind = False
     for point in points:
         if point.altitude_m < next_altitude:
             continue
@@ -149,6 +185,10 @@ def profile_from_telemetry(
         else:
             temperature_k = point.ambient_temperature_k
             pressure_pa = point.ambient_pressure_pa
+            telemetry_has_wind = telemetry_has_wind or (
+                hasattr(point, "ambient_wind_x_mps")
+                and hasattr(point, "ambient_wind_y_mps")
+            )
             wind_x_mps = getattr(point, "ambient_wind_x_mps", 0.0)
             wind_y_mps = getattr(point, "ambient_wind_y_mps", 0.0)
         layers.append(AtmosphereLayer(
@@ -160,7 +200,13 @@ def profile_from_telemetry(
             wind_y_mps=round(float(wind_y_mps), 2),
         ))
         next_altitude = point.altitude_m + 2000.0
-    return AtmosphereProfile(tuple(layers), weather)
+    return AtmosphereProfile(
+        tuple(layers),
+        weather,
+        wind_measurements_available=(
+            atmosphere_provider is not None or telemetry_has_wind
+        ),
+    )
 
 
 class AtmosphereProfileRepository:
