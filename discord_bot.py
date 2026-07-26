@@ -1,27 +1,16 @@
-"""Balloon Frontier — Discord Bot Bootstrap
+"""Balloon Frontier Discord transport.
 
-This file is now a thin composition layer. All Discord UI logic lives in
-the ``balloon_frontier.discord_ui`` package and is re-exported here so
-that existing imports from ``discord_bot`` remain valid.
-
-Responsibilities:
-- Bot construction (discord.ext.commands.Bot)
-- Command registration (/launch, /physics, /help, /profile)
-- Startup/shutdown (run_bot)
-- Top-level error handling
+Discord is a menu-driven way to access the same game flow as the CLI. Any
+ordinary message from an idle player opens the game-mode menu; subsequent play
+uses buttons, menus, and modals. ``/play`` remains the documented explicit reset.
+``/launch`` is retained only as an undocumented compatibility alias.
 """
 
-import asyncio
 import logging
 import os
-from typing import List, Optional
 
 import discord
 from discord.ext import commands
-
-from balloon_frontier.flight_service import FlightServiceError
-
-# ─── Re-export everything the tests expect ────────────────────────────
 
 from balloon_frontier.discord_ui.configurator import (
     _Step,
@@ -36,70 +25,107 @@ from balloon_frontier.discord_ui.views import _OptionButton, _BackButton, _NextB
 from balloon_frontier.discord_ui.modals import (
     _ManualGasMassButton,
     _ManualGasMassModal,
+    _LaunchButton,
 )
 from balloon_frontier.discord_ui.launch_handler import run_simulation
 from balloon_frontier.discord_ui.result_renderer import format_score_breakdown, make_result_embed
-
-# Compatibility: _LaunchButton was previously in discord_bot.py;
-# tests reference it.  Re-export from modals where it lives now.
-from balloon_frontier.discord_ui.modals import _LaunchButton  # noqa: F401
-# Compatibility: format_discord_results was previously in discord_bot.py
-from balloon_frontier.narrative_result import format_discord_results  # noqa: F401
+from balloon_frontier.discord_ui.game_menu import GameModeView, game_mode_prompt
+from balloon_frontier.narrative_result import format_discord_results
 
 logger = logging.getLogger(__name__)
-
-# ─── Bot ──────────────────────────────────────────────────────────────
 
 intents = discord.Intents(message_content=True, guilds=True, dm_messages=True)
 bot = commands.Bot(command_prefix="/", intents=intents)
 bot.remove_command("help")
 
+_engaged_players: set[str] = set()
+
+
+def _channel_kind(channel) -> str:
+    return "dm" if isinstance(channel, discord.DMChannel) else "guild"
+
+
+async def send_game_menu(destination, *, player_id: str | int, channel_kind: str, reset: bool = False):
+    """Show the common game-mode menu to an idle player."""
+    from balloon_frontier.flight_service import flight_service
+
+    key = str(player_id)
+    if key in _engaged_players and not reset:
+        return None
+    _engaged_players.add(key)
+    view = GameModeView(
+        player_id=key,
+        channel_kind=channel_kind,
+        service=flight_service,
+        on_finished=lambda: _engaged_players.discard(key),
+    )
+    msg = await destination.send(game_mode_prompt(), view=view)
+    view._msg = msg
+    return msg
+
 
 @bot.event
 async def on_ready():
-    logger.info(f"Balloon Frontier online as {bot.user} ({bot.user.id})")
+    logger.info("Balloon Frontier online as %s (%s)", bot.user, bot.user.id)
 
 
 @bot.event
 async def on_message(message):
-    """Process messages so prefix commands (/help, /physics, /launch) fire."""
-    await bot.process_commands(message)
+    """Treat any ordinary first message as a request to start playing."""
+    if getattr(message.author, "bot", False):
+        return
+
+    context = await bot.get_context(message)
+    if context.valid:
+        await bot.invoke(context)
+        return
+
+    await send_game_menu(
+        message.channel,
+        player_id=message.author.id,
+        channel_kind=_channel_kind(message.channel),
+    )
 
 
-# ─── Commands ─────────────────────────────────────────────────────────
+@bot.command(name="play")
+async def cmd_play(ctx):
+    """Explicitly open or restart the menu-driven game."""
+    await send_game_menu(
+        ctx,
+        player_id=ctx.author.id if ctx.author else "anonymous",
+        channel_kind=_channel_kind(ctx.channel),
+        reset=True,
+    )
 
-@bot.command(name="launch")
-async def cmd_launch(ctx):
-    """Open the balloon configurator wizard."""
-    from balloon_frontier.flight_service import flight_service
-    view = BalloonConfigurator(service=flight_service)
-    content = view._build_config_text()
-    msg = await ctx.send(content, view=view)
-    view._msg = msg
+
+@bot.command(name="launch", hidden=True)
+async def cmd_launch_compat(ctx):
+    """Deprecated compatibility alias for older clients; use /play."""
+    await cmd_play(ctx)
 
 
 @bot.command(name="physics")
 async def cmd_physics(ctx):
-    """Show the physics model equations."""
     content = (
-        "\u2699\ufe0f **Physics Model**\n\n"
-        "\u2022 \u03c1 = P / (R_air \u00d7 T)\n"
-        "\u2022 F_buoy = \u03c1_air \u00d7 g \u00d7 V\n"
-        "\u2022 F_drag = 0.5 \u00d7 \u03c1 \u00d7 v\u00b2 \u00d7 C_d \u00d7 A\n"
-        "\u2022 PV = nRT\n"
-        "\u2022 Fixed-step Euler: \u0394t = 0.5s"
+        "⚙️ **Physics Model**\n\n"
+        "• ρ = P / (R_air × T)\n"
+        "• F_buoy = ρ_air × g × V\n"
+        "• F_drag = 0.5 × ρ × v² × C_d × A\n"
+        "• PV = nRT\n"
+        "• Fixed-step Euler: Δt = 0.5s"
     )
     await ctx.send(content)
 
 
 @bot.command(name="help")
 async def cmd_help(ctx):
-    """Show help text."""
     content = (
-        "\U0001f388 **Balloon Frontier**\n\n"
-        "\u2022 `/launch` \u2014 Open the balloon configurator\n"
-        "\u2022 `/physics` \u2014 View the physics equations\n"
-        "\u2022 `/help` \u2014 This message"
+        "🎈 **Balloon Frontier**\n\n"
+        "Send any message to begin. Choose a mode, then play entirely through menus and buttons.\n\n"
+        "• `/play` — Open or restart the game menu\n"
+        "• `/physics` — View the physics equations\n"
+        "• `/profile` — View progression\n"
+        "• `/help` — This message"
     )
     await ctx.send(content)
 
@@ -117,93 +143,41 @@ async def cmd_profile(ctx):
         user_id = str(ctx.author.id) if ctx.author else "anonymous"
         player = PlayerRegistry.get_or_create(user_id)
     except Exception:
-        await ctx.send("\\u26a0\\ufe0f Unable to load player profile.")
+        await ctx.send("⚠️ Unable to load player profile.")
         return
 
     lines = [
-        f"\u26a1 **{user_id}'s Profile**",
+        f"⚡ **{user_id}'s Profile**",
         f"  Reputation: {player.reputation}",
         f"  Budget: ${player.budget}",
         f"  Flights: {player.total_flights} ({player.successful_flights} successful)",
         "",
         "=== ENVELOPES ===",
     ]
-
     for env in PROGRESSION_ENVELOPES:
         unlocked = player.is_envelope_unlocked(env.id)
-        mark = "\u2705" if unlocked else "\U0001f512"
-        detail = ""
-        if not unlocked:
-            rep_ok = player.reputation >= env.min_reputation
-            budget_ok = player.budget >= env.cost
-            if rep_ok and budget_ok:
-                pass  # should be unlocked \u2014 race condition; treat as unlocked
-            elif rep_ok:
-                detail = f"({env.cost - player.budget} more credits needed)"
-            elif budget_ok:
-                detail = f"({env.min_reputation - player.reputation} more reputation needed)"
-            else:
-                rep_need = env.min_reputation - player.reputation
-                cost_need = env.cost - player.budget
-                r_pct = (player.reputation / env.min_reputation * 100) if env.min_reputation > 0 else 100
-                c_pct = (player.budget / env.cost * 100) if env.cost > 0 else 100
-                closest = "reputation" if r_pct < c_pct else "credits"
-                if closest == "reputation":
-                    detail = f"({rep_need} rep closer, {cost_need} cr away)"
-                else:
-                    detail = f"({cost_need} cr closer, {rep_need} rep away)"
-        lines.append(f"{mark} {env.name}{(' ' + detail) if detail else ''}")
+        mark = "✅" if unlocked else "🔒"
+        lines.append(f"{mark} {env.name}")
 
-    lines.append("")
-    lines.append("=== PAYLOADS ===")
-    advanced_unseen = False
-    for p in PAYLOAD_UNLOCKS:
-        unlocked = player.is_payload_unlocked(p.id)
-        mark = "\u2705" if unlocked else "\U0001f512"
-        if unlocked:
-            continue  # Hide already-unlocked basic payloads
-        # Show locked advanced payloads only
-        if p.min_reputation > 0 or p.cost > 0:
-            advanced_unseen = True
-            rep_needed = max(0, p.min_reputation - player.reputation)
-            cr_needed = max(0, p.cost - player.budget)
-            lines.append(f"{mark} {p.name} \u2014 {p.description}")
-            if rep_needed == 0:
-                lines.append(f"   Needs {cr_needed} more credits")
-            elif cr_needed == 0:
-                lines.append(f"   Needs {rep_needed} more reputation")
-            else:
-                lines.append(f"   Needs {min(rep_needed, cr_needed)} of either rep/credits to progress")
-    if not advanced_unseen:
-        lines.append("\u2705 All payload types unlocked!")
+    lines.extend(["", "=== PAYLOADS ==="])
+    locked_payloads = [p for p in PAYLOAD_UNLOCKS if not player.is_payload_unlocked(p.id)]
+    if locked_payloads:
+        lines.extend(f"🔒 {p.name} — {p.description}" for p in locked_payloads)
+    else:
+        lines.append("✅ All payload types unlocked!")
 
-    lines.append("")
-    lines.append("=== SITES ===")
-    for s in SITES:
-        unlocked = player.is_site_unlocked(s.id)
-        mark = "\u2705" if unlocked else "\U0001f512"
-        detail = ""
-        if not unlocked:
-            rep_needed = max(0, s.min_reputation - player.reputation)
-            cr_needed = max(0, s.cost - player.budget)
-            if rep_needed == 0:
-                detail = f"({cr_needed} more credits)"
-            elif cr_needed == 0:
-                detail = f"({rep_needed} more reputation)"
-            else:
-                detail = f"{rep_needed}/{cr_needed}"
-        lines.append(f"{mark} {s.name}{(' ' + detail) if detail else ''}")
+    lines.extend(["", "=== SITES ==="])
+    for site in SITES:
+        mark = "✅" if player.is_site_unlocked(site.id) else "🔒"
+        lines.append(f"{mark} {site.name}")
 
     content = "\n".join(lines)
     if len(content) > 2000:
-        content = content[:1997] + "\n\n...(truncated)"
+        content = content[:1997] + "..."
     await ctx.send(content)
 
 
-# ─── Entry point ─────────────────────────────────────────────────────
-
 def run_bot():
-    """Start the Discord bot."""
     token = os.environ.get("DISCORD_BF_TOKEN") or os.environ.get("DISCORD_TOKEN")
     if token:
         bot.run(token)
