@@ -7,6 +7,7 @@ from statistics import pstdev
 
 import discord
 
+from balloon_frontier.atmosphere import StandardAtmosphereProvider
 from balloon_frontier.atmosphere_profile import atmosphere_profiles, profile_from_telemetry
 from balloon_frontier.flight_service import FlightOutcome
 from balloon_frontier.launch_result import MissionResult
@@ -91,7 +92,7 @@ def story_intro(player_id: str | None = None, *, atmosphere_locked: bool = False
         future = "\n".join(f"• {item}" for item in chapter.future_challenges)
         text += f"\n\n**Future cinematic challenges**\n{future}"
     if atmosphere_locked:
-        text += "\n\n🔒 The recorded weather conditions are locked for this launch."
+        text += "\n\n🔒 The recorded atmosphere is locked for this launch."
     elif player_id and atmosphere_profiles.get(str(player_id)) is not None:
         text += "\n\n📡 A recorded atmosphere profile is available to lock for one future flight."
     return text
@@ -109,7 +110,9 @@ def _stable_footage(outcome: FlightOutcome) -> bool:
 
 def _controlled_recovery(outcome: FlightOutcome) -> bool:
     telemetry = tuple(outcome.result.telemetry)
-    return any(point.landed for point in telemetry) and not any(point.crashed for point in telemetry)
+    return any(point.landed for point in telemetry) and not any(
+        point.crashed for point in telemetry
+    )
 
 
 def add_story_results(outcome: FlightOutcome, player_id: str | None = None) -> FlightOutcome:
@@ -127,7 +130,8 @@ def add_story_results(outcome: FlightOutcome, player_id: str | None = None) -> F
                 reward=0,
                 explanation=(
                     "The camera returned steady, watchable footage."
-                    if stable else "The footage was too unstable to earn the stable-flight bonus."
+                    if stable
+                    else "The footage was too unstable to earn the stable-flight bonus."
                 ),
             ),
             MissionResult(
@@ -136,21 +140,39 @@ def add_story_results(outcome: FlightOutcome, player_id: str | None = None) -> F
                 reward=0,
                 explanation=(
                     "The payload completed a controlled recovery."
-                    if recovered else "The payload was not recovered under control."
+                    if recovered
+                    else "The payload was not recovered under control."
                 ),
             ),
         )
         return replace(outcome, mission_results=existing + bonuses)
 
-    sounding = next((item for item in existing if item.mission_id == ATMOSPHERIC_RIVER_MISSION_ID), None)
+    sounding = next(
+        (
+            item
+            for item in existing
+            if item.mission_id == ATMOSPHERIC_RIVER_MISSION_ID
+        ),
+        None,
+    )
     if sounding and sounding.completed and player_id and outcome.weather is not None:
-        profile = profile_from_telemetry(outcome.result.telemetry, outcome.weather)
+        provider = StandardAtmosphereProvider(
+            site_id=outcome.result.launch_request.launch_site_id,
+            wind_enabled=True,
+        )
+        profile = profile_from_telemetry(
+            outcome.result.telemetry,
+            outcome.weather,
+            atmosphere_provider=provider,
+        )
         atmosphere_profiles.save(str(player_id), profile)
         recorded = MissionResult(
             mission_id="bonus_atmosphere_profile",
             completed=bool(profile.layers),
             reward=0,
-            explanation=f"Recorded {len(profile.layers)} atmospheric layers for future launches.",
+            explanation=(
+                f"Recorded {len(profile.layers)} atmospheric layers for future launches."
+            ),
         )
         return replace(outcome, mission_results=existing + (recorded,))
     return outcome
@@ -172,7 +194,9 @@ class _LockAtmosphereButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction) -> None:
         player_id = getattr(self.parent_view._service, "story_player_id", None)
-        locked = bool(player_id) and atmosphere_profiles.lock_for_next_flight(str(player_id))
+        locked = bool(player_id) and atmosphere_profiles.lock_for_next_flight(
+            str(player_id)
+        )
         self.parent_view._atmosphere_locked = locked
         self.parent_view.build_buttons()
         await self.parent_view._send_step(interaction)
@@ -187,11 +211,17 @@ class StoryConfiguratorMixin:
 
     def _step_content(self) -> str:
         player_id = getattr(self._service, "story_player_id", None)
-        return story_intro(player_id, atmosphere_locked=self._atmosphere_locked) + "\n\n" + super()._step_content()
+        return (
+            story_intro(player_id, atmosphere_locked=self._atmosphere_locked)
+            + "\n\n"
+            + super()._step_content()
+        )
 
     def build_buttons(self):
         super().build_buttons()
         player_id = getattr(self._service, "story_player_id", None)
-        has_profile = bool(player_id) and atmosphere_profiles.get(str(player_id)) is not None
+        has_profile = bool(player_id) and atmosphere_profiles.get(
+            str(player_id)
+        ) is not None
         if self._current_step == 5 and has_profile and not self._atmosphere_locked:
             self.add_item(_LockAtmosphereButton(self))
