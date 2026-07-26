@@ -40,6 +40,38 @@ def prepare_cli_session(
     )
 
 
+@dataclass
+class SessionAwareFlightService:
+    """Wrap a FlightService so real UI launches obey the shared session lifecycle."""
+
+    service: Any
+    mode: GameMode | str | int
+    ui: str
+    channel_kind: str | None = None
+    last_plan: SessionPlan | None = None
+
+    def run(self, request: Any) -> Any:
+        context = {"ui": self.ui}
+        if self.channel_kind is not None:
+            context["channel"] = self.channel_kind
+        plan = plan_session(
+            self.mode,
+            configuration_from_launch_request(request),
+            player_id=getattr(request, "player_id", None),
+            context=context,
+        )
+        self.last_plan = plan
+        plan.session.launch()
+        try:
+            outcome = self.service.run(request)
+        except Exception:
+            if not plan.session.is_terminal:
+                plan.session.cancel()
+            raise
+        plan.session.complete(outcome)
+        return outcome
+
+
 def configuration_from_discord_state(state: Mapping[str, Any]) -> dict[str, Any]:
     """Translate Discord configurator state into shared configuration keys."""
 
