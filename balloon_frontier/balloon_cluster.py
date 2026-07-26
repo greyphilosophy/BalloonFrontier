@@ -55,11 +55,19 @@ class ClusteredLaunchRequest(LaunchRequest):
 
 
 class BalloonClusterFlightService:
-    """Convert ordinary UI requests into quantity-aware launch requests."""
+    """Convert ordinary UI requests into quantity-aware launch requests.
+
+    Unknown attributes are delegated to the wrapped service so this adapter remains
+    transparent to existing callers that inspect session metadata such as ``mode``
+    or ``on_finished``.
+    """
 
     def __init__(self, service: Any, balloon_count: int = 1) -> None:
         self.service = service
         self.balloon_count = balloon_count
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.service, name)
 
     def run(self, request: LaunchRequest):
         clustered = ClusteredLaunchRequest(
