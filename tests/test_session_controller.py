@@ -18,6 +18,7 @@ def test_every_mode_has_explicit_distinct_policy():
 
     assert policies[GameMode.TUTORIAL].mission_count == 1
     assert policies[GameMode.STORY].uses_progression
+    assert policies[GameMode.STORY].mission_count == 1
     assert policies[GameMode.SCENARIO].mission_count == 3
     assert policies[GameMode.FREE_PLAY].sandbox
     assert not policies[GameMode.FREE_PLAY].requires_missions
@@ -60,7 +61,7 @@ def test_story_and_scenario_assignment_is_deterministic(monkeypatch):
 
     assert first == second
     assert seen[0]["seed"] == seen[1]["seed"]
-    assert len(first) == 2
+    assert len(first) == 1
     assert len(scenario) == 3
     assert first != scenario
 
