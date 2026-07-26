@@ -39,7 +39,8 @@ class GameSession:
     launch_result: Any | None = field(default=None, init=False)
 
     def __post_init__(self) -> None:
-        self.mode = select_game_mode(self.mode)
+        if not isinstance(self.mode, GameMode):
+            self.mode = select_game_mode(self.mode)
         if not self.session_id or not self.session_id.strip():
             raise ValueError("session_id must be a non-empty string")
 
