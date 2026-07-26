@@ -34,6 +34,14 @@ def test_story_mode_assigns_edge_of_space_when_camera_is_selected():
     assert get_mode_policy(GameMode.STORY).mission_count == 1
 
 
+def test_story_mode_keeps_edge_of_space_for_invalid_configuration():
+    missions = assign_missions_for_mode(
+        GameMode.STORY,
+        {"payloads": ("gps",), "site": "mountain"},
+    )
+    assert missions == ("edge_of_space",)
+
+
 def test_story_intro_separates_tracked_and_future_challenges():
     intro = story_intro()
     assert "Stable footage" in intro
