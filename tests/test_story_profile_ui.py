@@ -25,7 +25,7 @@ def test_profile_table_formats_units_and_wind_direction():
     assert "Legacy profile" not in text
 
 
-def test_profile_table_limits_rows_and_labels_legacy_wind():
+def test_profile_table_spans_full_range_and_labels_legacy_wind():
     profile = AtmosphereProfile(
         layers=tuple(
             AtmosphereLayer(float(index * 1000), 280.0, 90000.0)
@@ -35,7 +35,9 @@ def test_profile_table_limits_rows_and_labels_legacy_wind():
         wind_measurements_available=False,
     )
     text = format_atmosphere_profile(profile, max_layers=2)
-    assert "3 higher layers omitted" in text
+    assert "3 intermediate layers omitted" in text
+    assert "0.0 |" in text
+    assert "4.0 |" in text
     assert "Legacy profile" in text
 
 
