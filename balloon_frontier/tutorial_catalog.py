@@ -2,42 +2,42 @@
 
 from __future__ import annotations
 
+from types import MethodType
+
 from balloon_frontier.catalog import CATALOG, PayloadDefinition
 
 
 QUADCOPTER_ID = "quadcopter"
-QUADCOPTER_NAME = "Small Quadcopter"
-QUADCOPTER_MASS_KG = 0.25
-QUADCOPTER_COST = 250
+QUADCOPTER = PayloadDefinition(
+    id=QUADCOPTER_ID,
+    name="Small Quadcopter",
+    mass_kg=0.25,
+    cost=250,
+    capabilities=("powered_flight", "radio_control"),
+)
 
 
 def ensure_tutorial_catalog() -> None:
-    """Register the small off-the-shelf quadcopter and refresh compatibility views."""
+    """Teach the shared catalog to resolve the tutorial aircraft by ID.
 
-    try:
-        payload = CATALOG.payload(QUADCOPTER_ID)
-    except KeyError:
-        payload = PayloadDefinition(
-            id=QUADCOPTER_ID,
-            name=QUADCOPTER_NAME,
-            mass_kg=QUADCOPTER_MASS_KG,
-            cost=QUADCOPTER_COST,
-            capabilities=("powered_flight", "radio_control"),
-        )
-        CATALOG._register(payload)  # Central catalog's internal builder API.
+    The quadcopter is a vehicle used by this introductory mission rather than a
+    member of the existing generic payload enumeration. Keeping it as an explicit
+    lookup extension avoids silently changing every payload list and compatibility
+    dictionary in the game.
+    """
 
-    # These dictionaries are materialized when catalog.py is imported. Keep them
-    # synchronized when a tutorial component is registered afterward.
-    from balloon_frontier import catalog as catalog_module
+    if getattr(CATALOG, "_tutorial_quadcopter_installed", False):
+        return
 
-    catalog_module.PAYLOADS.setdefault(
-        QUADCOPTER_ID,
-        (payload.name, payload.mass_kg, payload.has_valve),
-    )
-    catalog_module.DISCORD_PAYLOAD_OPTIONS.setdefault(
-        QUADCOPTER_ID,
-        (payload.name, payload.mass_kg, payload.cost, payload.has_valve),
-    )
+    original_payload = CATALOG.payload
+
+    def payload_with_tutorial_component(self, id_or_name: str):
+        if id_or_name == QUADCOPTER_ID or id_or_name.lower() == QUADCOPTER.name.lower():
+            return QUADCOPTER
+        return original_payload(id_or_name)
+
+    CATALOG.payload = MethodType(payload_with_tutorial_component, CATALOG)
+    CATALOG._tutorial_quadcopter_installed = True
 
 
 def ensure_discord_tutorial_options() -> None:
@@ -48,7 +48,7 @@ def ensure_discord_tutorial_options() -> None:
 
     PAYLOAD_OPTIONS.setdefault(
         QUADCOPTER_ID,
-        (QUADCOPTER_NAME, QUADCOPTER_MASS_KG, QUADCOPTER_COST, False),
+        (QUADCOPTER.name, QUADCOPTER.mass_kg, QUADCOPTER.cost, QUADCOPTER.has_valve),
     )
 
 
