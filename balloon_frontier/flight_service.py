@@ -13,6 +13,7 @@ from balloon_frontier.launch_result import (
     LaunchRequest,
     MissionAssignment,
     MissionResult,
+    TelemetryPoint,
     telemetry_list_to_points,
 )
 from balloon_frontier.medal_tier import get_medal_emoji, medal_tier_to_string
@@ -25,6 +26,7 @@ from balloon_frontier.mission_selection import (
 from balloon_frontier.progression import PlayerRegistryRepository
 from balloon_frontier.reward_service import RewardService
 from balloon_frontier.simulation import (
+    EnvelopeConfig,
     SimulationState,
     run_simulation as run_full_simulation,
 )
