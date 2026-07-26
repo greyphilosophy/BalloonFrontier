@@ -85,19 +85,23 @@ class SessionAwareFlightService:
         )
         self.last_plan = plan
         plan.session.launch()
+        atmosphere_repository = None
+        weather_override = None
         try:
             is_tutorial = plan.session.mode is GameMode.TUTORIAL
-            weather_override = None
             if player_id:
                 from .atmosphere_profile import atmosphere_profiles
 
-                weather_override = atmosphere_profiles.consume_locked_weather(str(player_id))
+                atmosphere_repository = atmosphere_profiles
+                weather_override = atmosphere_repository.get_locked_weather(str(player_id))
             outcome = _PlannedFlightService(
                 self.service,
                 plan,
                 apply_rewards=not is_tutorial,
                 weather_override=weather_override,
             ).run(request)
+            if weather_override is not None and atmosphere_repository is not None:
+                atmosphere_repository.consume_locked_weather(str(player_id))
             if is_tutorial:
                 from .tutorial import evaluate_tutorial_outcome
 
