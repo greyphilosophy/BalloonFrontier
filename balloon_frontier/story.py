@@ -115,6 +115,13 @@ def _controlled_recovery(outcome: FlightOutcome) -> bool:
     )
 
 
+def _launch_site_id(outcome: FlightOutcome) -> str:
+    """Resolve the launch site while tolerating lightweight legacy test doubles."""
+
+    launch_request = getattr(outcome.result, "launch_request", None)
+    return str(getattr(launch_request, "launch_site_id", "field"))
+
+
 def add_story_results(outcome: FlightOutcome, player_id: str | None = None) -> FlightOutcome:
     """Add chapter bonuses and save sounding data from successful weather missions."""
 
@@ -157,7 +164,7 @@ def add_story_results(outcome: FlightOutcome, player_id: str | None = None) -> F
     )
     if sounding and sounding.completed and player_id and outcome.weather is not None:
         provider = StandardAtmosphereProvider(
-            site_id=outcome.result.launch_request.launch_site_id,
+            site_id=_launch_site_id(outcome),
             wind_enabled=True,
         )
         profile = profile_from_telemetry(
