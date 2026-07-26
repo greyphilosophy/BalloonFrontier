@@ -61,6 +61,19 @@ def test_prediction_rejects_profile_without_measured_wind():
         predict_landing_offset(profile, target_altitude_m=1000.0)
 
 
+def test_prediction_rejects_target_above_measured_ceiling():
+    profile = AtmosphereProfile(
+        layers=(
+            AtmosphereLayer(0.0, 288.0, 101325.0),
+            AtmosphereLayer(1000.0, 280.0, 90000.0),
+        ),
+        weather=_weather(),
+        wind_measurements_available=True,
+    )
+    with pytest.raises(ValueError, match="highest measured atmosphere layer"):
+        predict_landing_offset(profile, target_altitude_m=1000.1)
+
+
 @pytest.mark.parametrize(
     "kwargs, message",
     [
@@ -72,7 +85,10 @@ def test_prediction_rejects_profile_without_measured_wind():
 )
 def test_prediction_rejects_invalid_inputs(kwargs, message):
     profile = AtmosphereProfile(
-        layers=(AtmosphereLayer(0.0, 288.0, 101325.0),),
+        layers=(
+            AtmosphereLayer(0.0, 288.0, 101325.0),
+            AtmosphereLayer(1000.0, 280.0, 90000.0),
+        ),
         weather=_weather(),
         wind_measurements_available=True,
     )
