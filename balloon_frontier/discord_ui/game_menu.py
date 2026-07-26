@@ -34,13 +34,13 @@ class GameModeView(discord.ui.View):
         player_id: str | int,
         channel_kind: str,
         service,
-        on_started: Callable[[str], None] | None = None,
+        on_finished: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(timeout=300)
         self.player_id = str(player_id)
         self.channel_kind = channel_kind
         self.service = service
-        self.on_started = on_started
+        self.on_finished = on_finished
         self._msg = None
         for mode in GameMode:
             self.add_item(_ModeButton(mode, self))
@@ -54,11 +54,10 @@ class GameModeView(discord.ui.View):
             mode=mode,
             ui="discord",
             channel_kind=self.channel_kind,
+            on_finished=self.on_finished,
         )
         configurator = BalloonConfigurator(service=wrapped)
         configurator._msg = interaction.message
-        if self.on_started is not None:
-            self.on_started(self.player_id)
         await interaction.response.edit_message(
             content=configurator._step_content(),
             view=configurator,
