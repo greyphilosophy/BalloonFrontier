@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from math import atan2, degrees, hypot
 from statistics import pstdev
 
 import discord
 
 from balloon_frontier.atmosphere import StandardAtmosphereProvider
-from balloon_frontier.atmosphere_profile import atmosphere_profiles, profile_from_telemetry
+from balloon_frontier.atmosphere_profile import (
+    AtmosphereProfile,
+    atmosphere_profiles,
+    profile_from_telemetry,
+)
 from balloon_frontier.flight_service import FlightOutcome
 from balloon_frontier.launch_result import MissionResult
 from balloon_frontier.progression import PlayerRegistry
@@ -76,6 +81,41 @@ def current_story_chapter(player_id: str | None = None) -> StoryChapter:
     return SUMMER_HOBBYIST_CHAPTER
 
 
+def _wind_label(x_mps: float, y_mps: float) -> str:
+    speed = hypot(x_mps, y_mps)
+    if speed < 0.05:
+        return "calm"
+    bearing = (degrees(atan2(x_mps, y_mps)) + 360.0) % 360.0
+    directions = ("N", "NE", "E", "SE", "S", "SW", "W", "NW")
+    direction = directions[int((bearing + 22.5) // 45.0) % 8]
+    return f"{speed:.1f} {direction}"
+
+
+def format_atmosphere_profile(profile: AtmosphereProfile, *, max_layers: int = 8) -> str:
+    """Format a compact Discord-safe sounding table."""
+
+    layers = profile.layers
+    if not layers:
+        return "📡 **Recorded atmosphere**\nNo measured layers are available."
+    selected = layers[:max(1, max_layers)]
+    lines = [
+        "📡 **Recorded atmosphere**",
+        "` Alt km | Temp °C | Press kPa | Wind m/s `",
+    ]
+    for layer in selected:
+        lines.append(
+            f"` {layer.altitude_m / 1000:6.1f} |"
+            f" {layer.temperature_k - 273.15:7.1f} |"
+            f" {layer.pressure_pa / 1000:9.1f} |"
+            f" {_wind_label(layer.wind_x_mps, layer.wind_y_mps):>8} `"
+        )
+    if len(layers) > len(selected):
+        lines.append(f"*{len(layers) - len(selected)} higher layers omitted.*")
+    if not profile.wind_measured:
+        lines.append("*Legacy profile: launch-site wind will be generated during replay.*")
+    return "\n".join(lines)
+
+
 def story_intro(player_id: str | None = None, *, atmosphere_locked: bool = False) -> str:
     chapter = current_story_chapter(player_id)
     bonuses = "\n".join(f"• {item}" for item in chapter.bonus_challenges)
@@ -92,9 +132,9 @@ def story_intro(player_id: str | None = None, *, atmosphere_locked: bool = False
         future = "\n".join(f"• {item}" for item in chapter.future_challenges)
         text += f"\n\n**Future cinematic challenges**\n{future}"
     if atmosphere_locked:
-        text += "\n\n🔒 The recorded atmosphere is locked for this launch."
+        text += "\n\n🔒 **Measured conditions selected.** This recorded atmosphere will drive the next launch."
     elif player_id and atmosphere_profiles.get(str(player_id)) is not None:
-        text += "\n\n📡 A recorded atmosphere profile is available to lock for one future flight."
+        text += "\n\n📡 A recorded atmosphere profile is available below."
     return text
 
 
@@ -155,11 +195,7 @@ def add_story_results(outcome: FlightOutcome, player_id: str | None = None) -> F
         return replace(outcome, mission_results=existing + bonuses)
 
     sounding = next(
-        (
-            item
-            for item in existing
-            if item.mission_id == ATMOSPHERIC_RIVER_MISSION_ID
-        ),
+        (item for item in existing if item.mission_id == ATMOSPHERIC_RIVER_MISSION_ID),
         None,
     )
     if sounding and sounding.completed and player_id and outcome.weather is not None:
@@ -177,15 +213,12 @@ def add_story_results(outcome: FlightOutcome, player_id: str | None = None) -> F
             mission_id="bonus_atmosphere_profile",
             completed=bool(profile.layers),
             reward=0,
-            explanation=(
-                f"Recorded {len(profile.layers)} atmospheric layers for future launches."
-            ),
+            explanation=f"Recorded {len(profile.layers)} atmospheric layers for future launches.",
         )
         return replace(outcome, mission_results=existing + (recorded,))
     return outcome
 
 
-# Compatibility name retained for callers added by the first Story chapter.
 def add_story_bonus_results(outcome: FlightOutcome) -> FlightOutcome:
     return add_story_results(outcome)
 
@@ -193,7 +226,7 @@ def add_story_bonus_results(outcome: FlightOutcome) -> FlightOutcome:
 class _LockAtmosphereButton(discord.ui.Button):
     def __init__(self, parent: "StoryConfiguratorMixin") -> None:
         super().__init__(
-            label="Lock Recorded Atmosphere",
+            label="Use Recorded Atmosphere",
             style=discord.ButtonStyle.success,
             custom_id="story_lock_recorded_atmosphere",
         )
@@ -210,7 +243,7 @@ class _LockAtmosphereButton(discord.ui.Button):
 
 
 class StoryConfiguratorMixin:
-    """Add the active Story briefing and atmosphere-lock control."""
+    """Add the active Story briefing and recorded-atmosphere controls."""
 
     def __init__(self, *args, **kwargs):
         self._atmosphere_locked = False
@@ -218,11 +251,12 @@ class StoryConfiguratorMixin:
 
     def _step_content(self) -> str:
         player_id = getattr(self._service, "story_player_id", None)
-        return (
-            story_intro(player_id, atmosphere_locked=self._atmosphere_locked)
-            + "\n\n"
-            + super()._step_content()
-        )
+        text = story_intro(player_id, atmosphere_locked=self._atmosphere_locked)
+        if player_id:
+            profile = atmosphere_profiles.get(str(player_id))
+            if profile is not None:
+                text += "\n\n" + format_atmosphere_profile(profile)
+        return text + "\n\n" + super()._step_content()
 
     def build_buttons(self):
         super().build_buttons()
