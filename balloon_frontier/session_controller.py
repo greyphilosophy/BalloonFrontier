@@ -17,8 +17,6 @@ from .missions import MISSIONS
 
 @dataclass(frozen=True)
 class ModePolicy:
-    """UI-agnostic behavior associated with one game mode."""
-
     mode: GameMode
     requires_missions: bool
     uses_progression: bool
@@ -28,39 +26,20 @@ class ModePolicy:
 
 
 _POLICIES = {
-    GameMode.TUTORIAL: ModePolicy(
-        GameMode.TUTORIAL, True, False, False, 1,
-        "Guided first flight with a controlled introductory mission.",
-    ),
-    GameMode.STORY: ModePolicy(
-        GameMode.STORY, True, True, False, 1,
-        "Narrative play with a chapter-specific mission and progression.",
-    ),
-    GameMode.SCENARIO: ModePolicy(
-        GameMode.SCENARIO, True, False, False, 3,
-        "A deterministic themed mission set without story progression.",
-    ),
-    GameMode.FREE_PLAY: ModePolicy(
-        GameMode.FREE_PLAY, False, False, True, 0,
-        "Unrestricted sandbox flight with no mission commitment.",
-    ),
+    GameMode.TUTORIAL: ModePolicy(GameMode.TUTORIAL, True, False, False, 1, "Guided first flight with a controlled introductory mission."),
+    GameMode.STORY: ModePolicy(GameMode.STORY, True, True, False, 1, "Narrative play with a chapter-specific mission and progression."),
+    GameMode.SCENARIO: ModePolicy(GameMode.SCENARIO, True, False, False, 3, "A deterministic themed mission set without story progression."),
+    GameMode.FREE_PLAY: ModePolicy(GameMode.FREE_PLAY, False, False, True, 0, "Unrestricted sandbox flight with no mission commitment."),
 }
 
 
 def get_mode_policy(mode: GameMode | str | int) -> ModePolicy:
-    """Return the explicit policy for a mode selection."""
-
     parsed = mode if isinstance(mode, GameMode) else select_game_mode(mode)
     return _POLICIES[parsed]
 
 
 def _stable_seed(mode: GameMode, configuration: Mapping[str, Any], context: Mapping[str, Any]) -> int:
-    payload = json.dumps(
-        {"mode": mode.value, "configuration": configuration, "context": context},
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    )
+    payload = json.dumps({"mode": mode.value, "configuration": configuration, "context": context}, sort_keys=True, separators=(",", ":"), default=str)
     return int.from_bytes(hashlib.sha256(payload.encode("utf-8")).digest()[:4], "big")
 
 
@@ -74,17 +53,11 @@ def assign_missions_for_mode(
     mode: GameMode | str | int,
     configuration: Mapping[str, Any],
     *,
+    player_id: str | int | None = None,
     context: Mapping[str, Any] | None = None,
     mission_dir: str | None = None,
 ) -> tuple[str, ...]:
-    """Assign mode-appropriate missions deterministically.
-
-    Tutorial prefers ``first_flight`` when it matches the selected setup. Story
-    always assigns its current chapter, ``edge_of_space``, so invalid player
-    choices fail that chapter naturally instead of silently selecting another
-    mission. Scenario delegates to the generic deterministic selector, and Free
-    Play intentionally returns no missions.
-    """
+    """Assign the active chapter without substituting easier missions."""
 
     policy = get_mode_policy(mode)
     if not policy.requires_missions:
@@ -95,8 +68,12 @@ def assign_missions_for_mode(
     site = configuration.get("site") or configuration.get("launch_site")
     ensure_missions_loaded(mission_dir)
 
-    if policy.mode is GameMode.STORY and "edge_of_space" in MISSIONS:
-        return ("edge_of_space",)
+    if policy.mode is GameMode.STORY:
+        from .story import story_mission_for_player
+
+        mission_id = story_mission_for_player(str(player_id) if player_id is not None else None)
+        if mission_id in MISSIONS:
+            return (mission_id,)
 
     if policy.mode is GameMode.TUTORIAL and "first_flight" in MISSIONS:
         mission = MISSIONS["first_flight"]
@@ -104,21 +81,17 @@ def assign_missions_for_mode(
             return ("first_flight",)
 
     seed = _stable_seed(policy.mode, configuration, context)
-    return tuple(
-        select_missions(
-            mission_count=policy.mission_count,
-            seed=seed,
-            selected_payloads=payloads,
-            launch_site=site,
-            mission_dir=mission_dir,
-        )
-    )
+    return tuple(select_missions(
+        mission_count=policy.mission_count,
+        seed=seed,
+        selected_payloads=payloads,
+        launch_site=site,
+        mission_dir=mission_dir,
+    ))
 
 
 @dataclass(frozen=True)
 class SessionPlan:
-    """A configured session plus mode policy and deterministic missions."""
-
     session: GameSession
     policy: ModePolicy
     missions: tuple[str, ...]
@@ -133,8 +106,6 @@ def plan_session(
     context: Mapping[str, Any] | None = None,
     mission_dir: str | None = None,
 ) -> SessionPlan:
-    """Create and ready a session using shared policy for every UI."""
-
     policy = get_mode_policy(mode)
     session = GameSession(mode=policy.mode, player_id=player_id)
     session.set_configuration(configuration)
@@ -142,6 +113,7 @@ def plan_session(
     missions = assign_missions_for_mode(
         policy.mode,
         session.configuration,
+        player_id=player_id,
         context=frozen_context,
         mission_dir=mission_dir,
     )
@@ -150,8 +122,6 @@ def plan_session(
 
 
 class SessionRegistry:
-    """Thread-safe per-player session storage used by Discord and other adapters."""
-
     def __init__(self) -> None:
         self._sessions: dict[str, SessionPlan] = {}
         self._lock = RLock()
