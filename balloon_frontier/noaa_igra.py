@@ -30,11 +30,12 @@ class IgraStation:
     def distance_km_to(self, latitude_deg: float, longitude_deg: float) -> float:
         if self.is_mobile:
             return math.inf
+        latitude, longitude = _validated_coordinates(latitude_deg, longitude_deg)
         return _haversine_km(
             self.latitude_deg,
             self.longitude_deg,
-            float(latitude_deg),
-            float(longitude_deg),
+            latitude,
+            longitude,
         )
 
 
@@ -85,6 +86,7 @@ def nearest_stations(
 ) -> tuple[IgraStation, ...]:
     """Return nearest fixed stations, optionally filtered by record year."""
 
+    latitude, longitude = _validated_coordinates(latitude_deg, longitude_deg)
     if limit <= 0:
         return ()
     candidates = [
@@ -97,7 +99,7 @@ def nearest_stations(
         )
     ]
     candidates.sort(
-        key=lambda station: station.distance_km_to(latitude_deg, longitude_deg)
+        key=lambda station: station.distance_km_to(latitude, longitude)
     )
     return tuple(candidates[:limit])
 
@@ -120,6 +122,16 @@ def _validated_station_id(station_id: str) -> str:
     if len(identifier) != 11 or not identifier.isalnum():
         raise ValueError("IGRA station_id must contain exactly 11 letters or digits")
     return identifier
+
+
+def _validated_coordinates(latitude_deg: float, longitude_deg: float) -> tuple[float, float]:
+    latitude = float(latitude_deg)
+    longitude = float(longitude_deg)
+    if not math.isfinite(latitude) or not -90.0 <= latitude <= 90.0:
+        raise ValueError("latitude_deg must be finite and between -90 and 90")
+    if not math.isfinite(longitude) or not -180.0 <= longitude <= 180.0:
+        raise ValueError("longitude_deg must be finite and between -180 and 180")
+    return latitude, longitude
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
