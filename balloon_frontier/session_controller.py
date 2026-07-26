@@ -33,8 +33,8 @@ _POLICIES = {
         "Guided first flight with a controlled introductory mission.",
     ),
     GameMode.STORY: ModePolicy(
-        GameMode.STORY, True, True, False, 2,
-        "Narrative play with deterministic missions and progression.",
+        GameMode.STORY, True, True, False, 1,
+        "Narrative play with a chapter-specific mission and progression.",
     ),
     GameMode.SCENARIO: ModePolicy(
         GameMode.SCENARIO, True, False, False, 3,
@@ -64,6 +64,12 @@ def _stable_seed(mode: GameMode, configuration: Mapping[str, Any], context: Mapp
     return int.from_bytes(hashlib.sha256(payload.encode("utf-8")).digest()[:4], "big")
 
 
+def _mission_matches_configuration(mission, payloads: list[str], site: str | None) -> bool:
+    required = set(mission.required_payloads or ())
+    site_ok = mission.launch_site is None or site is None or mission.launch_site == site
+    return required.issubset(set(payloads)) and site_ok
+
+
 def assign_missions_for_mode(
     mode: GameMode | str | int,
     configuration: Mapping[str, Any],
@@ -73,9 +79,11 @@ def assign_missions_for_mode(
 ) -> tuple[str, ...]:
     """Assign mode-appropriate missions deterministically.
 
-    Tutorial prefers ``first_flight`` when it is available and compatible.
-    Story and Scenario delegate filtering to the existing mission selector.
-    Free Play intentionally returns no missions.
+    Tutorial prefers ``first_flight`` when it matches the selected setup. Story
+    always assigns its current chapter, ``edge_of_space``, so invalid player
+    choices fail that chapter naturally instead of silently selecting another
+    mission. Scenario delegates to the generic deterministic selector, and Free
+    Play intentionally returns no missions.
     """
 
     policy = get_mode_policy(mode)
@@ -87,11 +95,12 @@ def assign_missions_for_mode(
     site = configuration.get("site") or configuration.get("launch_site")
     ensure_missions_loaded(mission_dir)
 
+    if policy.mode is GameMode.STORY and "edge_of_space" in MISSIONS:
+        return ("edge_of_space",)
+
     if policy.mode is GameMode.TUTORIAL and "first_flight" in MISSIONS:
         mission = MISSIONS["first_flight"]
-        required = set(mission.required_payloads or ())
-        site_ok = mission.launch_site is None or site is None or mission.launch_site == site
-        if required.issubset(set(payloads)) and site_ok:
+        if _mission_matches_configuration(mission, payloads, site):
             return ("first_flight",)
 
     seed = _stable_seed(policy.mode, configuration, context)
