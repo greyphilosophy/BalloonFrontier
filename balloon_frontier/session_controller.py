@@ -79,9 +79,11 @@ def assign_missions_for_mode(
 ) -> tuple[str, ...]:
     """Assign mode-appropriate missions deterministically.
 
-    Tutorial prefers ``first_flight``. Story currently prefers the first playable
-    chapter, ``edge_of_space``. Scenario delegates to the generic deterministic
-    selector, and Free Play intentionally returns no missions.
+    Tutorial prefers ``first_flight`` when it matches the selected setup. Story
+    always assigns its current chapter, ``edge_of_space``, so invalid player
+    choices fail that chapter naturally instead of silently selecting another
+    mission. Scenario delegates to the generic deterministic selector, and Free
+    Play intentionally returns no missions.
     """
 
     policy = get_mode_policy(mode)
@@ -93,15 +95,13 @@ def assign_missions_for_mode(
     site = configuration.get("site") or configuration.get("launch_site")
     ensure_missions_loaded(mission_dir)
 
-    preferred_by_mode = {
-        GameMode.TUTORIAL: "first_flight",
-        GameMode.STORY: "edge_of_space",
-    }
-    preferred_id = preferred_by_mode.get(policy.mode)
-    if preferred_id and preferred_id in MISSIONS:
-        mission = MISSIONS[preferred_id]
+    if policy.mode is GameMode.STORY and "edge_of_space" in MISSIONS:
+        return ("edge_of_space",)
+
+    if policy.mode is GameMode.TUTORIAL and "first_flight" in MISSIONS:
+        mission = MISSIONS["first_flight"]
         if _mission_matches_configuration(mission, payloads, site):
-            return (preferred_id,)
+            return ("first_flight",)
 
     seed = _stable_seed(policy.mode, configuration, context)
     return tuple(
