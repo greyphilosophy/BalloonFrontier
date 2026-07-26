@@ -54,10 +54,12 @@ def test_mode_menu_lists_every_mode_and_restricts_interactions():
 def test_selecting_mode_replaces_menu_with_existing_configurator(monkeypatch):
     monkeypatch.setattr(game_menu, "BalloonConfigurator", FakeConfigurator)
     interaction = FakeInteraction()
+    finished = []
     view = game_menu.GameModeView(
         player_id="player",
         channel_kind="guild",
         service=object(),
+        on_finished=lambda: finished.append(True),
     )
 
     asyncio.run(view.select_mode(interaction, GameMode.STORY))
@@ -68,6 +70,8 @@ def test_selecting_mode_replaces_menu_with_existing_configurator(monkeypatch):
     assert configurator.service.mode is GameMode.STORY
     assert configurator.service.ui == "discord"
     assert configurator.service.channel_kind == "guild"
+    configurator.service.on_finished()
+    assert finished == [True]
 
 
 def test_game_menu_prompt_explains_menu_only_flow():
@@ -111,3 +115,6 @@ def test_send_game_menu_suppresses_duplicates_and_play_can_reset(monkeypatch):
     assert duplicate is None
     assert reset is not None
     assert len(destination.sent) == 2
+
+    reset.view.on_finished()
+    assert "player" not in discord_bot._engaged_players
