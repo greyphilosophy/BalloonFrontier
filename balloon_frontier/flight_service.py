@@ -6,7 +6,11 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
-from balloon_frontier.atmosphere import AtmosphereProvider, use_atmosphere
+from balloon_frontier.atmosphere import (
+    AtmosphereProvider,
+    current_atmosphere_provider,
+    use_atmosphere,
+)
 from balloon_frontier.flight_score import calculate_flight_score
 from balloon_frontier.launch_result import (
     FlightResult,
@@ -100,7 +104,6 @@ class FlightService:
     def prepare(self, launch_request: LaunchRequest) -> LaunchPreparation:
         req = launch_request
         wind_site_id = req.launch_site_id
-        sim_state = req.to_simulation_state()
         payload_keys = list(req.payload_ids) if req.payload_ids else []
         weather_seed = seed_from_game_state(
             gas=req.gas_id,
@@ -119,6 +122,13 @@ class FlightService:
             weather_seed,
             scenario=_scenario_for_weather(weather),
         )
+        provider = (
+            current_atmosphere_provider()
+            or self.atmosphere_provider
+            or weather_column
+        )
+        with use_atmosphere(provider):
+            sim_state = req.to_simulation_state()
 
         payload_count = len(payload_keys) if payload_keys else 0
         mission_count = choose_mission_count(payload_count)
@@ -137,21 +147,22 @@ class FlightService:
             mission_assignment=mission_assignment,
             wind_site_id=wind_site_id,
             weather_impacts=weather_impacts,
-            atmosphere_provider=weather_column,
+            atmosphere_provider=provider,
         )
 
     def run(self, launch_request: LaunchRequest) -> FlightOutcome:
         """Execute the full flight pipeline under the selected atmosphere."""
 
         try:
-            return self._run_active(launch_request)
+            with use_atmosphere(self.atmosphere_provider):
+                return self._run_active(launch_request)
         except Exception as error:
             logger.exception("Flight simulation failed")
             raise FlightServiceError(f"Flight simulation failed: {error}") from error
 
     def _run_active(self, launch_request: LaunchRequest) -> FlightOutcome:
         prep = self.prepare(launch_request)
-        provider = self.atmosphere_provider or prep.atmosphere_provider
+        provider = prep.atmosphere_provider
         with use_atmosphere(provider):
             return self._run_prepared(launch_request, prep, provider)
 
