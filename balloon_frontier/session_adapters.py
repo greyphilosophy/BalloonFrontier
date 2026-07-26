@@ -23,6 +23,7 @@ def configuration_from_launch_request(request: Any) -> dict[str, Any]:
         "gas": request.gas_id,
         "envelope": request.envelope_id,
         "balloon_size": getattr(request, "balloon_size", None),
+        "balloon_count": getattr(request, "balloon_count", 1),
         "payloads": tuple(request.payload_ids),
         "site": request.launch_site_id,
         "fill_mode": request.fill_mode.value,
@@ -113,6 +114,10 @@ class SessionAwareFlightService:
                         mission_results=outcome.mission_results,
                     )
                     outcome = replace(outcome, mission_results=final_results)
+            elif plan.session.mode is GameMode.STORY:
+                from .story import add_story_bonus_results
+
+                outcome = add_story_bonus_results(outcome)
             plan.session.complete(outcome)
             return outcome
         except Exception:
@@ -129,6 +134,7 @@ def configuration_from_discord_state(state: Mapping[str, Any]) -> dict[str, Any]
         "gas": state.get("gas"),
         "envelope": state.get("envelope"),
         "balloon_size": state.get("balloon_size"),
+        "balloon_count": state.get("balloon_count", 1),
         "payloads": tuple(state.get("payloads") or ()),
         "site": state.get("site"),
         "fill_mode": state.get("fill_mode", "auto"),
