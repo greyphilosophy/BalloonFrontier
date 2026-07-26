@@ -6,10 +6,7 @@ from collections.abc import Callable
 
 import discord
 
-from balloon_frontier.balloon_cluster import (
-    BalloonClusterConfiguratorMixin,
-    BalloonClusterFlightService,
-)
+from balloon_frontier.balloon_cluster import BalloonClusterConfiguratorMixin, BalloonClusterFlightService
 from balloon_frontier.game_modes import GameMode
 from balloon_frontier.session_adapters import SessionAwareFlightService
 from balloon_frontier.discord_ui.configurator import BalloonConfigurator
@@ -17,11 +14,7 @@ from balloon_frontier.discord_ui.configurator import BalloonConfigurator
 
 class _ModeButton(discord.ui.Button):
     def __init__(self, mode: GameMode, parent: "GameModeView") -> None:
-        super().__init__(
-            label=mode.label,
-            style=discord.ButtonStyle.primary,
-            custom_id=f"game_mode_{mode.value}",
-        )
+        super().__init__(label=mode.label, style=discord.ButtonStyle.primary, custom_id=f"game_mode_{mode.value}")
         self.mode = mode
         self.parent_view = parent
 
@@ -30,16 +23,7 @@ class _ModeButton(discord.ui.Button):
 
 
 class GameModeView(discord.ui.View):
-    """First screen shown after any message from an idle player."""
-
-    def __init__(
-        self,
-        *,
-        player_id: str | int,
-        channel_kind: str,
-        service,
-        on_finished: Callable[[], None] | None = None,
-    ) -> None:
+    def __init__(self, *, player_id: str | int, channel_kind: str, service, on_finished: Callable[[], None] | None = None) -> None:
         super().__init__(timeout=300)
         self.player_id = str(player_id)
         self.channel_kind = channel_kind
@@ -59,6 +43,7 @@ class GameModeView(discord.ui.View):
             ui="discord",
             channel_kind=self.channel_kind,
             on_finished=self.on_finished,
+            story_player_id=self.player_id,
         )
         wrapped = BalloonClusterFlightService(session_service)
 
@@ -66,9 +51,7 @@ class GameModeView(discord.ui.View):
             hasattr(BalloonConfigurator, name)
             for name in ("build_buttons", "_compute_gas_mass", "_build_config_text")
         )
-        configurator_mixins = (
-            [BalloonClusterConfiguratorMixin] if supports_wizard_mixins else []
-        )
+        configurator_mixins = [BalloonClusterConfiguratorMixin] if supports_wizard_mixins else []
         if mode is GameMode.TUTORIAL:
             from balloon_frontier.tutorial import TutorialConfiguratorMixin
             from balloon_frontier.tutorial_catalog import ensure_discord_tutorial_options
@@ -92,10 +75,7 @@ class GameModeView(discord.ui.View):
 
         configurator = configurator_type(service=wrapped)
         configurator._msg = interaction.message
-        await interaction.response.edit_message(
-            content=configurator._step_content(),
-            view=configurator,
-        )
+        await interaction.response.edit_message(content=configurator._step_content(), view=configurator)
 
 
 def game_mode_prompt() -> str:

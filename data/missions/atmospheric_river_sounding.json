@@ -1,0 +1,13 @@
+{
+  "id": "atmospheric_river_sounding",
+  "title": "Atmospheric River Sounding",
+  "description": "A meteorology professor invites you to join a series of weather-balloon launches tracking an approaching atmospheric river. Reach the upper atmosphere, return the instruments, and produce a reusable vertical profile.",
+  "launch_site": "field",
+  "budget": 2500,
+  "required_payloads": ["weather_sensor", "barometer", "thermometer"],
+  "objectives": [
+    {"type": "reach_altitude", "params": {"minimum_m": 18000}, "description": "Sample through the troposphere."},
+    {"type": "recover_data", "params": {"required": true}, "description": "Recover the recorded sounding."}
+  ],
+  "difficulty": 2
+}

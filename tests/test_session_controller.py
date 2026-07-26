@@ -15,7 +15,6 @@ class StubMission:
 
 def test_every_mode_has_explicit_distinct_policy():
     policies = {mode: controller.get_mode_policy(mode) for mode in GameMode}
-
     assert policies[GameMode.TUTORIAL].mission_count == 1
     assert policies[GameMode.STORY].uses_progression
     assert policies[GameMode.STORY].mission_count == 1
@@ -35,17 +34,16 @@ def test_free_play_assigns_no_missions(monkeypatch):
 def test_tutorial_prefers_compatible_first_flight(monkeypatch):
     monkeypatch.setattr(controller, "ensure_missions_loaded", lambda mission_dir=None: None)
     monkeypatch.setitem(controller.MISSIONS, "first_flight", StubMission())
-
     missions = controller.assign_missions_for_mode(
         GameMode.TUTORIAL,
         {"payloads": ["none"], "site": "field"},
     )
-
     assert missions == ("first_flight",)
 
 
-def test_story_and_scenario_assignment_is_deterministic(monkeypatch):
+def test_story_uses_chapter_and_scenario_remains_deterministic(monkeypatch):
     monkeypatch.setattr(controller, "ensure_missions_loaded", lambda mission_dir=None: None)
+    monkeypatch.setitem(controller.MISSIONS, "edge_of_space", StubMission())
     seen = []
 
     def fake_select_missions(**kwargs):
@@ -55,27 +53,26 @@ def test_story_and_scenario_assignment_is_deterministic(monkeypatch):
     monkeypatch.setattr(controller, "select_missions", fake_select_missions)
     configuration = {"gas": "helium", "payloads": ["camera"], "site": "field"}
 
-    first = controller.assign_missions_for_mode("story", configuration, context={"chapter": 2})
-    second = controller.assign_missions_for_mode("story", configuration, context={"chapter": 2})
-    scenario = controller.assign_missions_for_mode("scenario", configuration, context={"chapter": 2})
+    first = controller.assign_missions_for_mode("story", configuration)
+    second = controller.assign_missions_for_mode("story", configuration)
+    scenario_one = controller.assign_missions_for_mode("scenario", configuration, context={"chapter": 2})
+    scenario_two = controller.assign_missions_for_mode("scenario", configuration, context={"chapter": 2})
 
-    assert first == second
+    assert first == second == ("edge_of_space",)
+    assert scenario_one == scenario_two
     assert seen[0]["seed"] == seen[1]["seed"]
-    assert len(first) == 1
-    assert len(scenario) == 3
-    assert first != scenario
+    assert len(scenario_one) == 3
+    assert first != scenario_one
 
 
 def test_plan_session_is_ready_and_ui_agnostic(monkeypatch):
     monkeypatch.setattr(controller, "assign_missions_for_mode", lambda *args, **kwargs: ("m1",))
-
     plan = controller.plan_session(
         "tutorial",
         {"gas": "helium", "payloads": ["camera"], "site": "field"},
         player_id="player-1",
         context={"source": "cli"},
     )
-
     assert plan.session.state is SessionState.READY
     assert plan.session.player_id == "player-1"
     assert plan.missions == ("m1",)
@@ -89,10 +86,8 @@ def test_registry_isolates_players_and_cancels_interrupted_sessions(monkeypatch)
     registry = controller.SessionRegistry()
     alice = controller.plan_session("free play", {"gas": "helium"}, player_id="alice")
     bob = controller.plan_session("free play", {"gas": "hydrogen"}, player_id="bob")
-
     registry.put("alice", alice)
     registry.put("bob", bob)
-
     assert registry.get("alice") is alice
     assert registry.get("bob") is bob
     assert registry.cancel("alice")
@@ -104,10 +99,8 @@ def test_registry_isolates_players_and_cancels_interrupted_sessions(monkeypatch)
 def test_cli_and_discord_contexts_share_core_outcome(monkeypatch):
     monkeypatch.setattr(controller, "assign_missions_for_mode", lambda *args, **kwargs: ("shared",))
     configuration = {"gas": "helium", "payloads": ["camera"], "site": "field"}
-
     cli = controller.plan_session("scenario", configuration, player_id="p", context={"ui": "cli"})
     discord = controller.plan_session("scenario", configuration, player_id="p", context={"ui": "discord"})
-
     assert cli.session.mode is discord.session.mode
     assert cli.session.configuration == discord.session.configuration
     assert cli.policy == discord.policy
