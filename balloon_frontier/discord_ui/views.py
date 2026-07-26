@@ -13,10 +13,17 @@ import discord
 class _OptionButton(discord.ui.Button):
     """A numbered option button. Callback is a function on the bot client."""
 
-    def __init__(self, index: int, style_label: str, callback_factory):
+    def __init__(
+        self,
+        index: int,
+        style_label: str,
+        callback_factory,
+        *,
+        style: discord.ButtonStyle = discord.ButtonStyle.primary,
+    ):
         super().__init__(
             label=style_label,
-            style=discord.ButtonStyle.primary,
+            style=style,
             custom_id=f"cfg_option_{index}",
         )
         self._index = index
