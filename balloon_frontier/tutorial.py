@@ -73,3 +73,67 @@ def tutorial_result_summary(outcome) -> str:
 
 def is_tutorial_mode(mode) -> bool:
     return mode is GameMode.TUTORIAL or mode == GameMode.TUTORIAL.value
+
+
+class TutorialConfiguratorMixin:
+    """Guided constraints layered over the normal Discord configurator."""
+
+    def _step_content(self) -> str:
+        return tutorial_guidance(self._current_step) + "\n\n" + super()._step_content()
+
+    async def _on_envelope(self, interaction, index: int):
+        from balloon_frontier.discord_ui.configurator import ENVELOPE_OPTIONS
+        key = list(ENVELOPE_OPTIONS)[index - 1] if 0 < index <= len(ENVELOPE_OPTIONS) else None
+        if key != "latex":
+            await interaction.response.send_message(
+                "🎓 The training flight uses the standard latex weather balloon.",
+                ephemeral=True,
+            )
+            return
+        await super()._on_envelope(interaction, index)
+
+    async def _on_fill(self, interaction, index: int):
+        from balloon_frontier.discord_ui.configurator import FILL_MODES
+        key = list(FILL_MODES)[index - 1] if 0 < index <= len(FILL_MODES) else None
+        if key != "auto":
+            await interaction.response.send_message(
+                "🎓 Use Auto fill for the first flight; you can experiment with other fills later.",
+                ephemeral=True,
+            )
+            return
+        await super()._on_fill(interaction, index)
+
+    async def _on_payload(self, interaction, index: int):
+        from balloon_frontier.discord_ui.configurator import PAYLOAD_OPTIONS
+        key = list(PAYLOAD_OPTIONS)[index - 1] if 0 < index <= len(PAYLOAD_OPTIONS) else None
+        if key != "camera":
+            await interaction.response.send_message(
+                "🎓 Select the camera for this mission. Payload experiments come after training.",
+                ephemeral=True,
+            )
+            return
+        self.state["payloads"] = ["camera"]
+        self.state["gas_mass"] = self._compute_gas_mass()
+        self.build_buttons()
+        await self._send_step(interaction)
+
+    async def _on_site(self, interaction, index: int):
+        from balloon_frontier.discord_ui.configurator import SITE_OPTIONS
+        key = list(SITE_OPTIONS)[index - 1] if 0 < index <= len(SITE_OPTIONS) else None
+        if key != "field":
+            await interaction.response.send_message(
+                "🎓 Launch the training flight from the open field.",
+                ephemeral=True,
+            )
+            return
+        await super()._on_site(interaction, index)
+
+    async def _advance(self, interaction):
+        from balloon_frontier.discord_ui.configurator import _Step
+        if self._current_step == _Step.CHOOSE_PAYLOADS and "camera" not in self.state["payloads"]:
+            await interaction.response.send_message(
+                "🎓 Add the camera before continuing.",
+                ephemeral=True,
+            )
+            return
+        await super()._advance(interaction)
