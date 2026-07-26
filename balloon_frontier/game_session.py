@@ -47,11 +47,13 @@ class GameSession:
     mode: GameMode | str | int
     player_id: str | int | None = None
     session_id: str = field(default_factory=lambda: uuid4().hex)
-    state: SessionState = field(default=SessionState.CONFIGURING, init=False)
+    _state: SessionState = field(
+        default=SessionState.CONFIGURING, init=False, repr=False
+    )
     _configuration: Mapping[str, Any] = field(
         default_factory=lambda: MappingProxyType({}), init=False, repr=False
     )
-    launch_result: Any | None = field(default=None, init=False)
+    _launch_result: Any | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.mode, GameMode):
@@ -60,10 +62,22 @@ class GameSession:
             raise ValueError("session_id must be a non-empty string")
 
     @property
+    def state(self) -> SessionState:
+        """Return the current lifecycle state."""
+
+        return self._state
+
+    @property
     def configuration(self) -> Mapping[str, Any]:
         """Return the immutable session configuration."""
 
         return self._configuration
+
+    @property
+    def launch_result(self) -> Any | None:
+        """Return the result retained when the session completes."""
+
+        return self._launch_result
 
     @property
     def is_terminal(self) -> bool:
@@ -85,27 +99,27 @@ class GameSession:
         self._require_state(SessionState.CONFIGURING)
         if not self.configuration:
             raise ValueError("a session requires configuration before it is ready")
-        self.state = SessionState.READY
+        self._state = SessionState.READY
 
     def launch(self) -> None:
         """Advance a ready session into flight."""
 
         self._require_state(SessionState.READY)
-        self.state = SessionState.IN_FLIGHT
+        self._state = SessionState.IN_FLIGHT
 
     def complete(self, result: Any | None = None) -> None:
         """Complete an active flight and optionally retain its result."""
 
         self._require_state(SessionState.IN_FLIGHT)
-        self.launch_result = result
-        self.state = SessionState.COMPLETED
+        self._launch_result = result
+        self._state = SessionState.COMPLETED
 
     def cancel(self) -> None:
         """Cancel a session that has not already reached a terminal state."""
 
         if self.is_terminal:
             raise ValueError(f"cannot cancel a {self.state.value} session")
-        self.state = SessionState.CANCELLED
+        self._state = SessionState.CANCELLED
 
     def _require_state(self, expected: SessionState) -> None:
         if self.state is not expected:
