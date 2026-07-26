@@ -2,7 +2,8 @@
 
 Discord is a menu-driven way to access the same game flow as the CLI. Any
 ordinary message from an idle player opens the game-mode menu; subsequent play
-uses buttons, menus, and modals. ``/play`` remains an optional explicit reset.
+uses buttons, menus, and modals. ``/play`` remains the documented explicit reset.
+``/launch`` is retained only as an undocumented compatibility alias.
 """
 
 import logging
@@ -71,7 +72,7 @@ async def on_ready():
 @bot.event
 async def on_message(message):
     """Treat any ordinary first message as a request to start playing."""
-    if message.author.bot:
+    if getattr(message.author, "bot", False):
         return
 
     context = await bot.get_context(message)
@@ -95,6 +96,12 @@ async def cmd_play(ctx):
         channel_kind=_channel_kind(ctx.channel),
         reset=True,
     )
+
+
+@bot.command(name="launch", hidden=True)
+async def cmd_launch_compat(ctx):
+    """Deprecated compatibility alias for older clients; use /play."""
+    await cmd_play(ctx)
 
 
 @bot.command(name="physics")
