@@ -46,9 +46,19 @@ TUTORIAL_STEPS = {
 }
 
 
+RECOMMENDED_TUTORIAL_CHOICES = {
+    0: "helium",
+    1: "mylar",
+    2: "auto",
+    3: "quadcopter",
+    4: "field",
+}
+
+
 def tutorial_guidance(step: int) -> str:
     info = TUTORIAL_STEPS[step]
-    return f"🎓 **{info.title}**\n{info.prompt}"
+    hint = "\n\nGreen buttons show the suggested first route; other choices remain available." if step < 5 else ""
+    return f"🎓 **{info.title}**\n{info.prompt}{hint}"
 
 
 def is_tutorial_mode(mode) -> bool:
@@ -58,8 +68,8 @@ def is_tutorial_mode(mode) -> bool:
 def evaluate_tutorial_outcome(request, outcome: FlightOutcome) -> FlightOutcome:
     """Apply the UI tutorial's simple, deterministic success condition.
 
-    Choices are never blocked or explained in advance. The mission succeeds only
-    for the intentionally modest balloon-assisted aircraft configuration.
+    Choices are never blocked or explained in advance. The recommended route is
+    highlighted, while alternative successful configurations remain discoverable.
     """
 
     payloads = set(request.payload_ids)
@@ -107,7 +117,42 @@ def tutorial_result_summary(outcome: FlightOutcome) -> str:
 
 
 class TutorialConfiguratorMixin:
-    """Add tutorial prompts while leaving every normal UI choice available."""
+    """Add tutorial prompts and visually suggest a first successful route."""
 
     def _step_content(self) -> str:
         return tutorial_guidance(self._current_step) + "\n\n" + super()._step_content()
+
+    def build_buttons(self):
+        super().build_buttons()
+        if self._current_step not in RECOMMENDED_TUTORIAL_CHOICES:
+            return
+
+        import discord
+        from balloon_frontier.discord_ui.configurator import (
+            ENVELOPE_OPTIONS,
+            FILL_MODES,
+            GAS_OPTIONS,
+            PAYLOAD_OPTIONS,
+            SITE_OPTIONS,
+            _Step,
+        )
+        from balloon_frontier.discord_ui.views import _OptionButton
+
+        options_by_step = {
+            _Step.CHOOSE_GAS: GAS_OPTIONS,
+            _Step.CHOOSE_ENVELOPE: ENVELOPE_OPTIONS,
+            _Step.CHOOSE_FILL: FILL_MODES,
+            _Step.CHOOSE_PAYLOADS: PAYLOAD_OPTIONS,
+            _Step.CHOOSE_SITE: SITE_OPTIONS,
+        }
+        options = options_by_step[self._current_step]
+        recommended = RECOMMENDED_TUTORIAL_CHOICES[self._current_step]
+        try:
+            recommended_index = list(options).index(recommended) + 1
+        except ValueError:
+            return
+
+        for item in self.children:
+            if isinstance(item, _OptionButton) and item._index == recommended_index:
+                item.style = discord.ButtonStyle.success
+                break
