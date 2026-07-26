@@ -1,6 +1,6 @@
 import pytest
 
-from balloon_frontier.game_session import GameMode, list_game_modes, select_game_mode
+from balloon_frontier.game_modes import GameMode, list_game_modes, select_game_mode
 
 
 def test_list_game_modes_order():
