@@ -62,19 +62,33 @@ class GameModeView(discord.ui.View):
         )
         wrapped = BalloonClusterFlightService(session_service)
 
-        configurator_mixins = [BalloonClusterConfiguratorMixin]
+        # Apply wizard-specific mixins only when the configured class exposes the
+        # real configurator contract. Tests and alternate transports may replace
+        # BalloonConfigurator with a minimal stand-in that intentionally omits it.
+        supports_wizard_mixins = all(
+            hasattr(BalloonConfigurator, name)
+            for name in ("build_buttons", "_compute_gas_mass", "_build_config_text")
+        )
+        configurator_mixins = (
+            [BalloonClusterConfiguratorMixin] if supports_wizard_mixins else []
+        )
         if mode is GameMode.TUTORIAL:
             from balloon_frontier.tutorial import TutorialConfiguratorMixin
             from balloon_frontier.tutorial_catalog import ensure_discord_tutorial_options
 
             ensure_discord_tutorial_options()
-            configurator_mixins.insert(0, TutorialConfiguratorMixin)
+            if supports_wizard_mixins:
+                configurator_mixins.insert(0, TutorialConfiguratorMixin)
 
-        configurator_type = type(
-            "BalloonFrontierConfigurator",
-            tuple(configurator_mixins) + (BalloonConfigurator,),
-            {},
-        )
+        if configurator_mixins:
+            configurator_type = type(
+                "BalloonFrontierConfigurator",
+                tuple(configurator_mixins) + (BalloonConfigurator,),
+                {},
+            )
+        else:
+            configurator_type = BalloonConfigurator
+
         configurator = configurator_type(service=wrapped)
         configurator._msg = interaction.message
         await interaction.response.edit_message(
