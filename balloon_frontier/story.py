@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from statistics import pstdev
 
+import discord
+
 from balloon_frontier.atmosphere_profile import atmosphere_profiles, profile_from_telemetry
 from balloon_frontier.flight_service import FlightOutcome
 from balloon_frontier.launch_result import MissionResult
@@ -73,7 +75,7 @@ def current_story_chapter(player_id: str | None = None) -> StoryChapter:
     return SUMMER_HOBBYIST_CHAPTER
 
 
-def story_intro(player_id: str | None = None) -> str:
+def story_intro(player_id: str | None = None, *, atmosphere_locked: bool = False) -> str:
     chapter = current_story_chapter(player_id)
     bonuses = "\n".join(f"• {item}" for item in chapter.bonus_challenges)
     text = (
@@ -88,7 +90,9 @@ def story_intro(player_id: str | None = None) -> str:
     if chapter.future_challenges:
         future = "\n".join(f"• {item}" for item in chapter.future_challenges)
         text += f"\n\n**Future cinematic challenges**\n{future}"
-    if player_id and atmosphere_profiles.get(str(player_id)) is not None:
+    if atmosphere_locked:
+        text += "\n\n🔒 The recorded weather conditions are locked for this launch."
+    elif player_id and atmosphere_profiles.get(str(player_id)) is not None:
         text += "\n\n📡 A recorded atmosphere profile is available to lock for one future flight."
     return text
 
@@ -157,9 +161,37 @@ def add_story_bonus_results(outcome: FlightOutcome) -> FlightOutcome:
     return add_story_results(outcome)
 
 
+class _LockAtmosphereButton(discord.ui.Button):
+    def __init__(self, parent: "StoryConfiguratorMixin") -> None:
+        super().__init__(
+            label="Lock Recorded Atmosphere",
+            style=discord.ButtonStyle.success,
+            custom_id="story_lock_recorded_atmosphere",
+        )
+        self.parent_view = parent
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        player_id = getattr(self.parent_view._service, "story_player_id", None)
+        locked = bool(player_id) and atmosphere_profiles.lock_for_next_flight(str(player_id))
+        self.parent_view._atmosphere_locked = locked
+        self.parent_view.build_buttons()
+        await self.parent_view._send_step(interaction)
+
+
 class StoryConfiguratorMixin:
-    """Add the current player's Story chapter briefing above the configurator."""
+    """Add the active Story briefing and atmosphere-lock control."""
+
+    def __init__(self, *args, **kwargs):
+        self._atmosphere_locked = False
+        super().__init__(*args, **kwargs)
 
     def _step_content(self) -> str:
         player_id = getattr(self._service, "story_player_id", None)
-        return story_intro(player_id) + "\n\n" + super()._step_content()
+        return story_intro(player_id, atmosphere_locked=self._atmosphere_locked) + "\n\n" + super()._step_content()
+
+    def build_buttons(self):
+        super().build_buttons()
+        player_id = getattr(self._service, "story_player_id", None)
+        has_profile = bool(player_id) and atmosphere_profiles.get(str(player_id)) is not None
+        if self._current_step == 5 and has_profile and not self._atmosphere_locked:
+            self.add_item(_LockAtmosphereButton(self))
