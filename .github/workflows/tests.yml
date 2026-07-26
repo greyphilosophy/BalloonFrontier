@@ -31,7 +31,7 @@ jobs:
       - id: files
         shell: bash
         run: |
-          files=$(find tests -maxdepth 1 -name 'test_*.py' ! -name 'test_discord*.py' ! -name 'test_cli*.py' ! -name 'test_session_controller.py' ! -name 'test_session_adapters.py' ! -name 'test_atmosphere_provider.py' ! -name 'test_atmosphere_profile.py' ! -name 'test_recorded_atmosphere_replay.py' -print | sort | jq -R -s -c 'split("\n")[:-1]')
+          files=$(find tests -maxdepth 1 -name 'test_[p-z]*.py' ! -name 'test_session_controller.py' ! -name 'test_session_adapters.py' -print | sort | jq -R -s -c 'split("\n")[:-1]')
           echo "files=$files" >> "$GITHUB_OUTPUT"
 
   legacy-discord:
