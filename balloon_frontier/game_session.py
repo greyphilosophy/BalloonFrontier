@@ -1,30 +1,18 @@
-"""Balloon Frontier — Game session + mode selection.
+"""Balloon Frontier — Game mode selection.
 
 This module is the shared, UI-agnostic controller layer for deciding:
-- which game mode a player is in (Tutorial / Story / Scenario / Free Play)
-- whether the mode should run mission-style long simulations
-- which missions (if any) are assigned for the flight in that mode
+- which high-level game mode a player is in (Tutorial / Story / Scenario / Free Play)
+- how to parse/normalize that selection across Discord + CLI
 
-Both the Discord and CLI frontends should call into this module to create
-session plans and obtain mission assignments.
+It intentionally does *not* embed mission planning or simulation-duration
+policy. Those belong in later scenario/story/tutorial/free-play controllers
+once mode-specific context exists.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from enum import Enum
-from typing import Iterable, List, Optional, Sequence
-
-from .launch_result import LaunchRequest, MissionAssignment, FillMode
-from .mission_selection import (
-    choose_mission_count,
-    seed_from_game_state,
-    select_missions,
-)
-
-# Keep these aligned with FlightService defaults.
-DEFAULT_SIM_TIME_S = 150.0
-MISSION_SIM_TIME_S = 43200.0  # 12 hours
+from typing import List, Sequence
 
 
 class GameMode(str, Enum):
@@ -52,84 +40,6 @@ class GameMode(str, Enum):
             GameMode.SCENARIO: "A mission run with a themed objective set.",
             GameMode.FREE_PLAY: "Sandbox flight — no mission commitments.",
         }[self]
-
-    @property
-    def missions_enabled(self) -> bool:
-        return self in {GameMode.STORY, GameMode.SCENARIO}
-
-    @property
-    def simulation_duration_s(self) -> float:
-        return MISSION_SIM_TIME_S if self.missions_enabled else DEFAULT_SIM_TIME_S
-
-
-@dataclass(frozen=True, slots=True)
-class GameModePolicy:
-    mode: GameMode
-    missions_enabled: bool
-    simulation_duration_s: float
-
-
-@dataclass(frozen=True, slots=True)
-class GameSession:
-    """UI-agnostic game session state.
-
-    This object is intentionally lightweight: it doesn't embed any
-    Discord/CLI prompting logic.
-    """
-
-    player_id: Optional[str]
-    mode: GameMode
-
-    def policy(self) -> GameModePolicy:
-        return GameModePolicy(
-            mode=self.mode,
-            missions_enabled=self.mode.missions_enabled,
-            simulation_duration_s=self.mode.simulation_duration_s,
-        )
-
-    def simulation_duration_s(self) -> float:
-        return self.mode.simulation_duration_s
-
-    def plan_mission_assignment(
-        self,
-        launch_request: LaunchRequest,
-        *,
-        seed: Optional[int] = None,
-        mission_count: Optional[int] = None,
-    ) -> MissionAssignment:
-        """Compute mission assignment for this session/mode.
-
-        Mission selection is deterministic when `seed` is not provided.
-        """
-
-        policy = self.policy()
-        if not policy.missions_enabled:
-            return MissionAssignment(mission_ids=(), seed=seed)
-
-        selected_payloads = [pid for pid in launch_request.payload_ids if pid != "none"]
-        payload_count = len(selected_payloads)
-        if mission_count is None:
-            mission_count = choose_mission_count(payload_count)
-
-        resolved_seed = (
-            seed
-            if seed is not None
-            else seed_from_game_state(
-                gas=launch_request.gas_id,
-                envelope=launch_request.envelope_id,
-                payloads=selected_payloads,
-                site=launch_request.launch_site_id,
-            )
-        )
-
-        mission_ids = select_missions(
-            mission_count=mission_count,
-            seed=resolved_seed,
-            selected_payloads=selected_payloads,
-            launch_site=launch_request.launch_site_id,
-        )
-
-        return MissionAssignment(mission_ids=tuple(mission_ids), seed=resolved_seed)
 
 
 _GAME_MODE_ORDER: Sequence[GameMode] = (
