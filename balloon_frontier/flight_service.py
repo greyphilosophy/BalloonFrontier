@@ -1,31 +1,4 @@
-"""Balloon Frontier — Flight Service
-
-Transport-neutral service that takes a LaunchRequest, runs the simulation,
-and returns a FlightResult with all downstream effects (missions, weather,
-scoring, medals).
-
-This replaces the inline launch logic currently in:
-- `_LaunchButton.callback` in discord_bot.py
-- `cmd_launch` in discord_bot.py (the /launch prefix command)
-
-The service does NOT produce Discord embeds or CLI output — those belong
-to the transport layer (discord_bot.py / cli_game.py).
-
-## Usage
-
-```python
-from balloon_frontier.launch_result import LaunchRequest
-from balloon_frontier.flight_service import flight_service
-
-req = LaunchRequest(...)
-result = flight_service.run(req)
-
-# Access the result
-print(f"Peak altitude: {result.peak_altitude_m} m")
-print(f"Burst: {result.burst}")
-print(f"Telemetry points: {len(result.telemetry)}")
-```
-"""
+"""Transport-neutral flight preparation, simulation, evaluation, and rewards."""
 
 from __future__ import annotations
 
@@ -33,58 +6,43 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
-from balloon_frontier.weather_event import WeatherEvent
-
+from balloon_frontier.atmosphere import AtmosphereProvider, use_atmosphere
+from balloon_frontier.flight_score import calculate_flight_score
 from balloon_frontier.launch_result import (
-    LaunchRequest,
     FlightResult,
-    TelemetryPoint,
-    telemetry_list_to_points,
+    LaunchRequest,
     MissionAssignment,
     MissionResult,
+    TelemetryPoint,
+    telemetry_list_to_points,
 )
+from balloon_frontier.medal_tier import get_medal_emoji, medal_tier_to_string
+from balloon_frontier.mission_evaluator import MissionEvaluator
+from balloon_frontier.mission_selection import (
+    assign_missions_to_flight,
+    choose_mission_count,
+    seed_from_game_state,
+)
+from balloon_frontier.progression import PlayerRegistryRepository
+from balloon_frontier.reward_service import RewardService
 from balloon_frontier.simulation import (
-    run_simulation as run_full_simulation,
     EnvelopeConfig,
     SimulationState,
+    run_simulation as run_full_simulation,
 )
 from balloon_frontier.weather_event import (
+    WeatherEvent,
     generate_weather,
     weather_impact_on_flight,
 )
-from balloon_frontier.mission_selection import (
-    assign_missions_to_flight,
-    seed_from_game_state,
-    choose_mission_count,
-)
-from balloon_frontier.flight_score import calculate_flight_score
-from balloon_frontier.medal_tier import get_medal_emoji, medal_tier_to_string
-from balloon_frontier.mission_evaluator import MissionEvaluator
-from balloon_frontier.reward_service import RewardService
-from balloon_frontier.progression import PlayerRegistryRepository
-
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class FlightOutcome:
-    """Complete result of a flight pipeline run.
+    """Complete result of a flight pipeline run."""
 
-    Wraps the simulation result with all metadata needed by transport layers
-    (Discord embeds, CLI output, progression updates) without requiring a
-    second prepare() call.
-
-    Attributes:
-        result: The FlightResult with telemetry.
-        score: Flight score (computed from peak altitude, payload count, duration).
-        medal_name: Medal tier name (e.g. "BRONZE", "SILVER", "GOLD", "PLATINUM").
-        medal_emoji: Emoji representation of the medal tier (e.g. "🥉", "🥈", "🥇", "💎").
-        weather: The generated weather event.
-        mission_assignment: Assigned missions for this flight (typed).
-        mission_results: Evaluation results for each assigned mission.
-        weather_impacts: Computed weather impact modifiers.
-    """
     result: FlightResult
     score: float = 0.0
     medal_name: str = "NONE"
@@ -97,16 +55,8 @@ class FlightOutcome:
 
 @dataclass(frozen=True)
 class LaunchPreparation:
-    """Intermediate result of preparing a launch.
+    """Resolved simulation state and metadata for one launch."""
 
-    Attributes:
-        request: The original launch request.
-        sim_state: The SimulationState ready for the engine.
-        weather: Generated weather event (if applicable).
-        mission_assignment: Assigned missions (if applicable).
-        wind_site_id: Site wind profile identifier.
-        weather_impacts: Computed weather impact modifiers (burst_risk, etc.).
-    """
     request: LaunchRequest
     sim_state: SimulationState
     weather: Optional[WeatherEvent] = None
@@ -117,25 +67,19 @@ class LaunchPreparation:
 
 class FlightServiceError(Exception):
     """Raised when flight simulation fails."""
-    pass
 
 
 class FlightService:
-    """Transport-neutral flight pipeline.
-
-    Attributes:
-        default_sim_time: Default simulation duration in seconds (non-mission).
-        mission_sim_time: Default simulation duration for mission flights.
-        mission_step_interval: Store only 1 sample per second for mission flights.
-    """
+    """Transport-neutral flight pipeline."""
 
     def __init__(
         self,
         default_sim_time: float = 150.0,
-        mission_sim_time: float = 43200.0,  # 12 hours
+        mission_sim_time: float = 43200.0,
         mission_step_interval: float = 1.0,
         reward_service: Optional[RewardService] = None,
         mission_evaluator: Optional[MissionEvaluator] = None,
+        atmosphere_provider: AtmosphereProvider | None = None,
     ) -> None:
         self.default_sim_time = default_sim_time
         self.mission_sim_time = mission_sim_time
@@ -146,27 +90,14 @@ class FlightService:
             else RewardService(PlayerRegistryRepository())
         )
         self.mission_evaluator = (
-            mission_evaluator
-            if mission_evaluator is not None
-            else MissionEvaluator()
+            mission_evaluator if mission_evaluator is not None else MissionEvaluator()
         )
+        self.atmosphere_provider = atmosphere_provider
 
     def prepare(self, launch_request: LaunchRequest) -> LaunchPreparation:
-        """Prepare a launch: resolve catalog, build SimulationState, assign missions & weather.
-
-        Args:
-            launch_request: The player's launch configuration.
-
-        Returns:
-            LaunchPreparation with all resolved data.
-        """
         req = launch_request
         wind_site_id = req.launch_site_id
-
-        # Build SimulationState from the launch request
         sim_state = req.to_simulation_state()
-
-        # Generate weather based on launch configuration
         payload_keys = list(req.payload_ids) if req.payload_ids else []
         weather = generate_weather(
             site=req.launch_site_id,
@@ -181,7 +112,6 @@ class FlightService:
             ),
         )
 
-        # Assign missions
         payload_count = len(payload_keys) if payload_keys else 0
         mission_count = choose_mission_count(payload_count)
         mission_seed = seed_from_game_state(
@@ -197,13 +127,7 @@ class FlightService:
             selected_payloads=payload_keys,
             launch_site=req.launch_site_id,
         )
-
-        # Compute weather impacts (applied in run())
-        if weather:
-            weather_impacts = weather_impact_on_flight(weather)
-        else:
-            weather_impacts = {}
-
+        weather_impacts = weather_impact_on_flight(weather) if weather else {}
         return LaunchPreparation(
             request=req,
             sim_state=sim_state,
@@ -213,134 +137,101 @@ class FlightService:
             weather_impacts=weather_impacts,
         )
 
-    def run(
-        self,
-        launch_request: LaunchRequest,
-    ) -> FlightOutcome:
-        """Execute the full flight pipeline.
+    def run(self, launch_request: LaunchRequest) -> FlightOutcome:
+        """Execute the full flight pipeline under the selected atmosphere."""
 
-        Args:
-            launch_request: The player's launch configuration.
-
-        Returns:
-            FlightResult with complete telemetry and metadata.
-
-        Raises:
-            FlightServiceError: If simulation fails.
-        """
         try:
-            # Prepare the launch (resolve catalog, weather, missions)
-            prep = self.prepare(launch_request)
+            with use_atmosphere(self.atmosphere_provider):
+                return self._run_active(launch_request)
+        except Exception as error:
+            logger.exception("Flight simulation failed")
+            raise FlightServiceError(f"Flight simulation failed: {error}") from error
 
-            # Apply weather impacts to the simulation state
-            if prep.weather:
-                impacts = prep.weather_impacts
-                # Apply all weather modifiers to the envelope config and state
-                prep.sim_state.envelope.weather_burst_risk_modifier = impacts.get('burst_risk', 1.0)
-                prep.sim_state.envelope.weather_solar_modifier = impacts.get('thermal_efficiency', 1.0)
-                prep.sim_state.envelope.weather_pressure_modifier = impacts.get('pressure_modifier', 1.0)
-                prep.sim_state.weather_ascent_multiplier = impacts.get('ascent_rate', 1.0)
-                prep.sim_state.weather_drift_multiplier = impacts.get('drift_factor', 1.0)
+    def _run_active(self, launch_request: LaunchRequest) -> FlightOutcome:
+        prep = self.prepare(launch_request)
 
-            # Determine simulation duration based on actual mission count
-            # Only explicitly-mission flights (with mission_ids in assignment) use
-            # mission_sim_time. Regular Discord/CLI launches use default_sim_time.
-            assignment_dict = prep.mission_assignment or {}
-            is_mission = bool(assignment_dict.get("mission_ids"))
-            max_time = self.mission_sim_time if is_mission else self.default_sim_time
-            max_steps = int(max_time / 0.1)
-
-            # Run simulation
-            step_interval = self.mission_step_interval if is_mission else None
-            tel_full = run_full_simulation(
-                prep.sim_state,
-                dt=0.1,
-                total_time_s=max_time,
-                max_steps=max_steps,
-                step_interval=step_interval,
+        if prep.weather:
+            impacts = prep.weather_impacts
+            prep.sim_state.envelope.weather_burst_risk_modifier = impacts.get(
+                "burst_risk", 1.0
+            )
+            prep.sim_state.envelope.weather_solar_modifier = impacts.get(
+                "thermal_efficiency", 1.0
+            )
+            # Profiles store the base atmospheric field while the associated
+            # WeatherEvent stores launch-specific modifiers. Applying both recreates
+            # the original conditions without baking weather policy into the data.
+            prep.sim_state.envelope.weather_pressure_modifier = impacts.get(
+                "pressure_modifier", 1.0
+            )
+            prep.sim_state.weather_ascent_multiplier = impacts.get(
+                "ascent_rate", 1.0
+            )
+            prep.sim_state.weather_drift_multiplier = impacts.get(
+                "drift_factor", 1.0
             )
 
-            if not tel_full:
-                # Empty telemetry — return result with zeroed values
-                mission_ids_tuple = tuple(assignment_dict.get("mission_ids", []))
-                mission_assign = MissionAssignment(
-                    mission_ids=mission_ids_tuple,
-                    seed=assignment_dict.get("seed"),
-                )
-                result = FlightOutcome(
-                    result=FlightResult(
-                        telemetry=(),
-                        launch_request=launch_request,
-                    ),
-                    score=0.0,
-                    medal_name="NONE",
-                    medal_emoji="⚪",
-                    weather=prep.weather,
-                    mission_assignment=mission_assign,
-                    mission_results=(),
-                    weather_impacts=prep.weather_impacts,
-                )
-                return result
+        assignment_dict = prep.mission_assignment or {}
+        is_mission = bool(assignment_dict.get("mission_ids"))
+        max_time = self.mission_sim_time if is_mission else self.default_sim_time
+        max_steps = int(max_time / 0.1)
+        step_interval = self.mission_step_interval if is_mission else None
+        telemetry = run_full_simulation(
+            prep.sim_state,
+            dt=0.1,
+            total_time_s=max_time,
+            max_steps=max_steps,
+            step_interval=step_interval,
+        )
 
-            # Convert raw telemetry dicts to TelemetryPoint objects
-            points = telemetry_list_to_points(tel_full)
-
-            # Compute peak altitude and duration from telemetry (before building FlightResult)
-            peak_altitude_m = max((tp.altitude_m for tp in points), default=0.0)
-            duration_s = points[-1].time_s if points else 0.0
-
-            # Convert dict assignment to typed MissionAssignment
-            mission_ids_tuple = tuple(assignment_dict.get("mission_ids", []))
-            mission_assign = MissionAssignment(
-                mission_ids=mission_ids_tuple,
-                seed=assignment_dict.get("seed"),
-            )
-
-            # Compute score and medal from result properties
-            payload_count = max(1, len([pid for pid in launch_request.payload_ids if pid != "none"]))
-            score = calculate_flight_score(
-                peak_altitude_m,
-                payload_count,
-                duration_s,
-            )
-            medal_name = medal_tier_to_string(peak_altitude_m)
-            medal_emoji = get_medal_emoji(peak_altitude_m)
-
-            # Evaluate missions
-            mission_results = self.mission_evaluator.evaluate(
-                request=launch_request,
-                telemetry=tuple(points),
-                assignment=mission_assign,
-            )
-
-            # Apply mission rewards to player progression (if player_id provided)
-            if launch_request.player_id:
-                mission_results = self.reward_service.apply(
-                    player_id=launch_request.player_id,
-                    mission_results=mission_results,
-                )
-
-            # Build FlightOutcome with all metadata
-            result = FlightOutcome(
-                result=FlightResult(
-                    telemetry=tuple(points),
-                    launch_request=launch_request,
-                ),
-                score=score,
-                medal_name=medal_name,
-                medal_emoji=medal_emoji,
+        mission_assignment = MissionAssignment(
+            mission_ids=tuple(assignment_dict.get("mission_ids", [])),
+            seed=assignment_dict.get("seed"),
+        )
+        if not telemetry:
+            return FlightOutcome(
+                result=FlightResult(telemetry=(), launch_request=launch_request),
                 weather=prep.weather,
-                mission_assignment=mission_assign,
-                mission_results=mission_results,
+                mission_assignment=mission_assignment,
                 weather_impacts=prep.weather_impacts,
             )
 
-            return result
+        points = telemetry_list_to_points(telemetry)
+        peak_altitude_m = max((point.altitude_m for point in points), default=0.0)
+        duration_s = points[-1].time_s if points else 0.0
+        payload_count = max(
+            1,
+            len([pid for pid in launch_request.payload_ids if pid != "none"]),
+        )
+        score = calculate_flight_score(
+            peak_altitude_m,
+            payload_count,
+            duration_s,
+        )
+        mission_results = self.mission_evaluator.evaluate(
+            request=launch_request,
+            telemetry=tuple(points),
+            assignment=mission_assignment,
+        )
+        if launch_request.player_id:
+            mission_results = self.reward_service.apply(
+                player_id=launch_request.player_id,
+                mission_results=mission_results,
+            )
 
-        except Exception as e:
-            logger.exception("Flight simulation failed")
-            raise FlightServiceError(f"Flight simulation failed: {e}") from e
+        return FlightOutcome(
+            result=FlightResult(
+                telemetry=tuple(points),
+                launch_request=launch_request,
+            ),
+            score=score,
+            medal_name=medal_tier_to_string(peak_altitude_m),
+            medal_emoji=get_medal_emoji(peak_altitude_m),
+            weather=prep.weather,
+            mission_assignment=mission_assignment,
+            mission_results=mission_results,
+            weather_impacts=prep.weather_impacts,
+        )
 
 
-# Module-level singleton
 flight_service = FlightService()

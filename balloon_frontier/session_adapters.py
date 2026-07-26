@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Mapping
 
+from .atmosphere import AtmosphereProvider, StandardAtmosphereProvider
 from .flight_service import FlightService
 from .game_modes import GameMode
 from .game_session import SessionState
@@ -31,17 +32,33 @@ def configuration_from_launch_request(request: Any) -> dict[str, Any]:
 
 
 def prepare_cli_session(mode, request: Any, *, player_id=None) -> SessionPlan:
-    return plan_session(mode, configuration_from_launch_request(request), player_id=player_id, context={"ui": "cli"})
+    return plan_session(
+        mode,
+        configuration_from_launch_request(request),
+        player_id=player_id,
+        context={"ui": "cli"},
+    )
 
 
 class _PlannedFlightService(FlightService):
-    def __init__(self, source: FlightService, plan: SessionPlan, *, apply_rewards: bool = True, weather_override=None) -> None:
+    def __init__(
+        self,
+        source: FlightService,
+        plan: SessionPlan,
+        *,
+        apply_rewards: bool = True,
+        weather_override=None,
+        atmosphere_provider: AtmosphereProvider | None = None,
+    ) -> None:
         super().__init__(
             default_sim_time=source.default_sim_time,
             mission_sim_time=source.mission_sim_time,
             mission_step_interval=source.mission_step_interval,
-            reward_service=source.reward_service if apply_rewards else _NoOpRewardService(),
+            reward_service=(
+                source.reward_service if apply_rewards else _NoOpRewardService()
+            ),
             mission_evaluator=source.mission_evaluator,
+            atmosphere_provider=atmosphere_provider,
         )
         self._source = source
         self._plan = plan
@@ -58,7 +75,9 @@ class _PlannedFlightService(FlightService):
         changes = {"mission_assignment": assignment}
         if self._weather_override is not None:
             changes["weather"] = self._weather_override
-            changes["weather_impacts"] = weather_impact_on_flight(self._weather_override)
+            changes["weather_impacts"] = weather_impact_on_flight(
+                self._weather_override
+            )
         return replace(preparation, **changes)
 
 
@@ -86,19 +105,38 @@ class SessionAwareFlightService:
         self.last_plan = plan
         plan.session.launch()
         atmosphere_repository = None
-        weather_override = None
+        locked_profile = None
+        atmosphere_provider = None
         try:
             is_tutorial = plan.session.mode is GameMode.TUTORIAL
             if player_id:
-                from .atmosphere_profile import atmosphere_profiles
+                from .atmosphere_profile import (
+                    RecordedAtmosphereProvider,
+                    atmosphere_profiles,
+                )
 
                 atmosphere_repository = atmosphere_profiles
-                weather_override = atmosphere_repository.get_locked_weather(str(player_id))
+                locked_profile = atmosphere_repository.get_locked_profile(
+                    str(player_id)
+                )
+                if locked_profile is not None and locked_profile.layers:
+                    atmosphere_provider = RecordedAtmosphereProvider(
+                        locked_profile,
+                        wind_fallback=StandardAtmosphereProvider(
+                            site_id=request.launch_site_id,
+                            wind_enabled=True,
+                        ),
+                    )
+
+            weather_override = (
+                locked_profile.weather if locked_profile is not None else None
+            )
             outcome = _PlannedFlightService(
                 self.service,
                 plan,
                 apply_rewards=not is_tutorial,
                 weather_override=weather_override,
+                atmosphere_provider=atmosphere_provider,
             ).run(request)
             if is_tutorial:
                 from .tutorial import evaluate_tutorial_outcome
@@ -106,15 +144,19 @@ class SessionAwareFlightService:
                 outcome = evaluate_tutorial_outcome(request, outcome)
                 if player_id:
                     final_results = self.service.reward_service.apply(
-                        player_id=str(player_id), mission_results=outcome.mission_results
+                        player_id=str(player_id),
+                        mission_results=outcome.mission_results,
                     )
                     outcome = replace(outcome, mission_results=final_results)
             elif plan.session.mode is GameMode.STORY:
                 from .story import add_story_results
 
-                outcome = add_story_results(outcome, str(player_id) if player_id else None)
-            if weather_override is not None and atmosphere_repository is not None:
-                atmosphere_repository.consume_locked_weather(str(player_id))
+                outcome = add_story_results(
+                    outcome,
+                    str(player_id) if player_id else None,
+                )
+            if locked_profile is not None and atmosphere_repository is not None:
+                atmosphere_repository.consume_locked_profile(str(player_id))
             plan.session.complete(outcome)
             return outcome
         except Exception:
@@ -147,11 +189,23 @@ class DiscordSessionAdapter:
     def create(cls) -> "DiscordSessionAdapter":
         return cls(SessionRegistry())
 
-    def start(self, player_id, mode, state: Mapping[str, Any], *, channel_kind: str = "dm") -> SessionPlan:
+    def start(
+        self,
+        player_id,
+        mode,
+        state: Mapping[str, Any],
+        *,
+        channel_kind: str = "dm",
+    ) -> SessionPlan:
         existing = self.registry.get(player_id)
         if existing is not None and not existing.session.is_terminal:
             existing.session.cancel()
-        plan = plan_session(mode, configuration_from_discord_state(state), player_id=player_id, context={"ui": "discord", "channel": channel_kind})
+        plan = plan_session(
+            mode,
+            configuration_from_discord_state(state),
+            player_id=player_id,
+            context={"ui": "discord", "channel": channel_kind},
+        )
         self.registry.put(player_id, plan)
         return plan
 
