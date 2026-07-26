@@ -44,6 +44,12 @@ def predict_landing_offset(
     step = float(altitude_step_m)
     if target <= 0.0:
         raise ValueError("target_altitude_m must be positive")
+    if not profile.layers:
+        raise ValueError("landing prediction requires at least one measured layer")
+    if target > profile.layers[-1].altitude_m:
+        raise ValueError(
+            "target_altitude_m exceeds the highest measured atmosphere layer"
+        )
     if ascent_rate <= 0.0 or descent_rate <= 0.0:
         raise ValueError("vertical rates must be positive")
     if step <= 0.0:
