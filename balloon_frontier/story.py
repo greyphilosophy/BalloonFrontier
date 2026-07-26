@@ -89,17 +89,30 @@ def _wind_label(x_mps: float, y_mps: float) -> str:
     return f"{speed:.1f} {direction}"
 
 
+def _select_profile_layers(layers: tuple, max_layers: int) -> tuple:
+    limit = max(1, int(max_layers))
+    if len(layers) <= limit:
+        return layers
+    if limit == 1:
+        return (layers[-1],)
+    indexes = [
+        round(position * (len(layers) - 1) / (limit - 1))
+        for position in range(limit)
+    ]
+    return tuple(layers[index] for index in indexes)
+
+
 def format_atmosphere_profile(
     profile: AtmosphereProfile,
     *,
     max_layers: int = 8,
 ) -> str:
-    """Format a compact Discord-safe sounding table."""
+    """Format a compact Discord-safe sounding table spanning the full profile."""
 
     layers = profile.layers
     if not layers:
         return "📡 **Recorded atmosphere**\nNo measured layers are available."
-    selected = layers[: max(1, max_layers)]
+    selected = _select_profile_layers(layers, max_layers)
     lines = [
         "📡 **Recorded atmosphere**",
         "` Alt km | Temp °C | Press kPa | Wind m/s `",
@@ -112,7 +125,7 @@ def format_atmosphere_profile(
             f" {_wind_label(layer.wind_x_mps, layer.wind_y_mps):>8} `"
         )
     if len(layers) > len(selected):
-        lines.append(f"*{len(layers) - len(selected)} higher layers omitted.*")
+        lines.append(f"*{len(layers) - len(selected)} intermediate layers omitted.*")
     if not profile.wind_measurements_available:
         lines.append("*Legacy profile: launch-site wind will be generated during replay.*")
     return "\n".join(lines)
