@@ -37,8 +37,6 @@ intents = discord.Intents(message_content=True, guilds=True, dm_messages=True)
 bot = commands.Bot(command_prefix="/", intents=intents)
 bot.remove_command("help")
 
-# A player is engaged as soon as a mode menu is shown. This prevents ordinary
-# follow-up messages from spawning duplicate games while interaction continues.
 _engaged_players: set[str] = set()
 
 
@@ -58,6 +56,7 @@ async def send_game_menu(destination, *, player_id: str | int, channel_kind: str
         player_id=key,
         channel_kind=channel_kind,
         service=flight_service,
+        on_finished=lambda: _engaged_players.discard(key),
     )
     msg = await destination.send(game_mode_prompt(), view=view)
     view._msg = msg
