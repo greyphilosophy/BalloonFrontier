@@ -35,6 +35,9 @@ def predict_landing_offset(
     result is reusable by Discord, CLI, missions, and future map adapters.
     """
 
+    if not profile.wind_measurements_available:
+        raise ValueError("landing prediction requires measured wind vectors")
+
     target = float(target_altitude_m)
     ascent_rate = float(ascent_rate_mps)
     descent_rate = float(descent_rate_mps)
