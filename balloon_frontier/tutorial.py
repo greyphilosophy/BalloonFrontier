@@ -18,32 +18,32 @@ TUTORIAL_STEPS = {
     0: TutorialStep(
         "Choose a lifting gas",
         "A lifting gas is less dense than the surrounding air, so buoyancy can overcome the vehicle's weight.",
-        "Helium is recommended for this first flight because it is non-flammable and easy to handle.",
+        "Use store-bought helium for this first flight. It is non-flammable and avoids hydrogen-generation equipment.",
     ),
     1: TutorialStep(
         "Choose an envelope",
         "The envelope contains the lifting gas. Latex weather balloons expand as outside pressure falls.",
-        "Use the standard latex weather balloon for this training flight.",
+        "Use an ordinary commercially available latex weather balloon rather than a custom pressure envelope.",
     ),
     2: TutorialStep(
         "Choose a fill",
         "More gas increases free lift and ascent rate, but excessive fill can make the balloon burst earlier.",
-        "Auto fill calculates a safe introductory amount.",
+        "Auto fill avoids specialized measuring equipment and calculates a safe introductory amount.",
     ),
     3: TutorialStep(
         "Choose a payload",
         "Every payload adds useful capability and additional mass. More mass requires more lift.",
-        "Carry the camera so the flight produces its first useful observation.",
+        "Carry a basic lightweight camera—the kind of off-the-shelf payload a beginner can readily obtain.",
     ),
     4: TutorialStep(
         "Choose a launch site",
         "Altitude, temperature, and wind at the launch site change the balloon's initial conditions.",
-        "The open field is the safest and simplest place to begin.",
+        "Use an accessible open field, with permission, rather than a mountain or rooftop launch.",
     ),
     5: TutorialStep(
         "Review and launch",
-        "The normal simulator, scoring system, weather, and mission evaluator will judge this flight.",
-        "Check the configuration, then launch when ready.",
+        "This training design uses only readily acquired materials: helium, latex balloon, basic camera, and an open field.",
+        "The normal simulator and mission evaluator will judge the flight. Check the configuration, then launch.",
     ),
 }
 
@@ -81,12 +81,23 @@ class TutorialConfiguratorMixin:
     def _step_content(self) -> str:
         return tutorial_guidance(self._current_step) + "\n\n" + super()._step_content()
 
+    async def _on_gas(self, interaction, index: int):
+        from balloon_frontier.discord_ui.configurator import GAS_OPTIONS
+        key = list(GAS_OPTIONS)[index - 1] if 0 < index <= len(GAS_OPTIONS) else None
+        if key != "helium":
+            await interaction.response.send_message(
+                "🎓 Use readily available, non-flammable helium for the first flight.",
+                ephemeral=True,
+            )
+            return
+        await super()._on_gas(interaction, index)
+
     async def _on_envelope(self, interaction, index: int):
         from balloon_frontier.discord_ui.configurator import ENVELOPE_OPTIONS
         key = list(ENVELOPE_OPTIONS)[index - 1] if 0 < index <= len(ENVELOPE_OPTIONS) else None
         if key != "latex":
             await interaction.response.send_message(
-                "🎓 The training flight uses the standard latex weather balloon.",
+                "🎓 The training flight uses a commercially available latex weather balloon.",
                 ephemeral=True,
             )
             return
@@ -97,7 +108,7 @@ class TutorialConfiguratorMixin:
         key = list(FILL_MODES)[index - 1] if 0 < index <= len(FILL_MODES) else None
         if key != "auto":
             await interaction.response.send_message(
-                "🎓 Use Auto fill for the first flight; you can experiment with other fills later.",
+                "🎓 Use Auto fill for the first flight; no specialized measurement setup is needed.",
                 ephemeral=True,
             )
             return
@@ -108,7 +119,7 @@ class TutorialConfiguratorMixin:
         key = list(PAYLOAD_OPTIONS)[index - 1] if 0 < index <= len(PAYLOAD_OPTIONS) else None
         if key != "camera":
             await interaction.response.send_message(
-                "🎓 Select the camera for this mission. Payload experiments come after training.",
+                "🎓 Select a basic lightweight camera for this mission.",
                 ephemeral=True,
             )
             return
@@ -122,7 +133,7 @@ class TutorialConfiguratorMixin:
         key = list(SITE_OPTIONS)[index - 1] if 0 < index <= len(SITE_OPTIONS) else None
         if key != "field":
             await interaction.response.send_message(
-                "🎓 Launch the training flight from the open field.",
+                "🎓 Launch the training flight from an accessible open field.",
                 ephemeral=True,
             )
             return
