@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from types import MappingProxyType
 from typing import Any, Mapping
 from uuid import uuid4
 
@@ -23,6 +24,18 @@ class SessionState(str, Enum):
 _TERMINAL_STATES = {SessionState.COMPLETED, SessionState.CANCELLED}
 
 
+def _freeze(value: Any) -> Any:
+    """Recursively copy common containers into immutable equivalents."""
+
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze(item) for item in value)
+    return value
+
+
 @dataclass
 class GameSession:
     """Own the shared state and lifecycle of one play session.
@@ -35,14 +48,22 @@ class GameSession:
     player_id: str | int | None = None
     session_id: str = field(default_factory=lambda: uuid4().hex)
     state: SessionState = field(default=SessionState.CONFIGURING, init=False)
-    configuration: dict[str, Any] = field(default_factory=dict, init=False)
+    _configuration: Mapping[str, Any] = field(
+        default_factory=lambda: MappingProxyType({}), init=False, repr=False
+    )
     launch_result: Any | None = field(default=None, init=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.mode, GameMode):
             self.mode = select_game_mode(self.mode)
-        if not self.session_id or not self.session_id.strip():
+        if not isinstance(self.session_id, str) or not self.session_id.strip():
             raise ValueError("session_id must be a non-empty string")
+
+    @property
+    def configuration(self) -> Mapping[str, Any]:
+        """Return the immutable session configuration."""
+
+        return self._configuration
 
     @property
     def is_terminal(self) -> bool:
@@ -56,7 +77,7 @@ class GameSession:
         self._require_state(SessionState.CONFIGURING)
         if not values:
             raise ValueError("configuration must not be empty")
-        self.configuration = dict(values)
+        self._configuration = _freeze(values)
 
     def mark_ready(self) -> None:
         """Lock configuration and mark the session ready to launch."""
