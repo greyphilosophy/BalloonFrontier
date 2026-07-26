@@ -29,7 +29,7 @@ TUTORIAL_STEPS = {
     ),
     2: TutorialStep(
         "Choose a fill",
-        "Select how much free lift the balloon should provide.",
+        "Select how much free lift the balloon should provide. You can also adjust how many identical balloons are used.",
     ),
     3: TutorialStep(
         "Choose the aircraft",
@@ -73,17 +73,19 @@ def evaluate_tutorial_outcome(request, outcome: FlightOutcome) -> FlightOutcome:
     """
 
     payloads = set(request.payload_ids)
+    balloon_count = int(getattr(request, "balloon_count", 1))
     success = (
         request.envelope_id == "mylar"
         and request.gas_id == "helium"
         and "quadcopter" in payloads
         and request.launch_site_id == "field"
+        and balloon_count <= 3
     )
 
     if success:
         explanation = "The balloon-assisted quadcopter remained controllable and completed the endurance flight."
         reward = 500
-    elif request.gas_id == "hydrogen":
+    elif request.gas_id == "hydrogen" or balloon_count > 3:
         explanation = "The aircraft left communications range and was lost."
         reward = 0
     elif request.envelope_id != "mylar":
