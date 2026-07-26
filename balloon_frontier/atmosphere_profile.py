@@ -15,7 +15,7 @@ class AtmosphereLayer:
     altitude_m: float
     temperature_k: float
     pressure_pa: float
-    wind_x_mps: float
+    horizontal_velocity_mps: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,14 +31,20 @@ class AtmosphereProfile:
 
     @classmethod
     def from_dict(cls, data: dict) -> "AtmosphereProfile":
+        layers = []
+        for item in data.get("layers", ()):
+            item = dict(item)
+            if "horizontal_velocity_mps" not in item and "wind_x_mps" in item:
+                item["horizontal_velocity_mps"] = item.pop("wind_x_mps")
+            layers.append(AtmosphereLayer(**item))
         return cls(
-            layers=tuple(AtmosphereLayer(**item) for item in data.get("layers", ())),
+            layers=tuple(layers),
             weather=WeatherEvent(**data["weather"]),
         )
 
 
 def profile_from_telemetry(telemetry: Iterable, weather: WeatherEvent) -> AtmosphereProfile:
-    """Sample the ascent into approximately 2 km altitude layers."""
+    """Sample ascent telemetry into approximately 2 km altitude layers."""
 
     points = sorted(
         (point for point in telemetry if not getattr(point, "landed", False)),
@@ -53,7 +59,7 @@ def profile_from_telemetry(telemetry: Iterable, weather: WeatherEvent) -> Atmosp
             altitude_m=round(float(point.altitude_m), 1),
             temperature_k=round(float(point.ambient_temperature_k), 2),
             pressure_pa=round(float(point.ambient_pressure_pa), 1),
-            wind_x_mps=round(float(point.vx_mps), 2),
+            horizontal_velocity_mps=round(float(point.vx_mps), 2),
         ))
         next_altitude = point.altitude_m + 2000.0
     return AtmosphereProfile(tuple(layers), weather)
@@ -89,7 +95,20 @@ class AtmosphereProfileRepository:
         path.write_text(json.dumps(data))
         return True
 
+    def get_locked_weather(self, player_id: str) -> WeatherEvent | None:
+        """Return locked weather without consuming the one-flight lock."""
+
+        path = self._path(player_id)
+        if not path.exists():
+            return None
+        data = json.loads(path.read_text())
+        if not data.get("locked"):
+            return None
+        return AtmosphereProfile.from_dict(data["profile"]).weather
+
     def consume_locked_weather(self, player_id: str) -> WeatherEvent | None:
+        """Clear and return locked weather after a successful flight."""
+
         path = self._path(player_id)
         if not path.exists():
             return None
