@@ -30,6 +30,7 @@ from balloon_frontier.simulation import (
     SimulationState,
     run_simulation as run_full_simulation,
 )
+from balloon_frontier.weather_column import generate_weather_column
 from balloon_frontier.weather_event import (
     WeatherEvent,
     generate_weather,
@@ -51,6 +52,7 @@ class FlightOutcome:
     mission_assignment: Optional[MissionAssignment] = None
     mission_results: tuple[MissionResult, ...] = ()
     weather_impacts: dict = field(default_factory=dict)
+    atmosphere_provider: AtmosphereProvider | None = None
 
 
 @dataclass(frozen=True)
@@ -63,6 +65,7 @@ class LaunchPreparation:
     mission_assignment: Optional[dict] = None
     wind_site_id: str = "field"
     weather_impacts: dict = field(default_factory=dict)
+    atmosphere_provider: AtmosphereProvider | None = None
 
 
 class FlightServiceError(Exception):
@@ -99,30 +102,29 @@ class FlightService:
         wind_site_id = req.launch_site_id
         sim_state = req.to_simulation_state()
         payload_keys = list(req.payload_ids) if req.payload_ids else []
+        weather_seed = seed_from_game_state(
+            gas=req.gas_id,
+            envelope=req.envelope_id,
+            payloads=payload_keys,
+            site=req.launch_site_id,
+        )
         weather = generate_weather(
             site=req.launch_site_id,
             gas=req.gas_id,
             envelope=req.envelope_id,
             payloads=payload_keys,
-            seed=seed_from_game_state(
-                gas=req.gas_id,
-                envelope=req.envelope_id,
-                payloads=payload_keys,
-                site=req.launch_site_id,
-            ),
+            seed=weather_seed,
+        )
+        weather_column = generate_weather_column(
+            weather_seed,
+            scenario=_scenario_for_weather(weather),
         )
 
         payload_count = len(payload_keys) if payload_keys else 0
         mission_count = choose_mission_count(payload_count)
-        mission_seed = seed_from_game_state(
-            gas=req.gas_id,
-            envelope=req.envelope_id,
-            payloads=payload_keys,
-            site=req.launch_site_id,
-        )
         mission_assignment = assign_missions_to_flight(
             payload_count=payload_count,
-            seed=mission_seed,
+            seed=weather_seed,
             mission_count=mission_count,
             selected_payloads=payload_keys,
             launch_site=req.launch_site_id,
@@ -135,21 +137,30 @@ class FlightService:
             mission_assignment=mission_assignment,
             wind_site_id=wind_site_id,
             weather_impacts=weather_impacts,
+            atmosphere_provider=weather_column,
         )
 
     def run(self, launch_request: LaunchRequest) -> FlightOutcome:
         """Execute the full flight pipeline under the selected atmosphere."""
 
         try:
-            with use_atmosphere(self.atmosphere_provider):
-                return self._run_active(launch_request)
+            return self._run_active(launch_request)
         except Exception as error:
             logger.exception("Flight simulation failed")
             raise FlightServiceError(f"Flight simulation failed: {error}") from error
 
     def _run_active(self, launch_request: LaunchRequest) -> FlightOutcome:
         prep = self.prepare(launch_request)
+        provider = self.atmosphere_provider or prep.atmosphere_provider
+        with use_atmosphere(provider):
+            return self._run_prepared(launch_request, prep, provider)
 
+    def _run_prepared(
+        self,
+        launch_request: LaunchRequest,
+        prep: LaunchPreparation,
+        provider: AtmosphereProvider | None,
+    ) -> FlightOutcome:
         if prep.weather:
             impacts = prep.weather_impacts
             prep.sim_state.envelope.weather_burst_risk_modifier = impacts.get(
@@ -158,18 +169,11 @@ class FlightService:
             prep.sim_state.envelope.weather_solar_modifier = impacts.get(
                 "thermal_efficiency", 1.0
             )
-            # Profiles store the base atmospheric field while the associated
-            # WeatherEvent stores launch-specific modifiers. Applying both recreates
-            # the original conditions without baking weather policy into the data.
             prep.sim_state.envelope.weather_pressure_modifier = impacts.get(
                 "pressure_modifier", 1.0
             )
-            prep.sim_state.weather_ascent_multiplier = impacts.get(
-                "ascent_rate", 1.0
-            )
-            prep.sim_state.weather_drift_multiplier = impacts.get(
-                "drift_factor", 1.0
-            )
+            prep.sim_state.weather_ascent_multiplier = impacts.get("ascent_rate", 1.0)
+            prep.sim_state.weather_drift_multiplier = impacts.get("drift_factor", 1.0)
 
         assignment_dict = prep.mission_assignment or {}
         is_mission = bool(assignment_dict.get("mission_ids"))
@@ -194,6 +198,7 @@ class FlightService:
                 weather=prep.weather,
                 mission_assignment=mission_assignment,
                 weather_impacts=prep.weather_impacts,
+                atmosphere_provider=provider,
             )
 
         points = telemetry_list_to_points(telemetry)
@@ -231,7 +236,25 @@ class FlightService:
             mission_assignment=mission_assignment,
             mission_results=mission_results,
             weather_impacts=prep.weather_impacts,
+            atmosphere_provider=provider,
         )
+
+
+def _scenario_for_weather(weather: WeatherEvent) -> str:
+    """Keep narrative weather and the hidden vertical column broadly consistent."""
+
+    name = weather.name.lower()
+    if "jet stream" in name:
+        return "jet_stream"
+    if "storm" in name or weather.storm_risk >= 0.25:
+        return "frontal"
+    if weather.cloud_density >= 0.45 and weather.temp_anomaly_k >= 2.0:
+        return "atmospheric_river"
+    if weather.wind_gust_factor < 0.9:
+        return "calm"
+    if weather.wind_gust_factor >= 1.5:
+        return "jet_stream"
+    return "frontal"
 
 
 flight_service = FlightService()
