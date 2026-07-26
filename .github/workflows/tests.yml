@@ -10,39 +10,55 @@ permissions:
   contents: read
 
 jobs:
-  pytest:
+  discover-discord-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-
+    outputs:
+      files: ${{ steps.files.outputs.files }}
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - id: files
+        shell: bash
+        run: |
+          files=$(find tests -maxdepth 1 -name 'test_discord*.py' ! -name 'test_discord_game_entry.py' -print | sort | jq -R -s -c 'split("\n")[:-1]')
+          echo "files=$files" >> "$GITHUB_OUTPUT"
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+  legacy-discord:
+    needs: discover-discord-tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        file: ${{ fromJSON(needs.discover-discord-tests.outputs.files) }}
+    name: legacy-discord (${{ matrix.file }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-
-      - name: Install dependencies
-        run: |
+      - run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest
+      - run: python -m pytest "${{ matrix.file }}" -q
 
-      - name: Test session controller
-        run: python -m pytest tests/test_session_controller.py -q
-
-      - name: Test session adapters
-        run: python -m pytest tests/test_session_adapters.py -q
-
-      - name: Test Discord game entry
-        run: python -m pytest tests/test_discord_game_entry.py -q
-
-      - name: Test legacy Discord suite
-        run: python -m pytest tests/test_discord*.py -q --ignore=tests/test_discord_game_entry.py
-
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest
+      - name: Test new session layers
+        run: |
+          python -m pytest tests/test_session_controller.py -q
+          python -m pytest tests/test_session_adapters.py -q
+          python -m pytest tests/test_discord_game_entry.py -q
       - name: Test legacy CLI suite
         run: python -m pytest tests/test_cli*.py -q
-
-      - name: Run remaining tests
+      - name: Run non-Discord remainder
         run: python -m pytest tests/ -q --ignore-glob=tests/test_discord*.py --ignore-glob=tests/test_cli*.py --ignore=tests/test_session_controller.py --ignore=tests/test_session_adapters.py
