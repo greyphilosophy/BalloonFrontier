@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from .flight_service import FlightService
 from .game_modes import GameMode
@@ -12,8 +12,6 @@ from .session_controller import SessionPlan, SessionRegistry, plan_session
 
 
 def configuration_from_launch_request(request: Any) -> dict[str, Any]:
-    """Translate a LaunchRequest-like object into shared session configuration."""
-
     return {
         "gas": request.gas_id,
         "envelope": request.envelope_id,
@@ -31,8 +29,6 @@ def prepare_cli_session(
     *,
     player_id: str | int | None = None,
 ) -> SessionPlan:
-    """Create the shared plan used by the terminal game before launch."""
-
     return plan_session(
         mode,
         configuration_from_launch_request(request),
@@ -42,8 +38,6 @@ def prepare_cli_session(
 
 
 class _PlannedFlightService(FlightService):
-    """FlightService variant whose mission preparation comes from a SessionPlan."""
-
     def __init__(self, source: FlightService, plan: SessionPlan) -> None:
         super().__init__(
             default_sim_time=source.default_sim_time,
@@ -68,12 +62,13 @@ class _PlannedFlightService(FlightService):
 
 @dataclass
 class SessionAwareFlightService:
-    """Wrap a FlightService so real UI launches obey the shared session lifecycle."""
+    """Wrap a FlightService so real UI launches obey the shared lifecycle."""
 
     service: FlightService
     mode: GameMode | str | int
     ui: str
     channel_kind: str | None = None
+    on_finished: Callable[[], None] | None = None
     last_plan: SessionPlan | None = None
 
     def run(self, request: Any) -> Any:
@@ -90,17 +85,18 @@ class SessionAwareFlightService:
         plan.session.launch()
         try:
             outcome = _PlannedFlightService(self.service, plan).run(request)
+            plan.session.complete(outcome)
+            return outcome
         except Exception:
             if not plan.session.is_terminal:
                 plan.session.cancel()
             raise
-        plan.session.complete(outcome)
-        return outcome
+        finally:
+            if self.on_finished is not None:
+                self.on_finished()
 
 
 def configuration_from_discord_state(state: Mapping[str, Any]) -> dict[str, Any]:
-    """Translate Discord configurator state into shared configuration keys."""
-
     return {
         "gas": state.get("gas"),
         "envelope": state.get("envelope"),
@@ -114,8 +110,6 @@ def configuration_from_discord_state(state: Mapping[str, Any]) -> dict[str, Any]
 
 @dataclass
 class DiscordSessionAdapter:
-    """Manage isolated Discord sessions for DM and guild interactions."""
-
     registry: SessionRegistry
 
     @classmethod
@@ -133,7 +127,6 @@ class DiscordSessionAdapter:
         existing = self.registry.get(player_id)
         if existing is not None and not existing.session.is_terminal:
             existing.session.cancel()
-
         plan = plan_session(
             mode,
             configuration_from_discord_state(state),
