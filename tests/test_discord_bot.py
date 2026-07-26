@@ -27,16 +27,17 @@ class TestCommandRegistration:
     def test_play_command_registered(self):
         assert bot.get_command("play") is not None
 
-    def test_launch_command_removed(self):
-        assert bot.get_command("launch") is None
+    def test_launch_command_is_hidden_compatibility_alias(self):
+        command = bot.get_command("launch")
+        assert command is not None
+        assert command.hidden
 
     def test_command_prefix_is_slash(self):
         assert bot.command_prefix == "/"
 
     def test_bot_has_expected_named_commands(self):
         names = set(bot.all_commands.keys())
-        assert {"help", "physics", "play"}.issubset(names)
-        assert "launch" not in names
+        assert {"help", "physics", "play", "launch"}.issubset(names)
 
 
 class TestRunSimulation:
