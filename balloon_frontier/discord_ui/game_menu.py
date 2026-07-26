@@ -56,7 +56,20 @@ class GameModeView(discord.ui.View):
             channel_kind=self.channel_kind,
             on_finished=self.on_finished,
         )
-        configurator = BalloonConfigurator(service=wrapped)
+
+        configurator_type = BalloonConfigurator
+        if mode is GameMode.TUTORIAL:
+            from balloon_frontier.tutorial import TutorialConfiguratorMixin
+            from balloon_frontier.tutorial_catalog import ensure_discord_tutorial_options
+
+            ensure_discord_tutorial_options()
+            configurator_type = type(
+                "TutorialBalloonConfigurator",
+                (TutorialConfiguratorMixin, BalloonConfigurator),
+                {},
+            )
+
+        configurator = configurator_type(service=wrapped)
         configurator._msg = interaction.message
         await interaction.response.edit_message(
             content=configurator._step_content(),
