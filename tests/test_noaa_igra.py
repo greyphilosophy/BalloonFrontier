@@ -1,3 +1,5 @@
+import math
+
 import pytest
 
 from balloon_frontier.noaa_igra import (
@@ -63,6 +65,15 @@ def test_nearest_stations_filters_mobile_and_record_year():
     )
 
     assert result == (near, far)
+
+
+@pytest.mark.parametrize(
+    ("latitude", "longitude"),
+    ((91.0, 0.0), (-91.0, 0.0), (0.0, 181.0), (0.0, -181.0), (math.nan, 0.0)),
+)
+def test_nearest_stations_rejects_invalid_coordinates(latitude, longitude):
+    with pytest.raises(ValueError):
+        nearest_stations((), latitude, longitude)
 
 
 def test_archive_urls_are_stable_and_validate_station_ids():
