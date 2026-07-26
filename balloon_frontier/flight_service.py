@@ -156,18 +156,17 @@ class FlightService:
             prep.sim_state.envelope.weather_solar_modifier = impacts.get(
                 "thermal_efficiency", 1.0
             )
-            # A recorded provider already supplies absolute pressure. Applying the
-            # old pressure modifier again would double-count the weather event.
-            prep.sim_state.envelope.weather_pressure_modifier = (
-                1.0
-                if self.atmosphere_provider is not None
-                else impacts.get("pressure_modifier", 1.0)
+            # Profiles store the base atmospheric field while the associated
+            # WeatherEvent stores launch-specific modifiers. Applying both recreates
+            # the original conditions without baking weather policy into the data.
+            prep.sim_state.envelope.weather_pressure_modifier = impacts.get(
+                "pressure_modifier", 1.0
             )
-            prep.sim_state.weather_ascent_multiplier = impacts.get("ascent_rate", 1.0)
-            prep.sim_state.weather_drift_multiplier = (
-                1.0
-                if self.atmosphere_provider is not None
-                else impacts.get("drift_factor", 1.0)
+            prep.sim_state.weather_ascent_multiplier = impacts.get(
+                "ascent_rate", 1.0
+            )
+            prep.sim_state.weather_drift_multiplier = impacts.get(
+                "drift_factor", 1.0
             )
 
         assignment_dict = prep.mission_assignment or {}
