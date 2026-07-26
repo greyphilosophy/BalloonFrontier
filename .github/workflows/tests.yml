@@ -58,7 +58,9 @@ jobs:
           python -m pytest tests/test_session_controller.py -q
           python -m pytest tests/test_session_adapters.py -q
           python -m pytest tests/test_discord_game_entry.py -q
+      - name: Test tutorial
+        run: python -m pytest tests/test_tutorial.py -q
       - name: Test legacy CLI suite
         run: python -m pytest tests/test_cli*.py -q
       - name: Run non-Discord remainder
-        run: python -m pytest tests/ -q --ignore-glob=tests/test_discord*.py --ignore-glob=tests/test_cli*.py --ignore=tests/test_session_controller.py --ignore=tests/test_session_adapters.py
+        run: python -m pytest tests/ -q --ignore-glob=tests/test_discord*.py --ignore-glob=tests/test_cli*.py --ignore=tests/test_session_controller.py --ignore=tests/test_session_adapters.py --ignore=tests/test_tutorial.py
