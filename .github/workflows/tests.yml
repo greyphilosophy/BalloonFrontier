@@ -38,5 +38,11 @@ jobs:
       - name: Test Discord game entry
         run: python -m pytest tests/test_discord_game_entry.py -q
 
+      - name: Test legacy Discord suite
+        run: python -m pytest tests/test_discord*.py -q --ignore=tests/test_discord_game_entry.py
+
+      - name: Test legacy CLI suite
+        run: python -m pytest tests/test_cli*.py -q
+
       - name: Run remaining tests
-        run: python -m pytest tests/ -q --ignore=tests/test_session_controller.py --ignore=tests/test_session_adapters.py --ignore=tests/test_discord_game_entry.py
+        run: python -m pytest tests/ -q --ignore-glob=tests/test_discord*.py --ignore-glob=tests/test_cli*.py --ignore=tests/test_session_controller.py --ignore=tests/test_session_adapters.py
