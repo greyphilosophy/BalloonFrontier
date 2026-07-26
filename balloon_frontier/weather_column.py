@@ -12,7 +12,19 @@ from balloon_frontier.physics import (
     _standard_atmosphere_temperature,
 )
 
-COLUMN_ALTITUDES_M = (0.0, 1000.0, 3000.0, 6000.0, 9000.0, 12000.0, 16000.0, 22000.0, 30000.0, 40000.0)
+COLUMN_ALTITUDES_M = (
+    0.0,
+    1000.0,
+    3000.0,
+    6000.0,
+    9000.0,
+    12000.0,
+    16000.0,
+    22000.0,
+    30000.0,
+    40000.0,
+    50000.0,
+)
 SCENARIOS = ("calm", "frontal", "jet_stream", "atmospheric_river")
 
 
@@ -39,9 +51,16 @@ class WeatherColumn:
             raise ValueError(f"unknown weather-column scenario: {self.scenario}")
         if not self.layers:
             raise ValueError("weather column requires at least one layer")
-        if any(a.altitude_m >= b.altitude_m for a, b in zip(self.layers, self.layers[1:])):
+        if any(
+            lower.altitude_m >= upper.altitude_m
+            for lower, upper in zip(self.layers, self.layers[1:])
+        ):
             raise ValueError("weather-column layers must be strictly ascending")
-        object.__setattr__(self, "_altitudes", tuple(layer.altitude_m for layer in self.layers))
+        object.__setattr__(
+            self,
+            "_altitudes",
+            tuple(layer.altitude_m for layer in self.layers),
+        )
 
     @property
     def ceiling_m(self) -> float:
@@ -54,8 +73,16 @@ class WeatherColumn:
         altitude = min(self.ceiling_m, max(0.0, float(altitude_m)))
         lower, upper, fraction = self._bracket(altitude)
         eased = fraction * fraction * (3.0 - 2.0 * fraction)
-        anomaly = _mix(lower.temperature_anomaly_k, upper.temperature_anomaly_k, eased)
-        pressure_multiplier = _mix(lower.pressure_multiplier, upper.pressure_multiplier, eased)
+        anomaly = _mix(
+            lower.temperature_anomaly_k,
+            upper.temperature_anomaly_k,
+            eased,
+        )
+        pressure_multiplier = _mix(
+            lower.pressure_multiplier,
+            upper.pressure_multiplier,
+            eased,
+        )
         wind_x = _mix(lower.wind_x_mps, upper.wind_x_mps, eased)
         wind_y = _mix(lower.wind_y_mps, upper.wind_y_mps, eased)
         return AtmosphereSample(
@@ -66,12 +93,17 @@ class WeatherColumn:
             wind_y_mps=wind_y,
         )
 
-    def _bracket(self, altitude_m: float) -> tuple[WeatherColumnLayer, WeatherColumnLayer, float]:
+    def _bracket(
+        self,
+        altitude_m: float,
+    ) -> tuple[WeatherColumnLayer, WeatherColumnLayer, float]:
         if altitude_m <= self.layers[0].altitude_m:
             return self.layers[0], self.layers[0], 0.0
         for lower, upper in zip(self.layers, self.layers[1:]):
             if altitude_m <= upper.altitude_m:
-                fraction = (altitude_m - lower.altitude_m) / (upper.altitude_m - lower.altitude_m)
+                fraction = (altitude_m - lower.altitude_m) / (
+                    upper.altitude_m - lower.altitude_m
+                )
                 return lower, upper, fraction
         return self.layers[-1], self.layers[-1], 0.0
 
@@ -97,7 +129,9 @@ def generate_weather_column(seed: int, scenario: str | None = None) -> WeatherCo
             rng,
         )
         anomaly = _temperature_anomaly(selected, altitude, rng)
-        pressure_multiplier = 1.0 + (surface_pressure - 1.0) * math.exp(-altitude / 9000.0)
+        pressure_multiplier = 1.0 + (
+            surface_pressure - 1.0
+        ) * math.exp(-altitude / 9000.0)
         layers.append(
             WeatherColumnLayer(
                 altitude_m=altitude,
@@ -123,19 +157,38 @@ def _scenario_wind(
         speed = 2.0 + 0.25 * km + noise
         turn = 0.35 * math.tanh((km - 8.0) / 5.0)
     elif scenario == "frontal":
-        speed = 5.0 + 0.7 * km + 10.0 * math.exp(-((km - 8.0) / 4.0) ** 2) + noise
+        speed = (
+            5.0
+            + 0.7 * km
+            + 10.0 * math.exp(-((km - 8.0) / 4.0) ** 2)
+            + noise
+        )
         turn = 1.1 * math.tanh((km - 4.0) / 2.5)
     elif scenario == "jet_stream":
-        speed = 4.0 + 38.0 * math.exp(-((km - 11.0) / 3.0) ** 2) + 0.15 * km + noise
+        speed = (
+            4.0
+            + 38.0 * math.exp(-((km - 11.0) / 3.0) ** 2)
+            + 0.15 * km
+            + noise
+        )
         turn = 0.65 * math.tanh((km - 7.0) / 3.0)
     else:  # atmospheric_river
-        speed = 5.0 + 20.0 * math.exp(-((km - 3.0) / 2.4) ** 2) + 0.25 * km + noise
+        speed = (
+            5.0
+            + 20.0 * math.exp(-((km - 3.0) / 2.4) ** 2)
+            + 0.25 * km
+            + noise
+        )
         turn = 0.45 * math.tanh((km - 6.0) / 4.0)
     heading = surface_heading + turn_sign * turn + rng.uniform(-0.10, 0.10)
     return max(0.0, min(65.0, speed)), heading
 
 
-def _temperature_anomaly(scenario: str, altitude_m: float, rng: random.Random) -> float:
+def _temperature_anomaly(
+    scenario: str,
+    altitude_m: float,
+    rng: random.Random,
+) -> float:
     km = altitude_m / 1000.0
     background = rng.uniform(-0.8, 0.8)
     if scenario == "calm":
