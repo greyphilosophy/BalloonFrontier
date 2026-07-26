@@ -6,6 +6,10 @@ from collections.abc import Callable
 
 import discord
 
+from balloon_frontier.balloon_cluster import (
+    BalloonClusterConfiguratorMixin,
+    BalloonClusterFlightService,
+)
 from balloon_frontier.game_modes import GameMode
 from balloon_frontier.session_adapters import SessionAwareFlightService
 from balloon_frontier.discord_ui.configurator import BalloonConfigurator
@@ -49,26 +53,28 @@ class GameModeView(discord.ui.View):
         return bool(interaction.user and str(interaction.user.id) == self.player_id)
 
     async def select_mode(self, interaction: discord.Interaction, mode: GameMode) -> None:
-        wrapped = SessionAwareFlightService(
+        session_service = SessionAwareFlightService(
             self.service,
             mode=mode,
             ui="discord",
             channel_kind=self.channel_kind,
             on_finished=self.on_finished,
         )
+        wrapped = BalloonClusterFlightService(session_service)
 
-        configurator_type = BalloonConfigurator
+        configurator_mixins = [BalloonClusterConfiguratorMixin]
         if mode is GameMode.TUTORIAL:
             from balloon_frontier.tutorial import TutorialConfiguratorMixin
             from balloon_frontier.tutorial_catalog import ensure_discord_tutorial_options
 
             ensure_discord_tutorial_options()
-            configurator_type = type(
-                "TutorialBalloonConfigurator",
-                (TutorialConfiguratorMixin, BalloonConfigurator),
-                {},
-            )
+            configurator_mixins.insert(0, TutorialConfiguratorMixin)
 
+        configurator_type = type(
+            "BalloonFrontierConfigurator",
+            tuple(configurator_mixins) + (BalloonConfigurator,),
+            {},
+        )
         configurator = configurator_type(service=wrapped)
         configurator._msg = interaction.message
         await interaction.response.edit_message(
