@@ -10,31 +10,25 @@ permissions:
   contents: read
 
 jobs:
-  discover-tests:
+  discover-discord-tests:
     runs-on: ubuntu-latest
     outputs:
-      discord: ${{ steps.files.outputs.discord }}
-      remainder: ${{ steps.files.outputs.remainder }}
+      files: ${{ steps.files.outputs.files }}
     steps:
       - uses: actions/checkout@v4
       - id: files
         shell: bash
         run: |
-          discord=$(find tests -maxdepth 1 -name 'test_discord*.py' ! -name 'test_discord_game_entry.py' -print | sort | jq -R -s -c 'split("\n")[:-1]')
-          remainder=$(find tests -maxdepth 1 -name 'test_*.py' \
-            ! -name 'test_discord*.py' ! -name 'test_cli*.py' \
-            ! -name 'test_session_controller.py' ! -name 'test_session_adapters.py' \
-            ! -name 'test_tutorial.py' -print | sort | jq -R -s -c 'split("\n")[:-1]')
-          echo "discord=$discord" >> "$GITHUB_OUTPUT"
-          echo "remainder=$remainder" >> "$GITHUB_OUTPUT"
+          files=$(find tests -maxdepth 1 -name 'test_discord*.py' ! -name 'test_discord_game_entry.py' -print | sort | jq -R -s -c 'split("\n")[:-1]')
+          echo "files=$files" >> "$GITHUB_OUTPUT"
 
   legacy-discord:
-    needs: discover-tests
+    needs: discover-discord-tests
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        file: ${{ fromJSON(needs.discover-tests.outputs.discord) }}
+        file: ${{ fromJSON(needs.discover-discord-tests.outputs.files) }}
     name: legacy-discord (${{ matrix.file }})
     steps:
       - uses: actions/checkout@v4
@@ -42,24 +36,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: python -m pip install -r requirements.txt pytest
-      - run: python -m pytest "${{ matrix.file }}" -q
-
-  legacy-remainder:
-    needs: discover-tests
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        file: ${{ fromJSON(needs.discover-tests.outputs.remainder) }}
-    name: legacy-remainder (${{ matrix.file }})
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-      - run: python -m pip install -r requirements.txt pytest
+      - run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest
       - run: python -m pytest "${{ matrix.file }}" -q
 
   pytest:
@@ -71,13 +50,15 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: python -m pip install -r requirements.txt pytest
+      - run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest
       - name: Test new session layers
         run: |
           python -m pytest tests/test_session_controller.py -q
           python -m pytest tests/test_session_adapters.py -q
           python -m pytest tests/test_discord_game_entry.py -q
-      - name: Test tutorial
-        run: python -m pytest tests/test_tutorial.py -q
       - name: Test legacy CLI suite
         run: python -m pytest tests/test_cli*.py -q
+      - name: Run non-Discord remainder
+        run: python -m pytest tests/ -q --ignore-glob=tests/test_discord*.py --ignore-glob=tests/test_cli*.py --ignore=tests/test_session_controller.py --ignore=tests/test_session_adapters.py
