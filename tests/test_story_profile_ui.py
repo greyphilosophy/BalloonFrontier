@@ -14,11 +14,9 @@ def test_profile_table_formats_units_and_wind_direction():
             AtmosphereLayer(2000.0, 275.15, 80000.0, wind_y_mps=-5.0),
         ),
         weather=_weather(),
-        wind_measured=True,
+        wind_measurements_available=True,
     )
-
     text = format_atmosphere_profile(profile)
-
     assert "0.0" in text
     assert "15.0" in text
     assert "101.3" in text
@@ -34,16 +32,15 @@ def test_profile_table_limits_rows_and_labels_legacy_wind():
             for index in range(5)
         ),
         weather=_weather(),
-        wind_measured=False,
+        wind_measurements_available=False,
     )
-
     text = format_atmosphere_profile(profile, max_layers=2)
-
     assert "3 higher layers omitted" in text
     assert "Legacy profile" in text
 
 
 def test_empty_profile_has_clear_message():
-    profile = AtmosphereProfile(layers=(), weather=_weather(), wind_measured=False)
-
+    profile = AtmosphereProfile(
+        layers=(), weather=_weather(), wind_measurements_available=False
+    )
     assert "No measured layers" in format_atmosphere_profile(profile)
