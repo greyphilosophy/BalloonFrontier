@@ -29,5 +29,14 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest
 
-      - name: Run tests
-        run: python -m pytest tests/ -q
+      - name: Test session controller
+        run: python -m pytest tests/test_session_controller.py -q
+
+      - name: Test session adapters
+        run: python -m pytest tests/test_session_adapters.py -q
+
+      - name: Test Discord game entry
+        run: python -m pytest tests/test_discord_game_entry.py -q
+
+      - name: Run remaining tests
+        run: python -m pytest tests/ -q --ignore=tests/test_session_controller.py --ignore=tests/test_session_adapters.py --ignore=tests/test_discord_game_entry.py
