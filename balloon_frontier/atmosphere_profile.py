@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 from bisect import bisect_right
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Iterable
 
-from balloon_frontier.atmosphere import AtmosphereSample
+from balloon_frontier.atmosphere import AtmosphereProvider, AtmosphereSample
 from balloon_frontier.weather_event import WeatherEvent
 
 
@@ -66,10 +66,16 @@ class RecordedAtmosphereProvider:
     """Interpolate a saved vertical sounding through ``AtmosphereProvider``."""
 
     profile: AtmosphereProfile
+    _altitudes: tuple[float, ...] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not self.profile.layers:
             raise ValueError("recorded atmosphere requires at least one layer")
+        object.__setattr__(
+            self,
+            "_altitudes",
+            tuple(layer.altitude_m for layer in self.profile.layers),
+        )
 
     def sample(self, altitude_m: float, *, time_s: float = 0.0) -> AtmosphereSample:
         del time_s  # A sounding is currently a static vertical profile.
@@ -80,9 +86,7 @@ class RecordedAtmosphereProvider:
         if altitude >= layers[-1].altitude_m:
             return _sample_from_layer(altitude, layers[-1])
 
-        upper_index = bisect_right(
-            tuple(layer.altitude_m for layer in layers), altitude
-        )
+        upper_index = bisect_right(self._altitudes, altitude)
         lower = layers[upper_index - 1]
         upper = layers[upper_index]
         fraction = (altitude - lower.altitude_m) / (
@@ -111,8 +115,18 @@ def _sample_from_layer(altitude_m: float, layer: AtmosphereLayer) -> AtmosphereS
     )
 
 
-def profile_from_telemetry(telemetry: Iterable, weather: WeatherEvent) -> AtmosphereProfile:
-    """Sample ascent telemetry into approximately 2 km altitude layers."""
+def profile_from_telemetry(
+    telemetry: Iterable,
+    weather: WeatherEvent,
+    atmosphere_provider: AtmosphereProvider | None = None,
+) -> AtmosphereProfile:
+    """Sample ascent telemetry into approximately 2 km altitude layers.
+
+    When a provider is supplied, temperature, pressure, and wind come from that
+    atmospheric field while vehicle velocity remains a separate diagnostic. This
+    prevents balloon motion from being mistaken for wind and produces a profile
+    that can be replayed through the same provider contract.
+    """
 
     points = sorted(
         (point for point in telemetry if not getattr(point, "landed", False)),
@@ -123,13 +137,27 @@ def profile_from_telemetry(telemetry: Iterable, weather: WeatherEvent) -> Atmosp
     for point in points:
         if point.altitude_m < next_altitude:
             continue
+        if atmosphere_provider is not None:
+            sample = atmosphere_provider.sample(
+                point.altitude_m,
+                time_s=float(getattr(point, "time_s", 0.0)),
+            )
+            temperature_k = sample.temperature_k
+            pressure_pa = sample.pressure_pa
+            wind_x_mps = sample.wind_x_mps
+            wind_y_mps = sample.wind_y_mps
+        else:
+            temperature_k = point.ambient_temperature_k
+            pressure_pa = point.ambient_pressure_pa
+            wind_x_mps = getattr(point, "ambient_wind_x_mps", 0.0)
+            wind_y_mps = getattr(point, "ambient_wind_y_mps", 0.0)
         layers.append(AtmosphereLayer(
             altitude_m=round(float(point.altitude_m), 1),
-            temperature_k=round(float(point.ambient_temperature_k), 2),
-            pressure_pa=round(float(point.ambient_pressure_pa), 1),
+            temperature_k=round(float(temperature_k), 2),
+            pressure_pa=round(float(pressure_pa), 1),
             horizontal_velocity_mps=round(float(point.vx_mps), 2),
-            wind_x_mps=round(float(getattr(point, "ambient_wind_x_mps", 0.0)), 2),
-            wind_y_mps=round(float(getattr(point, "ambient_wind_y_mps", 0.0)), 2),
+            wind_x_mps=round(float(wind_x_mps), 2),
+            wind_y_mps=round(float(wind_y_mps), 2),
         ))
         next_altitude = point.altitude_m + 2000.0
     return AtmosphereProfile(tuple(layers), weather)
