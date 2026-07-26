@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Mapping
 
-from .atmosphere import AtmosphereProvider
+from .atmosphere import AtmosphereProvider, StandardAtmosphereProvider
 from .flight_service import FlightService
 from .game_modes import GameMode
 from .game_session import SessionState
@@ -120,7 +120,13 @@ class SessionAwareFlightService:
                     str(player_id)
                 )
                 if locked_profile is not None and locked_profile.layers:
-                    atmosphere_provider = RecordedAtmosphereProvider(locked_profile)
+                    atmosphere_provider = RecordedAtmosphereProvider(
+                        locked_profile,
+                        wind_fallback=StandardAtmosphereProvider(
+                            site_id=request.launch_site_id,
+                            wind_enabled=True,
+                        ),
+                    )
 
             weather_override = (
                 locked_profile.weather if locked_profile is not None else None
