@@ -18,7 +18,6 @@ def test_constant_east_wind_matches_time_integral():
         weather=_weather(),
         wind_measurements_available=True,
     )
-
     prediction = predict_landing_offset(
         profile,
         target_altitude_m=1000.0,
@@ -26,7 +25,6 @@ def test_constant_east_wind_matches_time_integral():
         descent_rate_mps=10.0,
         altitude_step_m=200.0,
     )
-
     assert prediction.flight_time_s == pytest.approx(300.0)
     assert prediction.east_m == pytest.approx(3000.0)
     assert prediction.north_m == pytest.approx(0.0)
@@ -43,7 +41,6 @@ def test_opposing_layers_can_cancel_drift():
         weather=_weather(),
         wind_measurements_available=True,
     )
-
     prediction = predict_landing_offset(
         profile,
         target_altitude_m=1000.0,
@@ -51,8 +48,17 @@ def test_opposing_layers_can_cancel_drift():
         descent_rate_mps=5.0,
         altitude_step_m=100.0,
     )
-
     assert prediction.east_m == pytest.approx(0.0, abs=1e-9)
+
+
+def test_prediction_rejects_profile_without_measured_wind():
+    profile = AtmosphereProfile(
+        layers=(AtmosphereLayer(0.0, 288.0, 101325.0),),
+        weather=_weather(),
+        wind_measurements_available=False,
+    )
+    with pytest.raises(ValueError, match="measured wind"):
+        predict_landing_offset(profile, target_altitude_m=1000.0)
 
 
 @pytest.mark.parametrize(
@@ -68,7 +74,7 @@ def test_prediction_rejects_invalid_inputs(kwargs, message):
     profile = AtmosphereProfile(
         layers=(AtmosphereLayer(0.0, 288.0, 101325.0),),
         weather=_weather(),
+        wind_measurements_available=True,
     )
-
     with pytest.raises(ValueError, match=message):
         predict_landing_offset(profile, **kwargs)
