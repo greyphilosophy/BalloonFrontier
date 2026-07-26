@@ -26,6 +26,17 @@ def _weather():
     )
 
 
+def _request(player_id="player"):
+    return LaunchRequest(
+        gas_id="helium",
+        envelope_id="latex",
+        payload_ids=(),
+        launch_site_id="field",
+        fill_mode=FillMode.AUTO,
+        player_id=player_id,
+    )
+
+
 def test_locked_profile_drives_flight_physics_and_is_consumed(monkeypatch, tmp_path):
     repository = AtmosphereProfileRepository(tmp_path)
     profile = AtmosphereProfile(
@@ -46,6 +57,7 @@ def test_locked_profile_drives_flight_physics_and_is_consumed(monkeypatch, tmp_p
             ),
         ),
         weather=_weather(),
+        wind_measurements_available=True,
     )
     repository.save("player", profile)
     assert repository.lock_for_next_flight("player")
@@ -59,16 +71,7 @@ def test_locked_profile_drives_flight_physics_and_is_consumed(monkeypatch, tmp_p
         mode=GameMode.FREE_PLAY,
         ui="cli",
     )
-    request = LaunchRequest(
-        gas_id="helium",
-        envelope_id="latex",
-        payload_ids=(),
-        launch_site_id="field",
-        fill_mode=FillMode.AUTO,
-        player_id="player",
-    )
-
-    outcome = service.run(request)
+    outcome = service.run(_request())
 
     assert outcome.result.telemetry
     first = outcome.result.telemetry[0]
@@ -78,11 +81,46 @@ def test_locked_profile_drives_flight_physics_and_is_consumed(monkeypatch, tmp_p
     assert repository.get_locked_profile("player") is None
 
 
+def test_legacy_profile_replays_temperature_and_pressure_with_site_wind(
+    monkeypatch,
+    tmp_path,
+):
+    repository = AtmosphereProfileRepository(tmp_path)
+    profile = AtmosphereProfile(
+        layers=(AtmosphereLayer(0.0, 250.0, 70000.0),),
+        weather=_weather(),
+        wind_measurements_available=False,
+    )
+    repository.save("legacy", profile)
+    repository.lock_for_next_flight("legacy")
+    monkeypatch.setattr(
+        "balloon_frontier.atmosphere_profile.atmosphere_profiles",
+        repository,
+    )
+    monkeypatch.setattr(
+        "balloon_frontier.atmosphere._standard_wind_vector",
+        lambda altitude_m, *, time_s, site_id: (15.0, 0.0),
+    )
+
+    service = SessionAwareFlightService(
+        FlightService(default_sim_time=0.3),
+        mode=GameMode.FREE_PLAY,
+        ui="cli",
+    )
+    outcome = service.run(_request("legacy"))
+
+    first = outcome.result.telemetry[0]
+    assert first.ambient_temperature_k == pytest.approx(250.0, abs=0.1)
+    assert first.ambient_pressure_pa == pytest.approx(70000.0, abs=50.0)
+    assert first.vx_mps > 0.0
+
+
 def test_failed_replay_keeps_profile_locked(monkeypatch, tmp_path):
     repository = AtmosphereProfileRepository(tmp_path)
     profile = AtmosphereProfile(
         layers=(AtmosphereLayer(0.0, 250.0, 70000.0, wind_x_mps=10.0),),
         weather=_weather(),
+        wind_measurements_available=True,
     )
     repository.save("player", profile)
     repository.lock_for_next_flight("player")
@@ -100,14 +138,8 @@ def test_failed_replay_keeps_profile_locked(monkeypatch, tmp_path):
         mode=GameMode.FREE_PLAY,
         ui="cli",
     )
-    request = LaunchRequest(
-        gas_id="helium",
-        envelope_id="latex",
-        launch_site_id="field",
-        player_id="player",
-    )
 
     with pytest.raises(Exception, match="launch failed"):
-        service.run(request)
+        service.run(_request())
 
     assert repository.get_locked_profile("player") == profile
