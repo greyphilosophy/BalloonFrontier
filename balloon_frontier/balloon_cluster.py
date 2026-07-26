@@ -21,7 +21,11 @@ class ClusteredLaunchRequest(LaunchRequest):
     balloon_count: int = 1
 
     def __post_init__(self) -> None:
-        super().__post_init__()
+        # ``dataclass(slots=True)`` creates a replacement class object, which can
+        # invalidate zero-argument ``super()`` closures. Dispatch explicitly to
+        # the base dataclass so validation remains reliable on all supported
+        # Python versions.
+        LaunchRequest.__post_init__(self)
         if isinstance(self.balloon_count, bool) or not isinstance(self.balloon_count, int):
             raise ValueError("balloon_count must be an integer")
         if not MIN_BALLOON_COUNT <= self.balloon_count <= MAX_BALLOON_COUNT:
@@ -37,7 +41,9 @@ class ClusteredLaunchRequest(LaunchRequest):
         Manual gas mass remains an explicit total chosen by the player.
         """
 
-        base_mass = super().gas_mass_kg
+        base_property = LaunchRequest.gas_mass_kg
+        assert base_property.fget is not None
+        base_mass = base_property.fget(self)
         if self.fill_mode.value == "manual":
             return base_mass
         return base_mass * self.balloon_count
@@ -45,7 +51,7 @@ class ClusteredLaunchRequest(LaunchRequest):
     def to_simulation_state(self):
         """Represent the cluster as one equivalent envelope in the physics engine."""
 
-        state = super().to_simulation_state()
+        state = LaunchRequest.to_simulation_state(self)
         envelope = replace(
             state.envelope,
             max_volume_m3=state.envelope.max_volume_m3 * self.balloon_count,
