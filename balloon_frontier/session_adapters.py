@@ -100,8 +100,6 @@ class SessionAwareFlightService:
                 apply_rewards=not is_tutorial,
                 weather_override=weather_override,
             ).run(request)
-            if weather_override is not None and atmosphere_repository is not None:
-                atmosphere_repository.consume_locked_weather(str(player_id))
             if is_tutorial:
                 from .tutorial import evaluate_tutorial_outcome
 
@@ -115,6 +113,8 @@ class SessionAwareFlightService:
                 from .story import add_story_results
 
                 outcome = add_story_results(outcome, str(player_id) if player_id else None)
+            if weather_override is not None and atmosphere_repository is not None:
+                atmosphere_repository.consume_locked_weather(str(player_id))
             plan.session.complete(outcome)
             return outcome
         except Exception:
