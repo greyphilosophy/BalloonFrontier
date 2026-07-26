@@ -35,3 +35,8 @@ from .fill import (
 )
 from .flight_score import calculate_flight_score
 from .medal_tier import MedalTier, get_medal_tier, medal_tier_to_string
+
+# Register lightweight tutorial components before either UI enumerates the catalog.
+from .tutorial_catalog import ensure_tutorial_catalog as _ensure_tutorial_catalog
+
+_ensure_tutorial_catalog()
