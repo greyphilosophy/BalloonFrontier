@@ -22,6 +22,18 @@ jobs:
           files=$(find tests -maxdepth 1 -name 'test_discord*.py' ! -name 'test_discord_game_entry.py' -print | sort | jq -R -s -c 'split("\n")[:-1]')
           echo "files=$files" >> "$GITHUB_OUTPUT"
 
+  discover-nondiscord-tests:
+    runs-on: ubuntu-latest
+    outputs:
+      files: ${{ steps.files.outputs.files }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: files
+        shell: bash
+        run: |
+          files=$(find tests -maxdepth 1 -name 'test_*.py' ! -name 'test_discord*.py' ! -name 'test_cli*.py' ! -name 'test_session_controller.py' ! -name 'test_session_adapters.py' ! -name 'test_atmosphere_provider.py' ! -name 'test_atmosphere_profile.py' ! -name 'test_recorded_atmosphere_replay.py' -print | sort | jq -R -s -c 'split("\n")[:-1]')
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+
   legacy-discord:
     needs: discover-discord-tests
     runs-on: ubuntu-latest
@@ -30,6 +42,25 @@ jobs:
       matrix:
         file: ${{ fromJSON(needs.discover-discord-tests.outputs.files) }}
     name: legacy-discord (${{ matrix.file }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest
+      - run: python -m pytest "${{ matrix.file }}" -q
+
+  legacy-nondiscord:
+    needs: discover-nondiscord-tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        file: ${{ fromJSON(needs.discover-nondiscord-tests.outputs.files) }}
+    name: legacy-nondiscord (${{ matrix.file }})
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -66,5 +97,3 @@ jobs:
         run: python -m pytest tests/test_atmosphere_profile.py -q
       - name: Test recorded atmosphere replay
         run: python -m pytest tests/test_recorded_atmosphere_replay.py -q
-      - name: Run non-Discord remainder
-        run: python -m pytest tests/ -q --ignore-glob=tests/test_discord*.py --ignore-glob=tests/test_cli*.py --ignore=tests/test_session_controller.py --ignore=tests/test_session_adapters.py --ignore=tests/test_atmosphere_provider.py --ignore=tests/test_atmosphere_profile.py --ignore=tests/test_recorded_atmosphere_replay.py
