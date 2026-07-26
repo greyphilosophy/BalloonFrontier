@@ -9,11 +9,10 @@ from .flight_service import FlightService
 from .game_modes import GameMode
 from .game_session import SessionState
 from .session_controller import SessionPlan, SessionRegistry, plan_session
+from .weather_event import weather_impact_on_flight
 
 
 class _NoOpRewardService:
-    """Leave mission results untouched until tutorial evaluation is complete."""
-
     def apply(self, *, player_id: str, mission_results: tuple) -> tuple:
         return mission_results
 
@@ -31,28 +30,12 @@ def configuration_from_launch_request(request: Any) -> dict[str, Any]:
     }
 
 
-def prepare_cli_session(
-    mode: GameMode | str | int,
-    request: Any,
-    *,
-    player_id: str | int | None = None,
-) -> SessionPlan:
-    return plan_session(
-        mode,
-        configuration_from_launch_request(request),
-        player_id=player_id,
-        context={"ui": "cli"},
-    )
+def prepare_cli_session(mode, request: Any, *, player_id=None) -> SessionPlan:
+    return plan_session(mode, configuration_from_launch_request(request), player_id=player_id, context={"ui": "cli"})
 
 
 class _PlannedFlightService(FlightService):
-    def __init__(
-        self,
-        source: FlightService,
-        plan: SessionPlan,
-        *,
-        apply_rewards: bool = True,
-    ) -> None:
+    def __init__(self, source: FlightService, plan: SessionPlan, *, apply_rewards: bool = True, weather_override=None) -> None:
         super().__init__(
             default_sim_time=source.default_sim_time,
             mission_sim_time=source.mission_sim_time,
@@ -62,6 +45,7 @@ class _PlannedFlightService(FlightService):
         )
         self._source = source
         self._plan = plan
+        self._weather_override = weather_override
 
     def prepare(self, launch_request: Any) -> Any:
         preparation = self._source.prepare(launch_request)
@@ -71,53 +55,62 @@ class _PlannedFlightService(FlightService):
             "mission_count": len(self._plan.missions),
             "seed": None,
         }
-        return replace(preparation, mission_assignment=assignment)
+        changes = {"mission_assignment": assignment}
+        if self._weather_override is not None:
+            changes["weather"] = self._weather_override
+            changes["weather_impacts"] = weather_impact_on_flight(self._weather_override)
+        return replace(preparation, **changes)
 
 
 @dataclass
 class SessionAwareFlightService:
-    """Wrap a FlightService so real UI launches obey the shared lifecycle."""
-
     service: FlightService
     mode: GameMode | str | int
     ui: str
     channel_kind: str | None = None
     on_finished: Callable[[], None] | None = None
     last_plan: SessionPlan | None = None
+    story_player_id: str | None = None
 
     def run(self, request: Any) -> Any:
+        player_id = getattr(request, "player_id", None) or self.story_player_id
         context = {"ui": self.ui}
         if self.channel_kind is not None:
             context["channel"] = self.channel_kind
         plan = plan_session(
             self.mode,
             configuration_from_launch_request(request),
-            player_id=getattr(request, "player_id", None),
+            player_id=player_id,
             context=context,
         )
         self.last_plan = plan
         plan.session.launch()
         try:
             is_tutorial = plan.session.mode is GameMode.TUTORIAL
+            weather_override = None
+            if player_id:
+                from .atmosphere_profile import atmosphere_profiles
+
+                weather_override = atmosphere_profiles.consume_locked_weather(str(player_id))
             outcome = _PlannedFlightService(
                 self.service,
                 plan,
                 apply_rewards=not is_tutorial,
+                weather_override=weather_override,
             ).run(request)
             if is_tutorial:
                 from .tutorial import evaluate_tutorial_outcome
 
                 outcome = evaluate_tutorial_outcome(request, outcome)
-                if request.player_id:
+                if player_id:
                     final_results = self.service.reward_service.apply(
-                        player_id=request.player_id,
-                        mission_results=outcome.mission_results,
+                        player_id=str(player_id), mission_results=outcome.mission_results
                     )
                     outcome = replace(outcome, mission_results=final_results)
             elif plan.session.mode is GameMode.STORY:
-                from .story import add_story_bonus_results
+                from .story import add_story_results
 
-                outcome = add_story_bonus_results(outcome)
+                outcome = add_story_results(outcome, str(player_id) if player_id else None)
             plan.session.complete(outcome)
             return outcome
         except Exception:
@@ -150,40 +143,28 @@ class DiscordSessionAdapter:
     def create(cls) -> "DiscordSessionAdapter":
         return cls(SessionRegistry())
 
-    def start(
-        self,
-        player_id: str | int,
-        mode: GameMode | str | int,
-        state: Mapping[str, Any],
-        *,
-        channel_kind: str = "dm",
-    ) -> SessionPlan:
+    def start(self, player_id, mode, state: Mapping[str, Any], *, channel_kind: str = "dm") -> SessionPlan:
         existing = self.registry.get(player_id)
         if existing is not None and not existing.session.is_terminal:
             existing.session.cancel()
-        plan = plan_session(
-            mode,
-            configuration_from_discord_state(state),
-            player_id=player_id,
-            context={"ui": "discord", "channel": channel_kind},
-        )
+        plan = plan_session(mode, configuration_from_discord_state(state), player_id=player_id, context={"ui": "discord", "channel": channel_kind})
         self.registry.put(player_id, plan)
         return plan
 
-    def launch(self, player_id: str | int) -> SessionPlan:
+    def launch(self, player_id) -> SessionPlan:
         plan = self._require(player_id)
         plan.session.launch()
         return plan
 
-    def complete(self, player_id: str | int, result: Any) -> SessionPlan:
+    def complete(self, player_id, result: Any) -> SessionPlan:
         plan = self._require(player_id)
         plan.session.complete(result)
         return plan
 
-    def cancel(self, player_id: str | int) -> bool:
+    def cancel(self, player_id) -> bool:
         return self.registry.cancel(player_id)
 
-    def _require(self, player_id: str | int) -> SessionPlan:
+    def _require(self, player_id) -> SessionPlan:
         plan = self.registry.get(player_id)
         if plan is None:
             raise ValueError("no active session for player")
