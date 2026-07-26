@@ -85,6 +85,10 @@ class SessionAwareFlightService:
         plan.session.launch()
         try:
             outcome = _PlannedFlightService(self.service, plan).run(request)
+            if plan.session.mode is GameMode.TUTORIAL:
+                from .tutorial import evaluate_tutorial_outcome
+
+                outcome = evaluate_tutorial_outcome(request, outcome)
             plan.session.complete(outcome)
             return outcome
         except Exception:
