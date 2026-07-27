@@ -10,6 +10,7 @@ from balloon_frontier.launch_result import MissionResult
 
 
 TUTORIAL_MISSION_ID = "first_flight"
+TUTORIAL_GAS_OPTIONS = ("helium", "hot_air")
 
 
 @dataclass(frozen=True)
@@ -121,8 +122,43 @@ def tutorial_result_summary(outcome: FlightOutcome) -> str:
 class TutorialConfiguratorMixin:
     """Add tutorial prompts and visually suggest a first successful route."""
 
+    def _tutorial_gas_options(self):
+        from balloon_frontier.discord_ui.configurator import GAS_OPTIONS
+
+        return {key: GAS_OPTIONS[key] for key in TUTORIAL_GAS_OPTIONS}
+
     def _step_content(self) -> str:
-        return tutorial_guidance(self._current_step) + "\n\n" + super()._step_content()
+        from balloon_frontier.discord_ui.configurator import _Step
+
+        if self._current_step != _Step.CHOOSE_GAS:
+            content = super()._step_content()
+        else:
+            player = self._get_player_state()
+            lines = [
+                "🔧 **Balloon Configuration**\n",
+                f"**Step 1/{len(self.STEPS)}:** Gas Type\n",
+            ]
+            for index, gas in enumerate(self._tutorial_gas_options().values(), 1):
+                lines.append(f"{index}  {gas[0]}  (ρ={gas[1]} kg/m³, ${gas[2]}/kg)")
+            lines.extend(["", "Click a button to select. Use < Back to go earlier."])
+            if player:
+                lines.append(
+                    f"⚡ You have {player.reputation} reputation and ${player.budget} budget."
+                )
+            content = "\n".join(lines)
+        return tutorial_guidance(self._current_step) + "\n\n" + content
+
+    async def _on_gas(self, interaction, index: int):
+        key = self._option_by_index(index, self._tutorial_gas_options())
+        if key is None:
+            await interaction.response.send_message(
+                "That option isn't available right now.",
+                ephemeral=True,
+            )
+            return
+        self.state["gas"] = key
+        self.state["gas_mass"] = self._compute_gas_mass()
+        await self._advance(interaction)
 
     async def _on_envelope(self, interaction, index: int):
         """Apply tutorial envelope choices without normal progression locks.
@@ -146,22 +182,29 @@ class TutorialConfiguratorMixin:
 
     def build_buttons(self):
         super().build_buttons()
-        if self._current_step not in RECOMMENDED_TUTORIAL_CHOICES:
-            return
 
         import discord
         from balloon_frontier.discord_ui.configurator import (
             ENVELOPE_OPTIONS,
             FILL_MODES,
-            GAS_OPTIONS,
             PAYLOAD_OPTIONS,
             SITE_OPTIONS,
             _Step,
         )
         from balloon_frontier.discord_ui.views import _OptionButton
 
+        if self._current_step == _Step.CHOOSE_GAS:
+            for item in list(self.children):
+                if isinstance(item, _OptionButton):
+                    self.remove_item(item)
+            for index in range(1, len(self._tutorial_gas_options()) + 1):
+                self.add_item(_OptionButton(index, f"Choose gas {index}", self._on_gas))
+
+        if self._current_step not in RECOMMENDED_TUTORIAL_CHOICES:
+            return
+
         options_by_step = {
-            _Step.CHOOSE_GAS: GAS_OPTIONS,
+            _Step.CHOOSE_GAS: self._tutorial_gas_options(),
             _Step.CHOOSE_ENVELOPE: ENVELOPE_OPTIONS,
             _Step.CHOOSE_FILL: FILL_MODES,
             _Step.CHOOSE_PAYLOADS: PAYLOAD_OPTIONS,
