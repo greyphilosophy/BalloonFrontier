@@ -76,6 +76,11 @@ def test_invalid_levels_and_metadata_are_rejected():
                 SoundingLevel(1000.0, 275.0, 80000.0),
             )
         )
+    with pytest.raises(ValueError, match="timezone"):
+        AtmosphericSounding(
+            levels=(SoundingLevel(0.0, 290.0, 100000.0),),
+            observed_at=datetime(2026, 7, 26),
+        )
     with pytest.raises(ValueError, match="supplied together"):
         AtmosphericSounding(
             levels=(SoundingLevel(0.0, 290.0, 100000.0),),
