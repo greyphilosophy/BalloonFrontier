@@ -124,6 +124,26 @@ class TutorialConfiguratorMixin:
     def _step_content(self) -> str:
         return tutorial_guidance(self._current_step) + "\n\n" + super()._step_content()
 
+    async def _on_envelope(self, interaction, index: int):
+        """Apply tutorial envelope choices without normal progression locks.
+
+        Tutorial mode is the player's introduction to the configurator, so every
+        choice shown by the tutorial must be usable by a brand-new player. Normal
+        game modes continue to enforce their progression rules in the base class.
+        """
+        from balloon_frontier.discord_ui.configurator import ENVELOPE_OPTIONS
+
+        key = self._option_by_index(index, ENVELOPE_OPTIONS)
+        if key is None:
+            await interaction.response.send_message(
+                "That option isn't available right now.",
+                ephemeral=True,
+            )
+            return
+        self.state["envelope"] = key
+        self.state["gas_mass"] = self._compute_gas_mass()
+        await self._advance(interaction)
+
     def build_buttons(self):
         super().build_buttons()
         if self._current_step not in RECOMMENDED_TUTORIAL_CHOICES:
