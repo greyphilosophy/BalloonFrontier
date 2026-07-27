@@ -31,34 +31,7 @@ def evaluate_and_update_progression(
     player_id: str,
     budget_reward: int = 100,
 ) -> Dict:
-    """Evaluate flight against missions and update player progression.
-
-    This is the central function that connects simulation results to the game's
-    progression system. It:
-    1. Evaluates each mission against the flight telemetry
-    2. Aggregates scores across all missions
-    3. Updates the player's reputation, budget, and unlocks
-    4. Returns the complete evaluation result
-
-    Args:
-        telemetry: Flight telemetry from the simulation.
-        mission_ids: List of mission IDs assigned to this flight.
-        payloads: List of payload identifiers used.
-        player_id: Discord user ID or player identifier.
-        budget_reward: Base budget reward for successful mission completion.
-
-    Returns:
-        Dict with keys:
-            - missions: list of individual mission result dicts
-            - overall_score: weighted average score (0-100)
-            - overall_success: bool — True if overall_score >= 60
-            - reputation_gained: int
-            - budget_earned: int
-            - new_unlocks: list of envelope names unlocked
-            - player_state: current PlayerState
-    """
-    from balloon_frontier.progression import PlayerRegistry
-
+    """Evaluate flight against missions and update player progression."""
     player = PlayerRegistry.get_or_create(player_id)
     all_mission_results = []
     total_weighted_score = 0.0
@@ -72,19 +45,16 @@ def evaluate_and_update_progression(
             continue
 
         mission = get_mission(mission_id)
+
         def _map_objective(obj):
-            # Map mission JSON params dict to evaluator's expected target_value
-            # Note: mission JSONs use target_hours and target_altitude_m
             p = obj.params or {}
             if obj.type == "reach_altitude":
                 return {"type": obj.type, "target_value": p.get("minimum_m", 0), "weight": 1.0}
-            elif obj.type == "float_duration":
+            if obj.type == "float_duration":
                 return {"type": obj.type, "target_value": p.get("target_hours", 0), "weight": 1.0}
-            elif obj.type == "station_keep":
+            if obj.type == "station_keep":
                 return {"type": obj.type, "target_value": p.get("target_altitude_m", 0), "weight": 1.0}
-            elif obj.type == "capture_photo":
-                return {"type": obj.type, "target_value": 1.0, "weight": 1.0}
-            elif obj.type == "recover_data":
+            if obj.type in {"capture_photo", "recover_data"}:
                 return {"type": obj.type, "target_value": 1.0, "weight": 1.0}
             return {"type": obj.type, "target_value": 0, "weight": 1.0}
 
@@ -92,10 +62,8 @@ def evaluate_and_update_progression(
             "id": mission.id,
             "objectives": [_map_objective(o) for o in mission.objectives],
         }
-
         result = evaluate_flight(telemetry, mission_config, payloads)
         score = result.score
-
         all_mission_results.append({
             "mission_id": mission.id,
             "title": mission.title,
@@ -103,16 +71,19 @@ def evaluate_and_update_progression(
             "is_success": result.is_success,
             "notes": result.notes,
             "objectives_scores": [
-                {"type": o.type, "score": round(o.actual_value, 1) if isinstance(o.actual_value, (int, float)) else 0, "description": o.type}
+                {
+                    "type": o.type,
+                    "score": round(o.actual_value, 1)
+                    if isinstance(o.actual_value, (int, float))
+                    else 0,
+                    "description": o.type,
+                }
                 for o in result.objectives
             ],
         })
-
-        # Aggregate scores
-        total_weighted_score += score * 1.0
+        total_weighted_score += score
         total_weight += 1.0
 
-        # Update player progression — only reward for successful missions.
         if result.is_success:
             rep_gain = min(int(score / 33), 2)
             budget_earned = int(budget_reward * score / 100)
@@ -123,38 +94,29 @@ def evaluate_and_update_progression(
             if mission_id not in player.missions_completed:
                 player.missions_completed.append(mission_id)
 
-        # Check all equipment unlocks using OR logic (GDD §20/21).
-        # Budget gates only apply when cost > 0.
         for env in ENVELOPES:
             if env.id not in player.unlocked_envelopes:
                 if player.reputation >= env.min_reputation or (env.cost > 0 and player.budget >= env.cost):
                     player.unlocked_envelopes.append(env.id)
                     new_unlocks.append(env.name)
-
         for puid in PAYLOAD_UNLOCKS:
             if puid.id not in player.unlocked_payloads:
                 if player.reputation >= puid.min_reputation or (puid.cost > 0 and player.budget >= puid.cost):
                     player.unlocked_payloads.append(puid.id)
                     new_unlocks.append(puid.name)
-
         for site in SITES:
             if site.id not in player.unlocked_sites:
                 if player.reputation >= site.min_reputation or (site.cost > 0 and player.budget >= site.cost):
                     player.unlocked_sites.append(site.id)
                     new_unlocks.append(site.name)
 
-    overall_score = (total_weighted_score / total_weight) if total_weight > 0 else 0
+    overall_score = total_weighted_score / total_weight if total_weight > 0 else 0
     overall_success = overall_score >= 60
-
-    # Count this as one launch (not one per mission).
     player.total_flights += 1
-    # Increment successful_flights only if overall mission evaluation was successful.
     if overall_success:
         player.successful_flights += 1
 
-    # Save state (use PlayerRegistry.flush_all to save the player by player_id)
     try:
-        from balloon_frontier.progression import PlayerRegistry
         PlayerRegistry.flush_all()
     except Exception:
         logging.exception("Failed to save player progression")
@@ -185,28 +147,13 @@ def generate_narrative_summary(
     mission_result: Optional[Dict] = None,
     weather_briefing: Optional[str] = None,
 ) -> str:
-    """Generate narrative flavor text based on flight outcome.
-
-    Args:
-        peak_altitude: Maximum altitude reached in meters.
-        burst: Whether the balloon burst.
-        landed: Whether the balloon landed safely.
-        crashed: Whether the balloon crashed.
-        time_of_flight: Total flight time in seconds.
-        mission_result: Optional mission evaluation result dict.
-        weather_briefing: Optional weather briefing text.
-
-    Returns:
-        Multi-line narrative text for display in results.
-    """
+    """Generate narrative flavor text based on flight outcome."""
     lines = []
     target = 30000
 
-    # ── Weather context ──
     if weather_briefing:
         lines.append(f"{weather_briefing}\n")
 
-    # ── Flight outcome narrative ──
     if burst:
         lines.append("💥 **Your balloon burst!**")
         if peak_altitude < target * 0.5:
@@ -215,20 +162,16 @@ def generate_narrative_summary(
             lines.append(f"  You got close to {target:,}m, but the expanding gas at high altitude was too much. A mylar or zero-pressure envelope might help.")
         else:
             lines.append(f"  You reached {peak_altitude:,.0f}m — incredibly high! The burst was just a few thousand meters too late.")
-
     elif crashed:
         lines.append("🏁 **Crash landing!**")
         if time_of_flight < 60:
             lines.append("  The balloon descended rapidly — possibly due to payload weight or gas permeability.")
         else:
             lines.append(f"  After {time_of_flight:.0f}s of flight, the balloon made an uncontrolled descent. Check your parachutes!")
-
     elif landed:
         lines.append("🏁 **Safe landing!**")
         lines.append(f"  The balloon descended gently after {time_of_flight:.0f}s of flight. All payloads recovered.")
-
     else:
-        # Still climbing after simulation ended
         if peak_altitude < target * 0.3:
             lines.append("📈 **Still climbing slowly...**")
             lines.append("  Your balloon is gaining altitude but not fast enough. Try heavier gas fill or lighter payloads.")
@@ -239,24 +182,20 @@ def generate_narrative_summary(
             lines.append("🚀 **Impressive climb!**")
             lines.append(f"  {peak_altitude:,.0f}m and still going! You're very close to the {target:,}m target.")
 
-    # ── Mission context ──
     if mission_result:
         lines.append("")
         if mission_result.get("missions"):
-            for m in mission_result["missions"]:
-                icon = "✅" if m["is_success"] else "❌"
-                lines.append(f"  {icon} **{m['title']}**: {m['score']:.0f}/100")
-                if m.get("notes"):
-                    lines.append(f"     📝 {m['notes']}")
-
+            for mission in mission_result["missions"]:
+                icon = "✅" if mission["is_success"] else "❌"
+                lines.append(f"  {icon} **{mission['title']}**: {mission['score']:.0f}/100")
+                if mission.get("notes"):
+                    lines.append(f"     📝 {mission['notes']}")
             lines.append("")
             lines.append(f"  **Overall Score: {mission_result.get('overall_score', 0):.1f}/100**")
             lines.append(f"  {'🎉 Mission Success!' if mission_result.get('overall_success') else '⚠️ Mission Failed — Try Again!'}")
-
             lines.append("")
             lines.append(f"  📈 Reputation: +{mission_result.get('reputation_gained', 0)} (Total: {mission_result.get('player_state', {}).get('reputation', 0)})")
             lines.append(f"  💰 Budget: +{mission_result.get('budget_earned', 0)} (Total: {mission_result.get('player_state', {}).get('budget', 0)})")
-
             if mission_result.get("new_unlocks"):
                 for unlock in mission_result["new_unlocks"]:
                     lines.append(f"  🔓 **New envelope unlocked: {unlock}!**")
@@ -267,16 +206,26 @@ def generate_narrative_summary(
                     budget_needed = 0
                     for env in ENVELOPES:
                         if env.id not in state.get("unlocked_envelopes", []):
-                            if rep_needed < env.min_reputation:
-                                rep_needed = env.min_reputation
-                            if budget_needed < env.cost:
-                                budget_needed = env.cost
+                            rep_needed = max(rep_needed, env.min_reputation)
+                            budget_needed = max(budget_needed, env.cost)
                     if rep_needed > state.get("reputation", 0):
                         lines.append(f"  🔒 Next unlock: {rep_needed - state.get('reputation', 0)} more reputation needed")
                     if budget_needed > state.get("budget", 0):
                         lines.append(f"  🔒 Next unlock: {budget_needed - state.get('budget', 0)} more budget needed")
 
     return "\n".join(lines)
+
+
+def format_flight_duration(seconds: float) -> str:
+    """Format elapsed flight time compactly for player-facing reports."""
+    total_seconds = max(0, int(round(float(seconds))))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m {seconds:02d}s"
+    if minutes:
+        return f"{minutes}m {seconds:02d}s"
+    return f"{seconds}s"
 
 
 def format_discord_results(
@@ -296,38 +245,17 @@ def format_discord_results(
     weather_event: Optional[Dict] = None,
     chart_str: str = "",
 ) -> str:
-    """Format a complete Discord result message with narrative framing.
-
-    This is the main entry point for generating launch results in Discord.
-    It connects simulation data → mission evaluation → progression → narrative.
-
-    Args:
-        peak_altitude: Maximum altitude reached.
-        burst: Whether balloon burst.
-        landed: Whether balloon landed safely.
-        crashed: Whether balloon crashed.
-        time_of_flight: Total flight time.
-        telemetry: Flight telemetry data.
-        gas_name: Display name of gas type.
-        gas_mass: Gas mass in kg.
-        env_name: Display name of envelope type.
-        payload_names: Comma-separated payload names.
-        site_name: Launch site name.
-        mission_assignment: Mission assignment dict from mission system.
-        player_id: Player identifier for progression tracking.
-        weather_event: Weather event for this launch (if generated).
-        chart_str: ASCII trajectory chart (pre-generated).
-
-    Returns:
-        Formatted result string for Discord (under 2000 chars after truncation).
-    """
+    """Format a complete Discord result message with narrative framing."""
     lines = ["🎈 **Launch Report**\n"]
     lines.append(f"Gas: {gas_name} | Mass: {gas_mass:.3f}kg")
     lines.append(f"Envelope: {env_name}")
     lines.append(f"Payloads: {payload_names}")
     lines.append(f"Site: {site_name}\n")
 
-    # Weather briefing
+    lines.append("📊 **Flight Statistics**")
+    lines.append(f"Maximum altitude: {peak_altitude:,.0f} m ({peak_altitude / 1000:.2f} km)")
+    lines.append(f"Flight duration: {format_flight_duration(time_of_flight)}\n")
+
     if weather_event:
         if weather_event.get("name"):
             lines.append(f"{weather_event['name']}")
@@ -335,8 +263,6 @@ def format_discord_results(
             lines.append(weather_event["description"])
         lines.append(f"{weather_event.get('severity', '')} — {weather_event.get('flight_modifier', '')}\n")
 
-
-    # Narrative summary
     lines.append(generate_narrative_summary(
         peak_altitude=peak_altitude,
         burst=burst,
@@ -347,7 +273,6 @@ def format_discord_results(
         weather_briefing=None,
     ))
 
-    # Trajectory chart
     if chart_str:
         lines.append(f"\n{chart_str}")
 
