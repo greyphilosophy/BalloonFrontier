@@ -58,6 +58,8 @@ class AtmosphericSounding:
             for lower, upper in zip(self.levels, self.levels[1:])
         ):
             raise ValueError("sounding levels must be strictly ascending")
+        if self.observed_at is not None and self.observed_at.utcoffset() is None:
+            raise ValueError("observed_at must include timezone information")
         if (self.latitude_deg is None) != (self.longitude_deg is None):
             raise ValueError("latitude_deg and longitude_deg must be supplied together")
         if self.latitude_deg is not None:
