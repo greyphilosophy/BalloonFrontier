@@ -4,29 +4,15 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from balloon_frontier.discord_ui.configurator import (
-    BalloonConfigurator,
-    _Step,
-)
+from balloon_frontier.discord_ui.configurator import BalloonConfigurator, _Step
 from balloon_frontier.discord_ui.modals import _LaunchButton
 from balloon_frontier.discord_ui.views import _OptionButton
 from balloon_frontier.flight_service import FlightOutcome
 from balloon_frontier.game_modes import GameMode
-from balloon_frontier.launch_result import (
-    FillMode,
-    FlightResult,
-    LaunchRequest,
-    TelemetryPoint,
-)
+from balloon_frontier.launch_result import FillMode, FlightResult, LaunchRequest, TelemetryPoint
 from balloon_frontier.progression import PlayerRegistry, PlayerState
-from balloon_frontier.session_adapters import (
-    SessionAwareFlightService,
-    _PlannedFlightService,
-)
-from balloon_frontier.tutorial import (
-    TutorialConfiguratorMixin,
-    evaluate_tutorial_outcome,
-)
+from balloon_frontier.session_adapters import SessionAwareFlightService, _PlannedFlightService
+from balloon_frontier.tutorial import TutorialConfiguratorMixin, evaluate_tutorial_outcome
 from balloon_frontier.tutorial_catalog import ensure_discord_tutorial_options
 
 
@@ -141,13 +127,7 @@ def test_new_player_can_complete_recommended_tutorial_route(monkeypatch):
     interaction = _Interaction()
 
     assert configurator._current_step == _Step.CHOOSE_GAS
-    asyncio.run(
-        _drive_tutorial_route(
-            configurator,
-            interaction,
-            gas_index=1,
-        )
-    )
+    asyncio.run(_drive_tutorial_route(configurator, interaction, gas_index=1))
 
     assert configurator._current_step == _Step.REVIEW_LAUNCH
     assert configurator.state["gas"] == "helium"
@@ -177,13 +157,7 @@ def test_tutorial_alternative_route_reaches_failure_result(monkeypatch):
     configurator = _tutorial_configurator()
     interaction = _Interaction()
 
-    asyncio.run(
-        _drive_tutorial_route(
-            configurator,
-            interaction,
-            gas_index=2,  # hot air
-        )
-    )
+    asyncio.run(_drive_tutorial_route(configurator, interaction, gas_index=2))
 
     mission = evaluate_tutorial_outcome(
         _request_from(configurator),
