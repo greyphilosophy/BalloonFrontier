@@ -47,7 +47,7 @@ def test_provider_satisfies_contract_and_interpolates_fields():
     assert sample.wind_y_mps == pytest.approx(0.5)
 
 
-def test_provider_clamps_below_floor_but_rejects_above_ceiling():
+def test_provider_rejects_samples_outside_measured_coverage():
     sounding = AtmosphericSounding(
         levels=(
             SoundingLevel(500.0, 290.0, 95000.0, wind_x_mps=3.0),
@@ -56,14 +56,15 @@ def test_provider_clamps_below_floor_but_rejects_above_ceiling():
     )
     provider = SoundingAtmosphereProvider(sounding)
 
-    below = provider.sample(100.0)
-    assert below.altitude_m == 100.0
-    assert below.temperature_k == 290.0
-    assert below.wind_x_mps == 3.0
+    floor = provider.sample(500.0)
+    assert floor.temperature_k == 290.0
+    assert floor.wind_x_mps == 3.0
 
     ceiling = provider.sample(1500.0)
     assert ceiling.temperature_k == 280.0
 
+    with pytest.raises(ValueError, match="lowest measured sounding level"):
+        provider.sample(499.9)
     with pytest.raises(ValueError, match="highest measured sounding level"):
         provider.sample(1500.1)
 
