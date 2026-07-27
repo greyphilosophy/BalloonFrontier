@@ -43,14 +43,16 @@ def test_early_story_establishes_university_of_washington_arc(monkeypatch):
 
     player.missions_completed.append(EDGE_OF_SPACE_MISSION_ID)
     chapter = current_story_chapter("student")
-    briefing = story_intro("student")
+    opening_briefing = story_intro("student")
+    later_briefing = story_intro("student", include_disclaimer=False)
 
     assert chapter is COLLEGE_METEOROLOGY_CHAPTER
     assert "University of Washington" in chapter.season
     assert "Dr. Elena Alvarez" in chapter.introduction
     assert "fictional" in chapter.introduction.lower()
-    assert STORY_DISCLAIMER in briefing
-    assert "not affiliated with or endorsed by" in briefing
+    assert STORY_DISCLAIMER in opening_briefing
+    assert "not affiliated with or endorsed by" in opening_briefing
+    assert STORY_DISCLAIMER not in later_briefing
 
 
 def test_successful_sounding_records_profile(monkeypatch, tmp_path):
