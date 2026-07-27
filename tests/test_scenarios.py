@@ -94,6 +94,21 @@ def test_scenario_session_rejects_unknown_saved_objective_ids():
         )
 
 
+def test_scenario_session_rejects_mixed_known_and_unknown_saved_objective_ids():
+    sd = ScenarioDefinition(
+        scenario_id="s1",
+        title="Test Scenario",
+        objective_ids=("o1", "o2"),
+    )
+
+    with pytest.raises(ValueError, match=r"Unknown objective IDs: \['typo'\]"):
+        ScenarioSession(
+            game_state={},
+            definition=sd,
+            objective_complete={"o1": True, "typo": False},
+        )
+
+
 def test_scenario_session_marks_objectives_complete():
     sd = ScenarioDefinition(
         scenario_id="s1",
@@ -109,3 +124,46 @@ def test_scenario_session_marks_objectives_complete():
     # Marking an unknown objective should be rejected (helps prevent silent typos).
     with pytest.raises(KeyError):
         session.mark_objective_complete("does-not-exist")
+
+
+def test_scenario_session_rejects_unknown_objective_reads():
+    definition = ScenarioDefinition(scenario_id="s1", objective_ids=("o1",))
+    session = ScenarioSession(game_state={}, definition=definition)
+
+    with pytest.raises(KeyError, match="missing"):
+        session.is_objective_complete("missing")
+
+
+def test_scenario_session_rejects_unknown_objective_reset():
+    definition = ScenarioDefinition(scenario_id="s1", objective_ids=("o1",))
+    session = ScenarioSession(game_state={}, definition=definition)
+
+    with pytest.raises(KeyError, match="missing"):
+        session.mark_objective_incomplete("missing")
+
+
+def test_scenario_objective_progress_never_leaks_into_global_game_state():
+    game_state = _FakeGameState(existing="value")
+    definition = ScenarioDefinition(scenario_id="s1", objective_ids=("o1",))
+    session = ScenarioSession(game_state=game_state, definition=definition)
+
+    session.mark_objective_complete("o1")
+    session.mark_objective_incomplete("o1")
+
+    assert game_state == {"existing": "value"}
+    assert "objective_complete" not in game_state
+    assert "o1" not in game_state
+
+
+def test_scenario_session_does_not_mutate_saved_progress_mapping():
+    definition = ScenarioDefinition(scenario_id="s1", objective_ids=("o1", "o2"))
+    saved_progress = {"o1": 1}
+
+    session = ScenarioSession(
+        game_state={},
+        definition=definition,
+        objective_complete=saved_progress,
+    )
+
+    assert saved_progress == {"o1": 1}
+    assert session.objective_complete == {"o1": True, "o2": False}

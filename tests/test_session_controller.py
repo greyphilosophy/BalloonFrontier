@@ -65,6 +65,97 @@ def test_story_uses_chapter_and_scenario_remains_deterministic(monkeypatch):
     assert first != scenario_one
 
 
+def test_scenario_keeps_empty_assignment_when_no_missions_are_compatible(monkeypatch):
+    """An impossible configuration must not receive an unrelated fallback mission."""
+    monkeypatch.setattr(controller, "ensure_missions_loaded", lambda mission_dir=None: None)
+    seen = []
+
+    def no_compatible_missions(**kwargs):
+        seen.append(kwargs)
+        return []
+
+    monkeypatch.setattr(controller, "select_missions", no_compatible_missions)
+
+    missions = controller.assign_missions_for_mode(
+        GameMode.SCENARIO,
+        {"payloads": ["camera"], "site": "rooftop"},
+    )
+
+    assert missions == ()
+    assert seen == [
+        {
+            "mission_count": 3,
+            "seed": seen[0]["seed"],
+            "selected_payloads": ["camera"],
+            "launch_site": "rooftop",
+            "mission_dir": None,
+        }
+    ]
+
+
+def test_scenario_strips_none_payload_before_compatibility_filtering(monkeypatch):
+    """The UI sentinel must never masquerade as actual mission equipment."""
+    monkeypatch.setattr(controller, "ensure_missions_loaded", lambda mission_dir=None: None)
+    captured = {}
+
+    def capture_selection(**kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(controller, "select_missions", capture_selection)
+
+    missions = controller.assign_missions_for_mode(
+        "scenario",
+        {"payloads": ["none"], "launch_site": "mountain"},
+    )
+
+    assert missions == ()
+    assert captured["selected_payloads"] == []
+    assert captured["launch_site"] == "mountain"
+
+
+def test_scenario_does_not_mutate_configuration_or_context(monkeypatch):
+    monkeypatch.setattr(controller, "ensure_missions_loaded", lambda mission_dir=None: None)
+    monkeypatch.setattr(controller, "select_missions", lambda **kwargs: [])
+    configuration = {"payloads": ["camera", "none"], "site": "field"}
+    context = {"difficulty": "hard", "attempt": 2}
+
+    controller.assign_missions_for_mode(
+        GameMode.SCENARIO,
+        configuration,
+        context=context,
+    )
+
+    assert configuration == {"payloads": ["camera", "none"], "site": "field"}
+    assert context == {"difficulty": "hard", "attempt": 2}
+
+
+def test_scenario_forwards_custom_mission_directory(monkeypatch):
+    loaded = []
+    selected = []
+    monkeypatch.setattr(
+        controller,
+        "ensure_missions_loaded",
+        lambda mission_dir=None: loaded.append(mission_dir),
+    )
+
+    def capture_selection(**kwargs):
+        selected.append(kwargs)
+        return []
+
+    monkeypatch.setattr(controller, "select_missions", capture_selection)
+
+    missions = controller.assign_missions_for_mode(
+        GameMode.SCENARIO,
+        {"payloads": [], "site": "field"},
+        mission_dir="tests/fixtures/no-compatible-scenarios",
+    )
+
+    assert missions == ()
+    assert loaded == ["tests/fixtures/no-compatible-scenarios"]
+    assert selected[0]["mission_dir"] == "tests/fixtures/no-compatible-scenarios"
+
+
 def test_plan_session_is_ready_and_ui_agnostic(monkeypatch):
     monkeypatch.setattr(controller, "assign_missions_for_mode", lambda *args, **kwargs: ("m1",))
     plan = controller.plan_session(
