@@ -9,6 +9,7 @@ from balloon_frontier.discord_ui.configurator import (
     PAYLOAD_OPTIONS,
     _Step,
 )
+from balloon_frontier.discord_ui.views import _OptionButton
 from balloon_frontier.flight_service import FlightOutcome
 from balloon_frontier.launch_result import FillMode, LaunchRequest
 from balloon_frontier.progression import PlayerRegistry, PlayerState
@@ -69,6 +70,27 @@ async def _drive_tutorial_route(configurator, interaction, *, gas_index):
     await configurator._on_site(interaction, 1)  # open field
 
 
+def test_tutorial_hides_unavailable_gases(monkeypatch):
+    new_player = PlayerState("tutorial-player")
+    monkeypatch.setattr(
+        PlayerRegistry,
+        "get_or_create",
+        classmethod(lambda cls, player_id: new_player),
+    )
+
+    configurator = _tutorial_configurator()
+    content = configurator._step_content()
+    gas_buttons = [
+        item for item in configurator.children if isinstance(item, _OptionButton)
+    ]
+
+    assert "Helium" in content
+    assert "Hot Air" in content
+    assert "Hydrogen" not in content
+    assert "Methane" not in content
+    assert len(gas_buttons) == 2
+
+
 def test_new_player_can_complete_recommended_tutorial_route(monkeypatch):
     """Exercise every guided configurator step through the final outcome."""
     new_player = PlayerState("tutorial-player")
@@ -107,7 +129,7 @@ def test_new_player_can_complete_recommended_tutorial_route(monkeypatch):
 
 
 def test_tutorial_alternative_route_reaches_failure_result(monkeypatch):
-    """Alternative choices remain usable and teach through the final result."""
+    """Alternative available choices still teach through the final result."""
     new_player = PlayerState("tutorial-player")
     monkeypatch.setattr(
         PlayerRegistry,
@@ -122,7 +144,7 @@ def test_tutorial_alternative_route_reaches_failure_result(monkeypatch):
         _drive_tutorial_route(
             configurator,
             interaction,
-            gas_index=2,
+            gas_index=2,  # hot air
         )
     )
 
@@ -131,6 +153,7 @@ def test_tutorial_alternative_route_reaches_failure_result(monkeypatch):
         _outcome(),
     ).mission_results[0]
 
+    assert configurator.state["gas"] == "hot_air"
     assert not mission.completed
     assert mission.reward == 0
-    assert mission.explanation == "The aircraft left communications range and was lost."
+    assert mission.explanation == "The endurance flight was not completed."
