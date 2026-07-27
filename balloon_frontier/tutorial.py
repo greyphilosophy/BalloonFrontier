@@ -13,7 +13,7 @@ TUTORIAL_MISSION_ID = "first_flight"
 TUTORIAL_OPTION_KEYS = {
     0: ("helium", "hot_air"),
     1: ("mylar", "latex"),
-    2: ("auto", "light", "normal", "heavy"),
+    2: ("auto", "light", "normal", "heavy", "manual"),
     3: ("quadcopter", "none"),
     4: ("field",),
 }
