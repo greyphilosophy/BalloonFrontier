@@ -4,11 +4,11 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from balloon_frontier.discord_ui import launch_handler
 from balloon_frontier.discord_ui.configurator import (
     BalloonConfigurator,
     _Step,
 )
+from balloon_frontier.discord_ui.modals import _LaunchButton
 from balloon_frontier.discord_ui.views import _OptionButton
 from balloon_frontier.flight_service import FlightOutcome
 from balloon_frontier.game_modes import GameMode
@@ -240,8 +240,8 @@ def _flight_outcome(request):
     )
 
 
-def test_recommended_route_launches_through_discord_and_applies_reward(monkeypatch):
-    """Cover request construction, session evaluation, reward, and rendering."""
+def test_recommended_route_launches_through_button_and_applies_reward(monkeypatch):
+    """Cover button wiring, request construction, reward, and rendering."""
     new_player = PlayerState("launch-player")
     monkeypatch.setattr(
         PlayerRegistry,
@@ -267,13 +267,12 @@ def test_recommended_route_launches_through_discord_and_applies_reward(monkeypat
     interaction = _Interaction(user_id="launch-player")
 
     asyncio.run(_drive_tutorial_route(configurator, interaction, gas_index=1))
-    asyncio.run(
-        launch_handler.run_launch(
-            configurator,
-            interaction,
-            service=service,
-        )
-    )
+
+    launch_buttons = [
+        item for item in configurator.children if isinstance(item, _LaunchButton)
+    ]
+    assert len(launch_buttons) == 1
+    asyncio.run(launch_buttons[0].callback(interaction))
 
     request = captured["request"]
     assert request.gas_id == "helium"
