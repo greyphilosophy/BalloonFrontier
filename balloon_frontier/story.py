@@ -70,7 +70,7 @@ COLLEGE_METEOROLOGY_CHAPTER = StoryChapter(
         "the balloon project you launched over the summer. She is organizing a "
         "fictional field campaign to study an atmospheric river approaching western "
         "Washington. 'We're launching several soundings over the next few days. "
-        "Want to turn that engineering project into real atmospheric data?'"
+        "Want to turn that engineering project into scientific atmospheric data?'"
     ),
     mission_id=ATMOSPHERIC_RIVER_MISSION_ID,
     primary_objective=(
@@ -146,6 +146,7 @@ def story_intro(
     player_id: str | None = None,
     *,
     atmosphere_locked: bool = False,
+    include_disclaimer: bool = True,
 ) -> str:
     chapter = current_story_chapter(player_id)
     bonuses = "\n".join(f"• {item}" for item in chapter.bonus_challenges)
@@ -168,7 +169,9 @@ def story_intro(
         )
     elif player_id and atmosphere_profiles.get(str(player_id)) is not None:
         text += "\n\n📡 A recorded atmosphere profile is available below."
-    return f"{text}\n\n*{STORY_DISCLAIMER}*"
+    if include_disclaimer:
+        text += f"\n\n*{STORY_DISCLAIMER}*"
+    return text
 
 
 def story_mission_for_player(player_id: str | None = None) -> str:
@@ -289,6 +292,7 @@ class StoryConfiguratorMixin:
         text = story_intro(
             player_id,
             atmosphere_locked=self._atmosphere_locked,
+            include_disclaimer=self._current_step == 0,
         )
         if player_id:
             profile = atmosphere_profiles.get(str(player_id))
