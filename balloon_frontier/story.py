@@ -18,6 +18,13 @@ from balloon_frontier.sounding_profile import record_sounding_profile
 EDGE_OF_SPACE_MISSION_ID = "edge_of_space"
 ATMOSPHERIC_RIVER_MISSION_ID = "atmospheric_river_sounding"
 
+STORY_DISCLAIMER = (
+    "Educational fiction: Balloon Frontier is not affiliated with or endorsed by "
+    "the University of Washington. Dr. Elena Alvarez, the research project, "
+    "dialogue, and events are fictional; real institutions are referenced for "
+    "educational context."
+)
+
 
 @dataclass(frozen=True, slots=True)
 class StoryChapter:
@@ -37,6 +44,8 @@ SUMMER_HOBBYIST_CHAPTER = StoryChapter(
     season="Summer after senior year",
     introduction=(
         "Your last balloon video finally got some views and earned a little revenue. "
+        "With your first term at the University of Washington beginning in the fall, "
+        "this is your chance to finish the summer with a serious engineering project. "
         "Now everyone is waiting for the maiden flight of your newest design. "
         "Show them something spectacular—without spending money you do not have."
     ),
@@ -54,12 +63,14 @@ SUMMER_HOBBYIST_CHAPTER = StoryChapter(
 COLLEGE_METEOROLOGY_CHAPTER = StoryChapter(
     id="college_meteorology",
     title="Atmospheric River",
-    season="Freshman fall",
+    season="Freshman fall — University of Washington",
     introduction=(
-        "A meteorology professor has taken an interest in your balloon work. "
-        "'We're launching several soundings over the next few days to track an "
-        "atmospheric river. Want to do some real work?' she asks, already knowing "
-        "you cannot refuse."
+        "Your first quarter at the University of Washington has barely begun when "
+        "Dr. Elena Alvarez, a fictional professor of atmospheric science, asks about "
+        "the balloon project you launched over the summer. She is organizing a "
+        "fictional field campaign to study an atmospheric river approaching western "
+        "Washington. 'We're launching several soundings over the next few days. "
+        "Want to turn that engineering project into scientific atmospheric data?'"
     ),
     mission_id=ATMOSPHERIC_RIVER_MISSION_ID,
     primary_objective=(
@@ -135,6 +146,7 @@ def story_intro(
     player_id: str | None = None,
     *,
     atmosphere_locked: bool = False,
+    include_disclaimer: bool = True,
 ) -> str:
     chapter = current_story_chapter(player_id)
     bonuses = "\n".join(f"• {item}" for item in chapter.bonus_challenges)
@@ -157,6 +169,8 @@ def story_intro(
         )
     elif player_id and atmosphere_profiles.get(str(player_id)) is not None:
         text += "\n\n📡 A recorded atmosphere profile is available below."
+    if include_disclaimer:
+        text += f"\n\n*{STORY_DISCLAIMER}*"
     return text
 
 
@@ -278,6 +292,7 @@ class StoryConfiguratorMixin:
         text = story_intro(
             player_id,
             atmosphere_locked=self._atmosphere_locked,
+            include_disclaimer=self._current_step == 0,
         )
         if player_id:
             profile = atmosphere_profiles.get(str(player_id))

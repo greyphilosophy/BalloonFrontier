@@ -8,8 +8,11 @@ from balloon_frontier.story import (
     ATMOSPHERIC_RIVER_MISSION_ID,
     COLLEGE_METEOROLOGY_CHAPTER,
     EDGE_OF_SPACE_MISSION_ID,
+    STORY_DISCLAIMER,
+    SUMMER_HOBBYIST_CHAPTER,
     add_story_results,
     current_story_chapter,
+    story_intro,
     story_mission_for_player,
 )
 from balloon_frontier.weather_event import WeatherEvent
@@ -18,10 +21,38 @@ from balloon_frontier.weather_event import WeatherEvent
 def test_edge_of_space_completion_advances_player_to_college(monkeypatch):
     player = PlayerState("student")
     player.missions_completed.append(EDGE_OF_SPACE_MISSION_ID)
-    monkeypatch.setattr(PlayerRegistry, "get_or_create", classmethod(lambda cls, player_id: player))
+    monkeypatch.setattr(
+        PlayerRegistry,
+        "get_or_create",
+        classmethod(lambda cls, player_id: player),
+    )
 
     assert current_story_chapter("student") is COLLEGE_METEOROLOGY_CHAPTER
     assert story_mission_for_player("student") == ATMOSPHERIC_RIVER_MISSION_ID
+
+
+def test_early_story_establishes_university_of_washington_arc(monkeypatch):
+    player = PlayerState("student")
+    monkeypatch.setattr(
+        PlayerRegistry,
+        "get_or_create",
+        classmethod(lambda cls, player_id: player),
+    )
+
+    assert "University of Washington" in SUMMER_HOBBYIST_CHAPTER.introduction
+
+    player.missions_completed.append(EDGE_OF_SPACE_MISSION_ID)
+    chapter = current_story_chapter("student")
+    opening_briefing = story_intro("student")
+    later_briefing = story_intro("student", include_disclaimer=False)
+
+    assert chapter is COLLEGE_METEOROLOGY_CHAPTER
+    assert "University of Washington" in chapter.season
+    assert "Dr. Elena Alvarez" in chapter.introduction
+    assert "fictional" in chapter.introduction.lower()
+    assert STORY_DISCLAIMER in opening_briefing
+    assert "not affiliated with or endorsed by" in opening_briefing
+    assert STORY_DISCLAIMER not in later_briefing
 
 
 def test_successful_sounding_records_profile(monkeypatch, tmp_path):
@@ -49,7 +80,9 @@ def test_successful_sounding_records_profile(monkeypatch, tmp_path):
     outcome = FlightOutcome(
         result=SimpleNamespace(telemetry=telemetry),
         weather=weather,
-        mission_results=(MissionResult(ATMOSPHERIC_RIVER_MISSION_ID, True, 2500, "complete"),),
+        mission_results=(
+            MissionResult(ATMOSPHERIC_RIVER_MISSION_ID, True, 2500, "complete"),
+        ),
     )
 
     updated = add_story_results(outcome, "student")
