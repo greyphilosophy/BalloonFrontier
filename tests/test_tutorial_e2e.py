@@ -240,8 +240,8 @@ def _flight_outcome(request):
     )
 
 
-def test_recommended_route_launches_through_button_and_applies_reward(monkeypatch):
-    """Cover button wiring, request construction, reward, and rendering."""
+def test_recommended_route_launch_button_applies_reward_and_renders(monkeypatch):
+    """Cover launch-button wiring, request construction, reward, and rendering."""
     new_player = PlayerState("launch-player")
     monkeypatch.setattr(
         PlayerRegistry,
