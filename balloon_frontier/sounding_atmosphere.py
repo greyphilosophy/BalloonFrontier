@@ -94,9 +94,9 @@ class AtmosphericSounding:
 class SoundingAtmosphereProvider:
     """Interpolate a static sounding through the AtmosphereProvider contract.
 
-    Values below the first measured level use that level, which supports launch
-    sites whose station elevation is above zero. Values above the measured ceiling
-    are rejected so imported data never appears more complete than it is.
+    Sampling is restricted to the measured altitude range. Data-source adapters may
+    deliberately fill missing lower or upper levels before constructing a sounding,
+    but this provider never invents atmospheric coverage by itself.
     """
 
     sounding: AtmosphericSounding
@@ -117,12 +117,17 @@ class SoundingAtmosphereProvider:
         altitude = max(0.0, altitude)
         levels = self.sounding.levels
 
+        if altitude < self.sounding.floor_m:
+            raise ValueError(
+                "altitude_m is below the lowest measured sounding level "
+                f"({self.sounding.floor_m:g} m)"
+            )
         if altitude > self.sounding.ceiling_m:
             raise ValueError(
                 "altitude_m exceeds the highest measured sounding level "
                 f"({self.sounding.ceiling_m:g} m)"
             )
-        if altitude <= self.sounding.floor_m:
+        if altitude == self.sounding.floor_m:
             return _sample_from_level(altitude, levels[0])
 
         upper_index = bisect_right(self._altitudes, altitude)
