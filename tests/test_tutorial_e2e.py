@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock
 
 from balloon_frontier.discord_ui.configurator import (
     BalloonConfigurator,
-    PAYLOAD_OPTIONS,
     _Step,
 )
 from balloon_frontier.discord_ui.views import _OptionButton
@@ -63,14 +62,16 @@ async def _drive_tutorial_route(configurator, interaction, *, gas_index):
     await configurator._on_gas(interaction, gas_index)
     await configurator._on_envelope(interaction, 1)  # mylar
     await configurator._on_fill(interaction, 1)  # automatic fill
-
-    quadcopter_index = list(PAYLOAD_OPTIONS).index("quadcopter") + 1
-    await configurator._on_payload(interaction, quadcopter_index)
+    await configurator._on_payload(interaction, 1)  # quadcopter
     await configurator._advance(interaction)
     await configurator._on_site(interaction, 1)  # open field
 
 
-def test_tutorial_hides_unavailable_gases(monkeypatch):
+def _option_buttons(configurator):
+    return [item for item in configurator.children if isinstance(item, _OptionButton)]
+
+
+def test_tutorial_hides_unavailable_choices(monkeypatch):
     new_player = PlayerState("tutorial-player")
     monkeypatch.setattr(
         PlayerRegistry,
@@ -79,16 +80,39 @@ def test_tutorial_hides_unavailable_gases(monkeypatch):
     )
 
     configurator = _tutorial_configurator()
-    content = configurator._step_content()
-    gas_buttons = [
-        item for item in configurator.children if isinstance(item, _OptionButton)
-    ]
 
-    assert "Helium" in content
-    assert "Hot Air" in content
-    assert "Hydrogen" not in content
-    assert "Methane" not in content
-    assert len(gas_buttons) == 2
+    gas_content = configurator._step_content()
+    assert "Helium" in gas_content
+    assert "Hot Air" in gas_content
+    assert "Hydrogen" not in gas_content
+    assert "Methane" not in gas_content
+    assert len(_option_buttons(configurator)) == 2
+
+    configurator._current_step = _Step.CHOOSE_ENVELOPE
+    configurator.build_buttons()
+    envelope_content = configurator._step_content()
+    assert "Mylar Party Balloon" in envelope_content
+    assert "Latex Weather Balloon" in envelope_content
+    assert "Zero-Pressure" not in envelope_content
+    assert "Blimp" not in envelope_content
+    assert len(_option_buttons(configurator)) == 2
+
+    configurator._current_step = _Step.CHOOSE_PAYLOADS
+    configurator.build_buttons()
+    payload_content = configurator._step_content()
+    assert "Small Quadcopter" in payload_content
+    assert "None" in payload_content
+    assert "Camera" not in payload_content
+    assert "Pressure Valve" not in payload_content
+    assert len(_option_buttons(configurator)) == 2
+
+    configurator._current_step = _Step.CHOOSE_SITE
+    configurator.build_buttons()
+    site_content = configurator._step_content()
+    assert "Open Field" in site_content
+    assert "Mountain Ridge" not in site_content
+    assert "Urban Rooftop" not in site_content
+    assert len(_option_buttons(configurator)) == 1
 
 
 def test_new_player_can_complete_recommended_tutorial_route(monkeypatch):
