@@ -10,7 +10,13 @@ from balloon_frontier.launch_result import MissionResult
 
 
 TUTORIAL_MISSION_ID = "first_flight"
-TUTORIAL_GAS_OPTIONS = ("helium", "hot_air")
+TUTORIAL_OPTION_KEYS = {
+    0: ("helium", "hot_air"),
+    1: ("mylar", "latex"),
+    2: ("auto", "light", "normal", "heavy"),
+    3: ("quadcopter", "none"),
+    4: ("field",),
+}
 
 
 @dataclass(frozen=True)
@@ -120,26 +126,64 @@ def tutorial_result_summary(outcome: FlightOutcome) -> str:
 
 
 class TutorialConfiguratorMixin:
-    """Add tutorial prompts and visually suggest a first successful route."""
+    """Add tutorial prompts and expose only choices available in the tutorial."""
 
-    def _tutorial_gas_options(self):
-        from balloon_frontier.discord_ui.configurator import GAS_OPTIONS
+    def _tutorial_options(self, step=None):
+        from balloon_frontier.discord_ui.configurator import (
+            ENVELOPE_OPTIONS,
+            FILL_MODES,
+            GAS_OPTIONS,
+            PAYLOAD_OPTIONS,
+            SITE_OPTIONS,
+            _Step,
+        )
 
-        return {key: GAS_OPTIONS[key] for key in TUTORIAL_GAS_OPTIONS}
+        current_step = self._current_step if step is None else step
+        catalogs = {
+            _Step.CHOOSE_GAS: GAS_OPTIONS,
+            _Step.CHOOSE_ENVELOPE: ENVELOPE_OPTIONS,
+            _Step.CHOOSE_FILL: FILL_MODES,
+            _Step.CHOOSE_PAYLOADS: PAYLOAD_OPTIONS,
+            _Step.CHOOSE_SITE: SITE_OPTIONS,
+        }
+        catalog = catalogs[current_step]
+        return {key: catalog[key] for key in TUTORIAL_OPTION_KEYS[current_step]}
 
     def _step_content(self) -> str:
         from balloon_frontier.discord_ui.configurator import _Step
 
-        if self._current_step != _Step.CHOOSE_GAS:
+        if self._current_step == _Step.REVIEW_LAUNCH:
             content = super()._step_content()
         else:
             player = self._get_player_state()
             lines = [
                 "🔧 **Balloon Configuration**\n",
-                f"**Step 1/{len(self.STEPS)}:** Gas Type\n",
+                f"**Step {self._current_step + 1}/{len(self.STEPS)}:** "
+                f"{self.STEP_LABELS[self._current_step]}\n",
             ]
-            for index, gas in enumerate(self._tutorial_gas_options().values(), 1):
-                lines.append(f"{index}  {gas[0]}  (ρ={gas[1]} kg/m³, ${gas[2]}/kg)")
+            options = self._tutorial_options()
+            if self._current_step == _Step.CHOOSE_GAS:
+                for index, gas in enumerate(options.values(), 1):
+                    lines.append(
+                        f"{index}  {gas[0]}  (ρ={gas[1]} kg/m³, ${gas[2]}/kg)"
+                    )
+            elif self._current_step == _Step.CHOOSE_ENVELOPE:
+                for index, envelope in enumerate(options.values(), 1):
+                    lines.append(f"{index}  {envelope[0]}  ({envelope[1]}m³)")
+            elif self._current_step == _Step.CHOOSE_FILL:
+                for index, fill in enumerate(options.values(), 1):
+                    lines.append(f"{index}  {fill['label']}")
+                    lines.append(f"     {fill['description']}")
+            elif self._current_step == _Step.CHOOSE_PAYLOADS:
+                for index, payload in enumerate(options.values(), 1):
+                    lines.append(
+                        f"{index}  {payload[0]}  ({payload[1]}kg, ${payload[2]})"
+                    )
+            elif self._current_step == _Step.CHOOSE_SITE:
+                for index, site in enumerate(options.values(), 1):
+                    lines.append(f"{index}  {site.name}")
+                    if site.description:
+                        lines.append(f"     {site.description}")
             lines.extend(["", "Click a button to select. Use < Back to go earlier."])
             if player:
                 lines.append(
@@ -148,69 +192,76 @@ class TutorialConfiguratorMixin:
             content = "\n".join(lines)
         return tutorial_guidance(self._current_step) + "\n\n" + content
 
-    async def _on_gas(self, interaction, index: int):
-        key = self._option_by_index(index, self._tutorial_gas_options())
+    async def _select_single_option(self, interaction, index: int, state_key: str):
+        key = self._option_by_index(index, self._tutorial_options())
         if key is None:
             await interaction.response.send_message(
                 "That option isn't available right now.",
                 ephemeral=True,
             )
             return
-        self.state["gas"] = key
+        self.state[state_key] = key
         self.state["gas_mass"] = self._compute_gas_mass()
         await self._advance(interaction)
+
+    async def _on_gas(self, interaction, index: int):
+        await self._select_single_option(interaction, index, "gas")
 
     async def _on_envelope(self, interaction, index: int):
-        """Apply tutorial envelope choices without normal progression locks.
+        await self._select_single_option(interaction, index, "envelope")
 
-        Tutorial mode is the player's introduction to the configurator, so every
-        choice shown by the tutorial must be usable by a brand-new player. Normal
-        game modes continue to enforce their progression rules in the base class.
-        """
-        from balloon_frontier.discord_ui.configurator import ENVELOPE_OPTIONS
-
-        key = self._option_by_index(index, ENVELOPE_OPTIONS)
+    async def _on_payload(self, interaction, index: int):
+        key = self._option_by_index(index, self._tutorial_options(), multi=True)
         if key is None:
             await interaction.response.send_message(
                 "That option isn't available right now.",
                 ephemeral=True,
             )
             return
-        self.state["envelope"] = key
         self.state["gas_mass"] = self._compute_gas_mass()
-        await self._advance(interaction)
+        self.build_buttons()
+        await self._send_step(interaction)
+
+    async def _on_site(self, interaction, index: int):
+        await self._select_single_option(interaction, index, "site")
 
     def build_buttons(self):
         super().build_buttons()
 
         import discord
-        from balloon_frontier.discord_ui.configurator import (
-            ENVELOPE_OPTIONS,
-            FILL_MODES,
-            PAYLOAD_OPTIONS,
-            SITE_OPTIONS,
-            _Step,
-        )
+        from balloon_frontier.discord_ui.configurator import _Step
         from balloon_frontier.discord_ui.views import _OptionButton
 
-        if self._current_step == _Step.CHOOSE_GAS:
+        if self._current_step in TUTORIAL_OPTION_KEYS and self._current_step != _Step.CHOOSE_FILL:
             for item in list(self.children):
                 if isinstance(item, _OptionButton):
                     self.remove_item(item)
-            for index in range(1, len(self._tutorial_gas_options()) + 1):
-                self.add_item(_OptionButton(index, f"Choose gas {index}", self._on_gas))
+            callback_by_step = {
+                _Step.CHOOSE_GAS: self._on_gas,
+                _Step.CHOOSE_ENVELOPE: self._on_envelope,
+                _Step.CHOOSE_PAYLOADS: self._on_payload,
+                _Step.CHOOSE_SITE: self._on_site,
+            }
+            callback = callback_by_step[self._current_step]
+            label_by_step = {
+                _Step.CHOOSE_GAS: "Choose gas",
+                _Step.CHOOSE_ENVELOPE: "Choose envelope",
+                _Step.CHOOSE_PAYLOADS: "Toggle payload",
+                _Step.CHOOSE_SITE: "Choose site",
+            }
+            for index in range(1, len(self._tutorial_options()) + 1):
+                self.add_item(
+                    _OptionButton(
+                        index,
+                        f"{label_by_step[self._current_step]} {index}",
+                        callback,
+                    )
+                )
 
         if self._current_step not in RECOMMENDED_TUTORIAL_CHOICES:
             return
 
-        options_by_step = {
-            _Step.CHOOSE_GAS: self._tutorial_gas_options(),
-            _Step.CHOOSE_ENVELOPE: ENVELOPE_OPTIONS,
-            _Step.CHOOSE_FILL: FILL_MODES,
-            _Step.CHOOSE_PAYLOADS: PAYLOAD_OPTIONS,
-            _Step.CHOOSE_SITE: SITE_OPTIONS,
-        }
-        options = options_by_step[self._current_step]
+        options = self._tutorial_options()
         recommended = RECOMMENDED_TUTORIAL_CHOICES[self._current_step]
         try:
             recommended_index = list(options).index(recommended) + 1
