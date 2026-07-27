@@ -279,6 +279,18 @@ def generate_narrative_summary(
     return "\n".join(lines)
 
 
+def format_flight_duration(seconds: float) -> str:
+    """Format elapsed flight time compactly for player-facing reports."""
+    total_seconds = max(0, int(round(float(seconds))))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m {seconds:02d}s"
+    if minutes:
+        return f"{minutes}m {seconds:02d}s"
+    return f"{seconds}s"
+
+
 def format_discord_results(
     peak_altitude: float,
     burst: bool,
@@ -326,6 +338,10 @@ def format_discord_results(
     lines.append(f"Envelope: {env_name}")
     lines.append(f"Payloads: {payload_names}")
     lines.append(f"Site: {site_name}\n")
+
+    lines.append("📊 **Flight Statistics**")
+    lines.append(f"Maximum altitude: {peak_altitude:,.0f} m ({peak_altitude / 1000:.2f} km)")
+    lines.append(f"Flight duration: {format_flight_duration(time_of_flight)}\n")
 
     # Weather briefing
     if weather_event:
