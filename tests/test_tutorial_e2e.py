@@ -1,9 +1,8 @@
 """End-to-end coverage for the guided Discord tutorial journey."""
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
-
-import pytest
 
 from balloon_frontier.discord_ui.configurator import (
     BalloonConfigurator,
@@ -59,8 +58,18 @@ def _request_from(configurator, player_id="tutorial-player"):
     )
 
 
-@pytest.mark.asyncio
-async def test_new_player_can_complete_recommended_tutorial_route(monkeypatch):
+async def _drive_tutorial_route(configurator, interaction, *, gas_index):
+    await configurator._on_gas(interaction, gas_index)
+    await configurator._on_envelope(interaction, 1)  # mylar
+    await configurator._on_fill(interaction, 1)  # automatic fill
+
+    quadcopter_index = list(PAYLOAD_OPTIONS).index("quadcopter") + 1
+    await configurator._on_payload(interaction, quadcopter_index)
+    await configurator._advance(interaction)
+    await configurator._on_site(interaction, 1)  # open field
+
+
+def test_new_player_can_complete_recommended_tutorial_route(monkeypatch):
     """Exercise every guided configurator step through the final outcome."""
     new_player = PlayerState("tutorial-player")
     monkeypatch.setattr(
@@ -73,14 +82,13 @@ async def test_new_player_can_complete_recommended_tutorial_route(monkeypatch):
     interaction = _Interaction()
 
     assert configurator._current_step == _Step.CHOOSE_GAS
-    await configurator._on_gas(interaction, 1)  # helium
-    await configurator._on_envelope(interaction, 1)  # mylar
-    await configurator._on_fill(interaction, 1)  # automatic fill
-
-    quadcopter_index = list(PAYLOAD_OPTIONS).index("quadcopter") + 1
-    await configurator._on_payload(interaction, quadcopter_index)
-    await configurator._advance(interaction)
-    await configurator._on_site(interaction, 1)  # open field
+    asyncio.run(
+        _drive_tutorial_route(
+            configurator,
+            interaction,
+            gas_index=1,
+        )
+    )
 
     assert configurator._current_step == _Step.REVIEW_LAUNCH
     assert configurator.state["gas"] == "helium"
@@ -98,8 +106,7 @@ async def test_new_player_can_complete_recommended_tutorial_route(monkeypatch):
     interaction.response.send_message.assert_not_awaited()
 
 
-@pytest.mark.asyncio
-async def test_tutorial_alternative_route_reaches_failure_result(monkeypatch):
+def test_tutorial_alternative_route_reaches_failure_result(monkeypatch):
     """Alternative choices remain usable and teach through the final result."""
     new_player = PlayerState("tutorial-player")
     monkeypatch.setattr(
@@ -111,13 +118,13 @@ async def test_tutorial_alternative_route_reaches_failure_result(monkeypatch):
     configurator = _tutorial_configurator()
     interaction = _Interaction()
 
-    await configurator._on_gas(interaction, 2)  # hydrogen
-    await configurator._on_envelope(interaction, 1)  # mylar
-    await configurator._on_fill(interaction, 1)
-    quadcopter_index = list(PAYLOAD_OPTIONS).index("quadcopter") + 1
-    await configurator._on_payload(interaction, quadcopter_index)
-    await configurator._advance(interaction)
-    await configurator._on_site(interaction, 1)
+    asyncio.run(
+        _drive_tutorial_route(
+            configurator,
+            interaction,
+            gas_index=2,
+        )
+    )
 
     mission = evaluate_tutorial_outcome(
         _request_from(configurator),
