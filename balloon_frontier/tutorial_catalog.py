@@ -4,19 +4,12 @@ from __future__ import annotations
 
 from types import MethodType
 
-from balloon_frontier.catalog import (
-    CATALOG,
-    EnvelopeDefinition,
-    PayloadDefinition,
-)
+from balloon_frontier.catalog import CATALOG, EnvelopeDefinition, PayloadDefinition
 
 
 QUADCOPTER_ID = "quadcopter"
-TUTORIAL_ENVELOPE_ID = "mylar"
+TUTORIAL_ENVELOPE_ID = "tutorial_mylar_assist"
 
-# This is a small buoyancy-assist balloon, not the 200 m³ envelope that was
-# previously attached to a 250 g quadcopter.  At 0.30 m³ it offsets roughly
-# the aircraft's weight while leaving the rotors responsible for control.
 TUTORIAL_ASSIST_ENVELOPE = EnvelopeDefinition(
     id=TUTORIAL_ENVELOPE_ID,
     name="Mylar Assist Balloon",
@@ -29,9 +22,6 @@ TUTORIAL_ASSIST_ENVELOPE = EnvelopeDefinition(
     safe_fill_fraction=0.55,
 )
 
-# The introductory aircraft includes an automatic pressure-relief valve.
-# This keeps the tutorial focused on lift and control choices instead of
-# allowing a beginner's first flight to end in an envelope burst.
 QUADCOPTER = PayloadDefinition(
     id=QUADCOPTER_ID,
     name="Small Quadcopter",
@@ -43,8 +33,7 @@ QUADCOPTER = PayloadDefinition(
 
 
 def ensure_tutorial_catalog() -> None:
-    """Teach the shared catalog to resolve the tutorial aircraft and envelope."""
-
+    """Register tutorial-only component IDs without replacing shared equipment."""
     if getattr(CATALOG, "_tutorial_components_installed", False):
         return
 
@@ -70,24 +59,13 @@ def ensure_tutorial_catalog() -> None:
 
 
 def ensure_discord_tutorial_options() -> None:
-    """Expose tutorial-specific aircraft and envelope data in the existing UI."""
-
+    """Expose only the shared quadcopter option; the envelope stays tutorial-local."""
     ensure_tutorial_catalog()
-    from balloon_frontier.discord_ui.configurator import ENVELOPE_OPTIONS, PAYLOAD_OPTIONS
+    from balloon_frontier.discord_ui.configurator import PAYLOAD_OPTIONS
 
-    ENVELOPE_OPTIONS[TUTORIAL_ENVELOPE_ID] = (
-        TUTORIAL_ASSIST_ENVELOPE.name,
-        TUTORIAL_ASSIST_ENVELOPE.max_volume_m3,
-        TUTORIAL_ASSIST_ENVELOPE.mass_kg,
-        TUTORIAL_ASSIST_ENVELOPE.drag_coefficient,
-        TUTORIAL_ASSIST_ENVELOPE.burst_stretch_ratio,
-        TUTORIAL_ASSIST_ENVELOPE.cost,
-    )
-    PAYLOAD_OPTIONS[QUADCOPTER_ID] = (
-        QUADCOPTER.name,
-        QUADCOPTER.mass_kg,
-        QUADCOPTER.cost,
-        QUADCOPTER.has_valve,
+    PAYLOAD_OPTIONS.setdefault(
+        QUADCOPTER_ID,
+        (QUADCOPTER.name, QUADCOPTER.mass_kg, QUADCOPTER.cost, QUADCOPTER.has_valve),
     )
 
 
