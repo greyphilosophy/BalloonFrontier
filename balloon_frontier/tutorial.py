@@ -10,6 +10,7 @@ from balloon_frontier.launch_result import MissionResult
 from balloon_frontier.tutorial_catalog import (
     QUADCOPTER,
     TUTORIAL_ASSIST_ENVELOPE,
+    TUTORIAL_ENVELOPE_ID,
 )
 
 
@@ -114,7 +115,7 @@ def _design_implications(request) -> tuple[list[str], list[str]]:
         advice.append("Use helium for the endurance route.")
     if request.envelope_id == "latex":
         risks.append("Latex is flexible, so the suspended aircraft is harder to steer precisely.")
-        advice.append("Use the Mylar assist balloon for a more stable platform.")
+        advice.append("Use the Foil Party Balloon for a more stable platform.")
     if "quadcopter" not in payloads:
         risks.append("Without the quadcopter there is no active steering or station keeping.")
         advice.append("Add the quadcopter to follow the course.")
@@ -272,7 +273,7 @@ class TutorialConfiguratorMixin:
         volume = self._tutorial_envelope_options()[self.state["envelope"]][1]
         env_params = self._get_env_params()
         env_params["envelope_type"] = (
-            "tutorial_mylar_assist"
+            TUTORIAL_ENVELOPE_ID
             if self.state["envelope"] == "mylar"
             else self.state["envelope"]
         )
