@@ -20,7 +20,15 @@ from balloon_frontier.tutorial_catalog import ensure_discord_tutorial_options
 
 
 def _outcome():
-    return FlightOutcome(result=SimpleNamespace(peak_altitude_m=0.0, duration_s=0.0))
+    return FlightOutcome(
+        result=SimpleNamespace(
+            peak_altitude_m=0.0,
+            duration_s=0.0,
+            burst=False,
+            landed=False,
+            crashed=False,
+        )
+    )
 
 
 def _request(
@@ -55,28 +63,33 @@ def test_discord_tutorial_exposes_quadcopter_option():
 
 
 def test_party_balloon_helium_quadcopter_completes_tutorial():
-    result = evaluate_tutorial_outcome(_request(), _outcome())
+    mission = evaluate_tutorial_outcome(_request(), _outcome()).mission_results[0]
 
-    mission = result.mission_results[0]
     assert mission.completed
-    assert "remained controllable" in mission.explanation
+    assert mission.reward == 500
+    assert "completed the endurance course under control" in mission.explanation
+    assert "No landing was confirmed" in mission.explanation
 
 
-def test_hydrogen_is_reported_only_as_observed_loss():
-    result = evaluate_tutorial_outcome(_request(gas="hydrogen"), _outcome())
+def test_unavailable_hydrogen_route_receives_generic_failure_debrief():
+    mission = evaluate_tutorial_outcome(
+        _request(gas="hydrogen"), _outcome()
+    ).mission_results[0]
 
-    mission = result.mission_results[0]
     assert not mission.completed
-    assert mission.explanation == "The aircraft left communications range and was lost."
-    assert "because" not in mission.explanation.lower()
+    assert mission.reward == 0
+    assert "did not complete the endurance course safely" in mission.explanation
+    assert "What happened" in mission.explanation
 
 
-def test_larger_balloon_reports_loss_of_steering_without_tutorial_lecture():
-    result = evaluate_tutorial_outcome(_request(envelope="latex"), _outcome())
+def test_latex_route_explains_steering_tradeoff():
+    mission = evaluate_tutorial_outcome(
+        _request(envelope="latex"), _outcome()
+    ).mission_results[0]
 
-    mission = result.mission_results[0]
     assert not mission.completed
-    assert mission.explanation == "The aircraft could not be steered through the test course."
+    assert "Latex is flexible" in mission.explanation
+    assert "Mylar assist balloon" in mission.explanation
 
 
 def test_tutorial_prompts_show_goal_and_visual_guidance_not_explanations():
@@ -97,11 +110,15 @@ def test_tutorial_recommended_button_is_green_and_alternatives_remain_available(
         {},
     )
     configurator = tutorial_type(service=SimpleNamespace())
-    option_buttons = [item for item in configurator.children if isinstance(item, _OptionButton)]
+    option_buttons = [
+        item for item in configurator.children if isinstance(item, _OptionButton)
+    ]
 
     assert len(option_buttons) > 1
     assert option_buttons[0].style is discord.ButtonStyle.success
-    assert all(button.style is discord.ButtonStyle.primary for button in option_buttons[1:])
+    assert all(
+        button.style is discord.ButtonStyle.primary for button in option_buttons[1:]
+    )
 
 
 class _RewardSpy:
