@@ -97,6 +97,7 @@ def _observed_facts(outcome: FlightOutcome) -> tuple[list[str], list[str]]:
         facts.append("The aircraft landed successfully.")
     else:
         facts.append("No landing was confirmed before the simulation ended.")
+        advice.append("Run the flight long enough to confirm a safe landing or recovery.")
     return facts, advice
 
 
@@ -159,8 +160,10 @@ def evaluate_tutorial_outcome(request, outcome: FlightOutcome) -> FlightOutcome:
         and fill_mode in {"auto", "normal"}
         and balloon_count <= 3
     )
-    flight_succeeds = not bool(getattr(result, "burst", False)) and not bool(
-        getattr(result, "crashed", False)
+    flight_succeeds = (
+        bool(getattr(result, "landed", False))
+        and not bool(getattr(result, "burst", False))
+        and not bool(getattr(result, "crashed", False))
     )
     success = configuration_succeeds and flight_succeeds
 
@@ -177,8 +180,6 @@ def evaluate_tutorial_outcome(request, outcome: FlightOutcome) -> FlightOutcome:
             advice = ["Follow the green recommended choices and launch again."]
         reward = 0
 
-    # Keep the bounded tutorial debrief compact so all three sections survive
-    # Discord's 2,000-character message limit when appended to the normal report.
     explanation = (
         "**What happened**\n- "
         + "\n- ".join(facts)
