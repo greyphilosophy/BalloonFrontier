@@ -80,7 +80,19 @@ class _PlannedFlightService(FlightService):
         self._weather_override = weather_override
 
     def prepare(self, launch_request: Any) -> Any:
-        preparation = self._source.prepare(launch_request)
+        source_request = launch_request
+        if (
+            self._plan.session.mode is GameMode.TUTORIAL
+            and launch_request.envelope_id == "mylar"
+        ):
+            from .tutorial_catalog import TUTORIAL_ENVELOPE_ID
+
+            source_request = replace(
+                launch_request,
+                envelope_id=TUTORIAL_ENVELOPE_ID,
+            )
+
+        preparation = self._source.prepare(source_request)
         assignment = {
             "mission_ids": list(self._plan.missions),
             "missions": list(self._plan.missions),
@@ -149,22 +161,13 @@ class SessionAwareFlightService:
                 else locked_profile.weather if locked_profile is not None else None
             )
 
-            simulation_request = request
-            if is_tutorial and request.envelope_id == "mylar":
-                from .tutorial_catalog import TUTORIAL_ENVELOPE_ID
-
-                simulation_request = replace(
-                    request,
-                    envelope_id=TUTORIAL_ENVELOPE_ID,
-                )
-
             outcome = _PlannedFlightService(
                 self.service,
                 plan,
                 apply_rewards=not is_tutorial,
                 weather_override=weather_override,
                 atmosphere_provider=atmosphere_provider,
-            ).run(simulation_request)
+            ).run(request)
             if is_tutorial:
                 from .tutorial import evaluate_tutorial_outcome
 
