@@ -2,25 +2,32 @@
 
 from balloon_frontier.catalog import CATALOG
 from balloon_frontier.discord_ui.configurator import ENVELOPE_OPTIONS, PAYLOAD_OPTIONS
+from balloon_frontier.tutorial import TutorialConfiguratorMixin
 from balloon_frontier.tutorial_catalog import (
     QUADCOPTER,
     TUTORIAL_ASSIST_ENVELOPE,
+    TUTORIAL_ENVELOPE_ID,
     ensure_discord_tutorial_options,
 )
 
 
-def test_tutorial_balloon_is_small_buoyancy_assist_not_heavy_lift_envelope():
+def test_tutorial_balloon_is_small_and_does_not_replace_shared_mylar():
     ensure_discord_tutorial_options()
 
-    envelope = CATALOG.envelope("mylar")
-    assert envelope is TUTORIAL_ASSIST_ENVELOPE
-    assert envelope.max_volume_m3 == 0.30
-    assert ENVELOPE_OPTIONS["mylar"][1] == 0.30
+    tutorial_envelope = CATALOG.envelope(TUTORIAL_ENVELOPE_ID)
+    shared_mylar = CATALOG.envelope("mylar")
+    tutorial_options = TutorialConfiguratorMixin._tutorial_envelope_options()
 
-    # Sea-level helium provides about 1.05 kg of gross lift per cubic metre.
-    # A 0.30 m³ envelope therefore assists a 0.25 kg aircraft without turning
-    # the quadcopter into a token motor beneath a heavy-lift balloon.
-    approximate_gross_lift_kg = envelope.max_volume_m3 * 1.05
+    assert tutorial_envelope is TUTORIAL_ASSIST_ENVELOPE
+    assert tutorial_envelope.max_volume_m3 == 0.30
+    assert tutorial_options["mylar"][1] == 0.30
+
+    # The normal catalog and Discord menu keep their original Mylar definition.
+    assert shared_mylar is not tutorial_envelope
+    assert shared_mylar.max_volume_m3 == 200.0
+    assert ENVELOPE_OPTIONS["mylar"][1] == 200.0
+
+    approximate_gross_lift_kg = tutorial_envelope.max_volume_m3 * 1.05
     assert 0.25 <= approximate_gross_lift_kg <= 0.35
 
 
