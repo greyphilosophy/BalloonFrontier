@@ -10,7 +10,19 @@ from .flight_service import FlightService
 from .game_modes import GameMode
 from .game_session import SessionState
 from .session_controller import SessionPlan, SessionRegistry, plan_session
-from .weather_event import weather_impact_on_flight
+from .weather_event import WeatherEvent, weather_impact_on_flight
+
+
+TUTORIAL_WEATHER = WeatherEvent(
+    wind_gust_factor=0.7,
+    temp_anomaly_k=0.0,
+    cloud_density=0.0,
+    pressure_offset_pa=0.0,
+    storm_risk=0.0,
+    name="Calm Tutorial Conditions",
+    description="Clear skies and a gentle breeze provide predictable conditions for the first flight.",
+    flight_modifier="calm winds",
+)
 
 
 class _NoOpRewardService:
@@ -109,7 +121,7 @@ class SessionAwareFlightService:
         atmosphere_provider = None
         try:
             is_tutorial = plan.session.mode is GameMode.TUTORIAL
-            if player_id:
+            if player_id and not is_tutorial:
                 from .atmosphere_profile import (
                     RecordedAtmosphereProvider,
                     atmosphere_profiles,
@@ -129,7 +141,9 @@ class SessionAwareFlightService:
                     )
 
             weather_override = (
-                locked_profile.weather if locked_profile is not None else None
+                TUTORIAL_WEATHER
+                if is_tutorial
+                else locked_profile.weather if locked_profile is not None else None
             )
             outcome = _PlannedFlightService(
                 self.service,
