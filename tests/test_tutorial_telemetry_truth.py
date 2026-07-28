@@ -29,13 +29,12 @@ def _outcome(*, burst=False, landed=False, crashed=False):
     )
 
 
-def test_recommended_design_requires_confirmed_safe_landing():
+def test_unconfirmed_recovery_is_reported_without_failing_endurance_course():
     mission = evaluate_tutorial_outcome(_request(), _outcome()).mission_results[0]
 
-    assert not mission.completed
-    assert mission.reward == 0
+    assert mission.completed
+    assert mission.reward == 500
     assert "No landing was confirmed" in mission.explanation
-    assert "confirm a safe landing" in mission.explanation
 
 
 def test_recommended_design_cannot_pass_after_burst_even_if_it_lands():
