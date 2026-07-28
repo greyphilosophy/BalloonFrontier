@@ -20,7 +20,10 @@ TUTORIAL_WEATHER = WeatherEvent(
     pressure_offset_pa=0.0,
     storm_risk=0.0,
     name="Calm Tutorial Conditions",
-    description="Clear skies and a gentle breeze provide predictable conditions for the first flight.",
+    description=(
+        "Clear skies and a gentle breeze provide predictable conditions "
+        "for the first flight."
+    ),
     flight_modifier="calm winds",
 )
 
@@ -145,13 +148,23 @@ class SessionAwareFlightService:
                 if is_tutorial
                 else locked_profile.weather if locked_profile is not None else None
             )
+
+            simulation_request = request
+            if is_tutorial and request.envelope_id == "mylar":
+                from .tutorial_catalog import TUTORIAL_ENVELOPE_ID
+
+                simulation_request = replace(
+                    request,
+                    envelope_id=TUTORIAL_ENVELOPE_ID,
+                )
+
             outcome = _PlannedFlightService(
                 self.service,
                 plan,
                 apply_rewards=not is_tutorial,
                 weather_override=weather_override,
                 atmosphere_provider=atmosphere_provider,
-            ).run(request)
+            ).run(simulation_request)
             if is_tutorial:
                 from .tutorial import evaluate_tutorial_outcome
 
