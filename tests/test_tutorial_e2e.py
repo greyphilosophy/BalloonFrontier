@@ -110,7 +110,8 @@ def test_tutorial_hides_unavailable_choices(monkeypatch):
     configurator._current_step = _Step.CHOOSE_ENVELOPE
     configurator.build_buttons()
     envelope_content = configurator._step_content()
-    assert "Mylar Party Balloon" in envelope_content
+    assert "Foil Party Balloon" in envelope_content
+    assert "Scientific Film Balloon" not in envelope_content
     assert "Latex Weather Balloon" in envelope_content
     assert "Zero-Pressure" not in envelope_content
     assert "Blimp" not in envelope_content
