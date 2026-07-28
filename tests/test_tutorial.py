@@ -89,7 +89,7 @@ def test_latex_route_explains_steering_tradeoff():
 
     assert not mission.completed
     assert "Latex is flexible" in mission.explanation
-    assert "Mylar assist balloon" in mission.explanation
+    assert "Foil Party Balloon" in mission.explanation
 
 
 def test_tutorial_prompts_show_goal_and_visual_guidance_not_explanations():
