@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from types import MethodType
 
 from balloon_frontier.catalog import CATALOG, EnvelopeDefinition, PayloadDefinition
 
 
 QUADCOPTER_ID = "quadcopter"
-TUTORIAL_ENVELOPE_ID = "tutorial_mylar_assist"
+TUTORIAL_ENVELOPE_ID = "tutorial_party_balloon"
+SCIENTIFIC_FILM_BALLOON_NAME = "Scientific Film Balloon"
 
 TUTORIAL_ASSIST_ENVELOPE = EnvelopeDefinition(
     id=TUTORIAL_ENVELOPE_ID,
-    name="Mylar Assist Balloon",
+    name="Foil Party Balloon",
     max_volume_m3=0.30,
     mass_kg=0.05,
     drag_coefficient=2.0,
@@ -33,9 +35,18 @@ QUADCOPTER = PayloadDefinition(
 
 
 def ensure_tutorial_catalog() -> None:
-    """Register tutorial-only component IDs without replacing shared equipment."""
+    """Register tutorial-only components and clarify the shared film envelope."""
     if getattr(CATALOG, "_tutorial_components_installed", False):
         return
+
+    # Preserve the legacy ``mylar`` ID for saves and requests, but give the
+    # 200 m³ envelope a name appropriate to a large scientific film balloon.
+    shared_mylar = CATALOG._envelopes.get("mylar")
+    if shared_mylar is not None and shared_mylar.name != SCIENTIFIC_FILM_BALLOON_NAME:
+        CATALOG._envelopes["mylar"] = replace(
+            shared_mylar,
+            name=SCIENTIFIC_FILM_BALLOON_NAME,
+        )
 
     original_payload = CATALOG.payload
     original_envelope = CATALOG.envelope
@@ -59,9 +70,13 @@ def ensure_tutorial_catalog() -> None:
 
 
 def ensure_discord_tutorial_options() -> None:
-    """Expose only the shared quadcopter option; the envelope stays tutorial-local."""
+    """Expose tutorial equipment and keep the shared envelope label unambiguous."""
     ensure_tutorial_catalog()
-    from balloon_frontier.discord_ui.configurator import PAYLOAD_OPTIONS
+    from balloon_frontier.discord_ui.configurator import ENVELOPE_OPTIONS, PAYLOAD_OPTIONS
+
+    shared = ENVELOPE_OPTIONS.get("mylar")
+    if shared is not None:
+        ENVELOPE_OPTIONS["mylar"] = (SCIENTIFIC_FILM_BALLOON_NAME, *shared[1:])
 
     PAYLOAD_OPTIONS.setdefault(
         QUADCOPTER_ID,
