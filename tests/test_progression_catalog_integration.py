@@ -1,31 +1,39 @@
 """Balloon Frontier — Progression catalog-integration tests.
 
-After PR #29, progression no longer duplicates catalog data.  Progression
-stores only unlock rules (cost + reputation thresholds).  Every payload,
+After PR #29, progression no longer duplicates catalog data. Progression
+stores only unlock rules (cost + reputation thresholds). Every payload,
 envelope, and site resolves through CATALOG for names, physics, and display.
 
 These tests verify that the integration is correct and that no ID is lost.
 """
 import sys
+
 sys.path.insert(0, "/tmp/BalloonFrontier")
 
 import pytest
+
 from balloon_frontier.catalog import CATALOG
 from balloon_frontier.progression import (
-    PAYLOAD_RULES, ENVELOPE_RULES, SITE_RULES,
-    PAYLOAD_UNLOCKS, ENVELOPES, SITES,
-    PayloadUnlock, EnvelopeUnlock, SiteUnlock,
-    UnlockablePayload, UnlockableEnvelope, UnlockableSite,
-    list_unlocked_payloads, list_locked_payloads,
-    list_unlocked_envelopes, list_locked_envelopes,
-    list_unlocked_sites, list_locked_sites,
+    ENVELOPE_RULES,
+    ENVELOPES,
+    PAYLOAD_RULES,
+    PAYLOAD_UNLOCKS,
+    SITE_RULES,
+    SITES,
+    EnvelopeUnlock,
+    PayloadUnlock,
+    SiteUnlock,
+    UnlockableEnvelope,
+    UnlockablePayload,
+    UnlockableSite,
     get_envelope,
+    list_locked_envelopes,
+    list_locked_payloads,
+    list_locked_sites,
+    list_unlocked_envelopes,
+    list_unlocked_payloads,
+    list_unlocked_sites,
 )
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Rule-to-catalog ID alignment
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestRuleIDsMatchCatalog:
@@ -59,16 +67,10 @@ class TestRuleIDsMatchCatalog:
         )
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Compat views resolve through catalog
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestCompatViews:
-    """Backward-compat views must wrap catalog data + rules."""
+    """Backward-compat views must wrap catalog data plus rules."""
 
     def test_payload_compat_view_has_catalog_properties(self):
-        """UnlockablePayload delegates name/mass/has_valve to catalog."""
         catalog_map = {p.id: p for p in CATALOG.all_payloads()}
         for view in PAYLOAD_UNLOCKS:
             assert isinstance(view, UnlockablePayload)
@@ -81,7 +83,6 @@ class TestCompatViews:
             assert view.tag == view.rule.category
 
     def test_envelope_compat_view_has_catalog_properties(self):
-        """UnlockableEnvelope delegates name/mass/volume/stretch to catalog."""
         catalog_map = {e.id: e for e in CATALOG.all_envelopes()}
         for view in ENVELOPES:
             assert isinstance(view, EnvelopeUnlock)
@@ -95,7 +96,6 @@ class TestCompatViews:
             assert view.min_reputation == view.rule.min_reputation
 
     def test_site_compat_view_has_catalog_properties(self):
-        """UnlockableSite delegates name/altitude/wind to catalog."""
         catalog_map = {s.id: s for s in CATALOG.all_sites()}
         for view in SITES:
             assert isinstance(view, SiteUnlock)
@@ -107,28 +107,17 @@ class TestCompatViews:
             assert view.min_reputation == view.rule.min_reputation
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Rule-only fields (progression stores these, catalog does not)
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestRuleFieldsOnlyInProgression:
     """unlock_cost and min_reputation are progression-specific."""
 
     def test_payload_rules_store_cost_and_reputation(self):
         rule_map = {r.id: r for r in PAYLOAD_RULES}
-        # valve: cost=250, rep=0
-        v = rule_map["valve"]
-        assert v.unlock_cost == 250
-        assert v.min_reputation == 0
-        # heater: cost=250, rep=3
-        h = rule_map["heater"]
-        assert h.unlock_cost == 250
-        assert h.min_reputation == 3
-        # flight_computer: cost=750, rep=3
-        fc = rule_map["flight_computer"]
-        assert fc.unlock_cost == 750
-        assert fc.min_reputation == 3
+        assert rule_map["valve"].unlock_cost == 250
+        assert rule_map["valve"].min_reputation == 0
+        assert rule_map["heater"].unlock_cost == 250
+        assert rule_map["heater"].min_reputation == 3
+        assert rule_map["flight_computer"].unlock_cost == 750
+        assert rule_map["flight_computer"].min_reputation == 3
 
     def test_envelope_rules_store_cost_and_reputation(self):
         rule_map = {r.id: r for r in ENVELOPE_RULES}
@@ -143,48 +132,37 @@ class TestRuleFieldsOnlyInProgression:
         rule_map = {r.id: r for r in SITE_RULES}
         assert rule_map["rooftop"].min_reputation == 3
         assert rule_map["mountain"].min_reputation == 8
-        # No sites have unlock_cost > 0
-        for r in SITE_RULES:
-            assert r.unlock_cost == 0
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Helper functions return compat views (backward compatible)
-# ═══════════════════════════════════════════════════════════════════════════
+        assert all(r.unlock_cost == 0 for r in SITE_RULES)
 
 
 class TestHelperFunctions:
-    """list_* and get_* return compat views with catalog + rule."""
+    """list_* and get_* return compat views with catalog plus rules."""
 
     def test_get_envelope_returns_compat_view(self):
         env = get_envelope("mylar")
         assert isinstance(env, EnvelopeUnlock)
         assert env.id == "mylar"
-        assert env.name == "Mylar Party Balloon"
-        assert hasattr(env, "burst_stretch_ratio")  # from catalog
-        assert hasattr(env, "cost")  # from rule
+        assert env.name == "Scientific Film Balloon"
+        assert env.max_volume_m3 == 200.0
+        assert hasattr(env, "burst_stretch_ratio")
+        assert hasattr(env, "cost")
 
     def test_list_unlocked_envelopes_returns_views(self):
         views = list_unlocked_envelopes(0, 0)
-        ids = [v.id for v in views]
-        assert "latex" in ids  # always unlocked
-        for v in views:
-            assert isinstance(v, EnvelopeUnlock)
-            assert hasattr(v, "mass_kg")
-            assert hasattr(v, "cost")
+        assert "latex" in [v.id for v in views]
+        for view in views:
+            assert isinstance(view, EnvelopeUnlock)
+            assert hasattr(view, "mass_kg")
+            assert hasattr(view, "cost")
 
     def test_list_locked_envelopes_returns_views(self):
-        views = list_locked_envelopes(0, 0)
-        for v in views:
-            assert isinstance(v, EnvelopeUnlock)
-            assert hasattr(v, "name")
-            assert hasattr(v, "cost")
+        for view in list_locked_envelopes(0, 0):
+            assert isinstance(view, EnvelopeUnlock)
+            assert hasattr(view, "name")
+            assert hasattr(view, "cost")
 
     def test_list_unlocked_payloads_returns_views(self):
-        views = list_unlocked_payloads(0, 0)
-        ids = [v.id for v in views]
-        # All payloads with cost=0 and rep=0 should be unlocked
-        for view in views:
+        for view in list_unlocked_payloads(0, 0):
             assert isinstance(view, PayloadUnlock)
             assert hasattr(view, "mass_kg")
             assert hasattr(view, "cost")
@@ -193,77 +171,55 @@ class TestHelperFunctions:
     def test_list_locked_payloads_returns_views(self):
         views = list_locked_payloads(0, 0)
         ids = [v.id for v in views]
-        # heater and flight_computer require rep>=3
         assert "heater" in ids
         assert "flight_computer" in ids
-        for view in views:
-            assert isinstance(view, PayloadUnlock)
+        assert all(isinstance(view, PayloadUnlock) for view in views)
 
     def test_list_unlocked_sites_returns_views(self):
         views = list_unlocked_sites(0, 0)
-        ids = [v.id for v in views]
-        assert "field" in ids  # always unlocked
-        for v in views:
-            assert isinstance(v, SiteUnlock)
-            assert hasattr(v, "altitude_m")
-            assert hasattr(v, "wind_strength")
+        assert "field" in [v.id for v in views]
+        for view in views:
+            assert isinstance(view, SiteUnlock)
+            assert hasattr(view, "altitude_m")
+            assert hasattr(view, "wind_strength")
 
     def test_list_locked_sites_returns_views(self):
         views = list_locked_sites(0, 0)
         ids = [v.id for v in views]
         assert "rooftop" in ids
         assert "mountain" in ids
-        for v in views:
-            assert isinstance(v, SiteUnlock)
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# "none" must NOT appear anywhere in progression
-# ═══════════════════════════════════════════════════════════════════════════
+        assert all(isinstance(view, SiteUnlock) for view in views)
 
 
 class TestNoneNotInProgression:
     """'none' is a UI sentinel, not an unlockable item."""
 
     def test_none_not_in_payload_rules(self):
-        ids = {r.id for r in PAYLOAD_RULES}
-        assert "none" not in ids
+        assert "none" not in {r.id for r in PAYLOAD_RULES}
 
     def test_none_not_in_compat_views(self):
-        ids = {p.id for p in PAYLOAD_UNLOCKS}
-        assert "none" not in ids
+        assert "none" not in {p.id for p in PAYLOAD_UNLOCKS}
 
     def test_catalog_excludes_none_from_all_payloads(self):
-        ids = {p.id for p in CATALOG.all_payloads()}
-        assert "none" not in ids
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Player save format — IDs only, no display names
-# ═══════════════════════════════════════════════════════════════════════════
+        assert "none" not in {p.id for p in CATALOG.all_payloads()}
 
 
 class TestPlayerSaveFormat:
-    """unlocked_envelopes/payloads/sites must contain only catalog IDs.
+    """Player progression saves catalog IDs rather than display names."""
 
-    Display names are derived from CATALOG at runtime for display.
-    Storing names in save data causes stale references when catalog items
-    are renamed and inflates save size.
-    """
-
-    def test_unlocked_envelopes_contain_only_ids(self):
-        """After _check_and_apply_unlocks(), every value in unlocked_envelopes
-        must be a valid catalog envelope ID — never a display name."""
+    @staticmethod
+    def _fully_unlocked_player():
         from balloon_frontier.progression import PlayerState
 
-        catalog_ids = {e.id for e in CATALOG.all_envelopes()}
-
         player = PlayerState()
-        # Trigger all unlocks by giving enough budget
         player.budget = 999999
         player.reputation = 999
-        new_unlocks = player._check_and_apply_unlocks()
+        player._check_and_apply_unlocks()
+        return player
 
+    def test_unlocked_envelopes_contain_only_ids(self):
+        catalog_ids = {e.id for e in CATALOG.all_envelopes()}
+        player = self._fully_unlocked_player()
         for envelope_id in player.unlocked_envelopes:
             assert envelope_id in catalog_ids, (
                 f"unlocked_envelopes contains non-ID: {envelope_id!r}\n"
@@ -271,62 +227,32 @@ class TestPlayerSaveFormat:
             )
 
     def test_unlocked_envelopes_no_display_names(self):
-        """No display name should appear in unlocked_envelopes."""
-        from balloon_frontier.progression import PlayerState
-
         catalog_names = {e.name for e in CATALOG.all_envelopes()}
-
-        player = PlayerState()
-        player.budget = 999999
-        player.reputation = 999
-        player._check_and_apply_unlocks()
-
+        player = self._fully_unlocked_player()
         for envelope_id in player.unlocked_envelopes:
             assert envelope_id not in catalog_names, (
                 f"unlocked_envelopes contains display name: {envelope_id!r}\n"
-                f"This should be an ID (e.g. 'mylar'), not a name"
+                "This should be an ID (for example, 'mylar'), not a name"
             )
 
     def test_unlocked_envelopes_count_matches_catalog(self):
-        """Each unlocked envelope should add exactly one ID, not two."""
-        from balloon_frontier.progression import PlayerState
-
-        player = PlayerState()
-        player.budget = 999999
-        player.reputation = 999
-        player._check_and_apply_unlocks()
-
-        # All 4 envelopes should be unlocked
+        player = self._fully_unlocked_player()
         assert len(player.unlocked_envelopes) == 4, (
-            f"Expected 4 IDs, got {len(player.unlocked_envelopes)}: {player.unlocked_envelopes}"
+            f"Expected 4 IDs, got {len(player.unlocked_envelopes)}: "
+            f"{player.unlocked_envelopes}"
         )
 
     def test_unlocked_payloads_contain_only_ids(self):
-        """Payloads follow the same rule: IDs only."""
-        from balloon_frontier.progression import PlayerState
-
         catalog_ids = {p.id for p in CATALOG.all_payloads() if p.id != "none"}
-
-        player = PlayerState()
-        player.budget = 999999
-        player.reputation = 999
-        player._check_and_apply_unlocks()
-
+        player = self._fully_unlocked_player()
         for payload_id in player.unlocked_payloads:
             assert payload_id in catalog_ids, (
                 f"unlocked_payloads contains non-ID: {payload_id!r}"
             )
 
     def test_unlocked_sites_contain_only_ids(self):
-        """Sites follow the same rule: IDs only."""
-        from balloon_frontier.progression import PlayerState
-
         catalog_ids = {s.id for s in CATALOG.all_sites()}
-
-        player = PlayerState()
-        player.reputation = 999
-        player._check_and_apply_unlocks()
-
+        player = self._fully_unlocked_player()
         for site_id in player.unlocked_sites:
             assert site_id in catalog_ids, (
                 f"unlocked_sites contains non-ID: {site_id!r}"
