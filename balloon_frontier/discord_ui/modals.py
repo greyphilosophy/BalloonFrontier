@@ -9,7 +9,6 @@ import logging
 import discord
 from balloon_frontier.discord_ui import launch_handler
 from balloon_frontier.game_modes import GameMode
-from balloon_frontier.progression import PlayerRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +85,7 @@ class _LaunchButton(discord.ui.Button):
         self._service = service
 
     async def callback(self, interaction):
-        await launch_handler.run_launch(
+        outcome = await launch_handler.run_launch(
             self._parent,
             interaction,
             service=self._service,
@@ -95,12 +94,17 @@ class _LaunchButton(discord.ui.Button):
         context = getattr(self._parent, "_game_entry_context", None)
         if not context or context.get("mode") is not GameMode.TUTORIAL:
             return
-
-        player_id = str(interaction.user.id)
-        player = PlayerRegistry.get_or_create(player_id)
-        if "first_flight" not in player.missions_completed:
+        if outcome is None:
             return
 
+        completed_this_launch = any(
+            result.mission_id == "first_flight" and result.completed
+            for result in outcome.mission_results
+        )
+        if not completed_this_launch:
+            return
+
+        player_id = str(interaction.user.id)
         from balloon_frontier.discord_ui.game_menu import ContinueToStoryView
 
         view = ContinueToStoryView(
