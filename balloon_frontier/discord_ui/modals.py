@@ -7,8 +7,9 @@ button that delegates to ``launch_handler.run_launch()``.
 import logging
 
 import discord
-
 from balloon_frontier.discord_ui import launch_handler
+from balloon_frontier.game_modes import GameMode
+from balloon_frontier.progression import PlayerRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ class _ManualGasMassModal(discord.ui.Modal):
             val = float(str(self.mass_input.value).strip())
         except Exception:
             await interaction.response.send_message(
-                "\u274c Please enter a valid number for gas mass.",
+                "❌ Please enter a valid number for gas mass.",
                 ephemeral=True,
             )
             return
@@ -71,7 +72,7 @@ class _ManualGasMassModal(discord.ui.Modal):
             )
 
         await interaction.response.send_message(
-            "\u2705 Manual gas mass updated.",
+            "✅ Manual gas mass updated.",
             ephemeral=True,
         )
 
@@ -79,10 +80,33 @@ class _ManualGasMassModal(discord.ui.Modal):
 class _LaunchButton(discord.ui.Button):
     """Launch button that delegates to launch_handler."""
 
-    def __init__(self, parent, service: "FlightService", label: str = "\U0001f680 Launch"):
+    def __init__(self, parent, service: "FlightService", label: str = "🚀 Launch"):
         super().__init__(label=label, style=discord.ButtonStyle.success)
         self._parent = parent
         self._service = service
 
     async def callback(self, interaction):
-        await launch_handler.run_launch(self._parent, interaction, service=self._service)
+        await launch_handler.run_launch(
+            self._parent,
+            interaction,
+            service=self._service,
+        )
+
+        context = getattr(self._parent, "_game_entry_context", None)
+        if not context or context.get("mode") is not GameMode.TUTORIAL:
+            return
+
+        player_id = str(interaction.user.id)
+        player = PlayerRegistry.get_or_create(player_id)
+        if "first_flight" not in player.missions_completed:
+            return
+
+        from balloon_frontier.discord_ui.game_menu import ContinueToStoryView
+
+        view = ContinueToStoryView(
+            player_id=player_id,
+            channel_kind=context["channel_kind"],
+            service=context["service"],
+            on_finished=context.get("on_finished"),
+        )
+        await interaction.edit_original_response(view=view)
