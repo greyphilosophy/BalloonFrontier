@@ -128,7 +128,7 @@ def run_simulation(
             "payload_count": 1,
             "score": 0,
             "medal": medal_tier_to_string(0),
-            "medal_emoji": "\u26aa",
+            "medal_emoji": "⚪",
         }
 
     peak_alt = max(t["altitude_m"] for t in tel_full)
@@ -180,18 +180,13 @@ async def run_launch(
     interaction: discord.Interaction,
     service: FlightService,
 ):
-    """Handle the launch button press: build request, fly, render result.
+    """Handle the launch button press and return the current outcome.
 
-    Args:
-        configurator: The BalloonConfigurator instance with flight config state.
-        interaction: The Discord interaction that triggered the launch.
-        service: FlightService instance (REQUIRED — must be injected by caller).
+    Returns ``None`` when the launch or rendering fails, allowing callers to
+    base follow-up UI on this attempt rather than historical player state.
     """
-    # Defer immediately so the event loop isn't blocked.
     await interaction.response.defer(thinking=True, ephemeral=False)
 
-    # Extract player ID *before* request construction so FlightService
-    # can apply mission rewards to the correct player.
     player_id = (
         str(interaction.user.id)
         if hasattr(interaction, "user") and interaction.user
@@ -208,22 +203,15 @@ async def run_launch(
     site_info = SITE_OPTIONS[state["site"]]
     payloads = [PAYLOAD_OPTIONS[p] for p in state["payloads"]]
     payload_names = [p[0] for p in payloads]
-    payload_mass = sum(p[1] for p in payloads)
-    has_pressure_valve = any(p[3] for p in payloads)
 
-    # Use cached gas mass from the configurator state.
     gas_mass = configurator.state.get("gas_mass")
     if gas_mass is None:
         gas_mass = configurator._compute_gas_mass()
         configurator.state["gas_mass"] = gas_mass
 
     try:
-        # Build LaunchRequest from Discord state
-        fill_mode = FillMode(
-            configurator.state.get("fill_mode", "auto")
-        )
+        fill_mode = FillMode(configurator.state.get("fill_mode", "auto"))
         manual_mass = configurator.state.get("manual_gas_mass")
-        balloon_size = None  # TODO: surface balloon size selector
 
         launch_request = LaunchRequest(
             gas_id=state["gas"],
@@ -232,25 +220,20 @@ async def run_launch(
             launch_site_id=state["site"],
             fill_mode=fill_mode,
             manual_gas_mass_kg=manual_mass,
-            player_id=player_id,  # P1 fix: pass player ID to service
-            balloon_size=balloon_size,
+            player_id=player_id,
+            balloon_size=None,
         )
 
-        # Delegate to the transport-neutral flight service.
         try:
-            result = await asyncio.to_thread(
-                service.run,
-                launch_request,
-            )
+            result = await asyncio.to_thread(service.run, launch_request)
         except FlightServiceError:
             logger.exception("Flight service failed")
             await interaction.edit_original_response(
-                content="\u274c The launch simulation failed. Please try again.",
+                content="❌ The launch simulation failed. Please try again.",
                 view=None,
             )
-            return
+            return None
 
-        # Extract telemetry for chart (convert tuple back to list of dicts)
         result_obj = result.result
         tel = [
             {
@@ -269,33 +252,19 @@ async def run_launch(
         burst = result_obj.burst
         landed = result_obj.landed
         crashed = result_obj.crashed
-
-        # Use score and medal computed by FlightService (no local recomputation)
-        score = result.score
-        medal_name = result.medal_name
-        medal_emoji = result.medal_emoji
         mission_results = result.mission_results
 
-        # Resolve payload display names
         payload_keys = list(state.get("payloads") or [])
         payload_display = ", ".join(payload_names)
-        if payload_keys and "none" not in payload_keys:
-            pass  # keep as is
-        elif payload_keys == ["none"]:
+        if payload_keys == ["none"]:
             payload_display = "None"
 
-        # Generate chart from telemetry
-        time_arr = [r["time"] for r in tel]
-        alt_arr = [r["alt"] for r in tel]
         chart_str = chart_to_string(
-            time_arr, alt_arr,
-            title="\U0001f4c8 Flight Trajectory"
+            [r["time"] for r in tel],
+            [r["alt"] for r in tel],
+            title="📈 Flight Trajectory",
         )
 
-        # Get player ID from the interaction for progression tracking
-        player_id = str(interaction.user.id) if hasattr(interaction, 'user') and interaction.user else "anonymous"
-
-        # Get weather and mission data from the FlightOutcome (no second prepare())
         weather_dict = {
             "name": result.weather.name if result.weather else "",
             "description": result.weather.description if result.weather else "",
@@ -303,7 +272,6 @@ async def run_launch(
             "flight_modifier": result.weather.flight_modifier if result.weather else "",
         }
         mission_assignment = result.mission_assignment
-        # Convert typed MissionAssignment to dict for format_discord_results compatibility
         if isinstance(mission_assignment, dict):
             mission_assignment_dict = mission_assignment
         else:
@@ -314,7 +282,6 @@ async def run_launch(
                 "mission_count": mission_assignment.mission_count if mission_assignment else 0,
             }
 
-        # Build narrative result
         result_content = format_discord_results(
             peak_altitude=peak_alt,
             burst=burst,
@@ -333,30 +300,31 @@ async def run_launch(
             chart_str=chart_str,
         )
 
-        # Append mission results if any were evaluated by FlightService
-        if mission_results and len(mission_results) > 0:
-            mission_lines = ["\n\U0001f3af **Mission Results:**"]
+        if mission_results:
+            mission_lines = ["\n🎯 **Mission Results:**"]
             for mr in mission_results:
-                status = "\u2705" if mr.completed else "\u274c"
+                status = "✅" if mr.completed else "❌"
                 reward_str = f" (+{mr.reward} credits)" if mr.reward else ""
-                mission_lines.append(f"  {status} {mr.mission_id}{reward_str}: {mr.explanation}")
+                mission_lines.append(
+                    f"  {status} {mr.mission_id}{reward_str}: {mr.explanation}"
+                )
             mission_text = "\n".join(mission_lines)
-            # Append before chart, respecting 2000 char limit
             if chart_str:
                 result_content = result_content.replace(
                     "\n" + chart_str,
                     mission_text + "\n" + chart_str,
                 )
             else:
-                result_content = result_content + mission_text
+                result_content += mission_text
 
-        # Truncate if too long
         if len(result_content) > 2000:
             result_content = result_content[:1997] + "..."
         await interaction.edit_original_response(content=result_content, view=None)
+        return result
     except Exception:
         logger.exception("Balloon launch failed")
         await interaction.edit_original_response(
-            content="\u274c The launch simulation failed. Please try again.",
+            content="❌ The launch simulation failed. Please try again.",
             view=None,
         )
+        return None
