@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 
 from balloon_frontier.discord_ui import game_menu, modals
 from balloon_frontier.game_modes import GameMode
+from balloon_frontier.launch_result import MissionResult
 from balloon_frontier.progression import PlayerRegistry, PlayerState
 
 
@@ -26,15 +27,25 @@ class _Parent:
         }
 
 
-def test_completed_tutorial_adds_continue_to_story_view(monkeypatch):
-    player = PlayerState("player")
-    player.missions_completed.append("first_flight")
-    monkeypatch.setattr(
-        PlayerRegistry,
-        "get_or_create",
-        classmethod(lambda cls, player_id: player),
+def _outcome(*, completed: bool):
+    return SimpleNamespace(
+        mission_results=(
+            MissionResult(
+                mission_id="first_flight",
+                completed=completed,
+                reward=500 if completed else 0,
+                explanation="tutorial result",
+            ),
+        )
     )
-    monkeypatch.setattr(modals.launch_handler, "run_launch", AsyncMock())
+
+
+def test_completed_tutorial_adds_continue_to_story_view(monkeypatch):
+    monkeypatch.setattr(
+        modals.launch_handler,
+        "run_launch",
+        AsyncMock(return_value=_outcome(completed=True)),
+    )
 
     interaction = _Interaction()
     button = modals._LaunchButton(_Parent(), service=object())
@@ -50,13 +61,53 @@ def test_completed_tutorial_adds_continue_to_story_view(monkeypatch):
 
 
 def test_failed_tutorial_does_not_offer_story_handoff(monkeypatch):
+    monkeypatch.setattr(
+        modals.launch_handler,
+        "run_launch",
+        AsyncMock(return_value=_outcome(completed=False)),
+    )
+
+    interaction = _Interaction()
+    button = modals._LaunchButton(_Parent(), service=object())
+    asyncio.run(button.callback(interaction))
+
+    interaction.edit_original_response.assert_not_awaited()
+
+
+def test_returning_player_failed_replay_does_not_offer_story_handoff(monkeypatch):
     player = PlayerState("player")
+    player.missions_completed.append("first_flight")
     monkeypatch.setattr(
         PlayerRegistry,
         "get_or_create",
         classmethod(lambda cls, player_id: player),
     )
-    monkeypatch.setattr(modals.launch_handler, "run_launch", AsyncMock())
+    monkeypatch.setattr(
+        modals.launch_handler,
+        "run_launch",
+        AsyncMock(return_value=_outcome(completed=False)),
+    )
+
+    interaction = _Interaction()
+    button = modals._LaunchButton(_Parent(), service=object())
+    asyncio.run(button.callback(interaction))
+
+    interaction.edit_original_response.assert_not_awaited()
+
+
+def test_returning_player_launch_error_does_not_offer_story_handoff(monkeypatch):
+    player = PlayerState("player")
+    player.missions_completed.append("first_flight")
+    monkeypatch.setattr(
+        PlayerRegistry,
+        "get_or_create",
+        classmethod(lambda cls, player_id: player),
+    )
+    monkeypatch.setattr(
+        modals.launch_handler,
+        "run_launch",
+        AsyncMock(return_value=None),
+    )
 
     interaction = _Interaction()
     button = modals._LaunchButton(_Parent(), service=object())
@@ -66,14 +117,11 @@ def test_failed_tutorial_does_not_offer_story_handoff(monkeypatch):
 
 
 def test_non_tutorial_launch_never_adds_handoff(monkeypatch):
-    player = PlayerState("player")
-    player.missions_completed.append("first_flight")
     monkeypatch.setattr(
-        PlayerRegistry,
-        "get_or_create",
-        classmethod(lambda cls, player_id: player),
+        modals.launch_handler,
+        "run_launch",
+        AsyncMock(return_value=_outcome(completed=True)),
     )
-    monkeypatch.setattr(modals.launch_handler, "run_launch", AsyncMock())
 
     interaction = _Interaction()
     button = modals._LaunchButton(_Parent(mode=GameMode.STORY), service=object())
