@@ -84,6 +84,7 @@ def _configurator_for_mode(
     configurator = configurator_type(service=wrapped)
     configurator._game_entry_context = {
         "service": service,
+        "mode": mode,
         "player_id": player_id,
         "channel_kind": channel_kind,
         "on_finished": on_finished,
