@@ -151,6 +151,28 @@ async def start_mode(
         on_view_changed(configurator)
 
 
+def _start_mode_kwargs(
+    *,
+    service,
+    mode: GameMode,
+    player_id: str,
+    channel_kind: str,
+    on_finished: Callable[[], None] | None,
+    on_view_changed: Callable[[discord.ui.View], None] | None,
+) -> dict:
+    """Build start-mode kwargs without adding optional compatibility noise."""
+    kwargs = {
+        "service": service,
+        "mode": mode,
+        "player_id": player_id,
+        "channel_kind": channel_kind,
+        "on_finished": on_finished,
+    }
+    if on_view_changed is not None:
+        kwargs["on_view_changed"] = on_view_changed
+    return kwargs
+
+
 class GameModeView(discord.ui.View):
     def __init__(
         self,
@@ -186,12 +208,14 @@ class GameModeView(discord.ui.View):
     async def select_mode(self, interaction: discord.Interaction, mode: GameMode) -> None:
         await start_mode(
             interaction,
-            service=self.service,
-            mode=mode,
-            player_id=self.player_id,
-            channel_kind=self.channel_kind,
-            on_finished=self.on_finished,
-            on_view_changed=self.on_view_changed,
+            **_start_mode_kwargs(
+                service=self.service,
+                mode=mode,
+                player_id=self.player_id,
+                channel_kind=self.channel_kind,
+                on_finished=self.on_finished,
+                on_view_changed=self.on_view_changed,
+            ),
         )
 
 
@@ -207,12 +231,14 @@ class _ContinueToStoryButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction) -> None:
         await start_mode(
             interaction,
-            service=self.parent_view.service,
-            mode=GameMode.STORY,
-            player_id=self.parent_view.player_id,
-            channel_kind=self.parent_view.channel_kind,
-            on_finished=self.parent_view.on_finished,
-            on_view_changed=self.parent_view.on_view_changed,
+            **_start_mode_kwargs(
+                service=self.parent_view.service,
+                mode=GameMode.STORY,
+                player_id=self.parent_view.player_id,
+                channel_kind=self.parent_view.channel_kind,
+                on_finished=self.parent_view.on_finished,
+                on_view_changed=self.parent_view.on_view_changed,
+            ),
         )
 
 
