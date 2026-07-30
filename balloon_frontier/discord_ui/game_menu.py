@@ -41,6 +41,20 @@ class _ModeButton(discord.ui.Button):
         await self.parent_view.select_mode(interaction, self.mode)
 
 
+async def _configurator_interaction_check(
+    configurator: BalloonConfigurator,
+    interaction: discord.Interaction,
+) -> bool:
+    """Keep every step of a game session bound to its originating player."""
+    context = getattr(configurator, "_game_entry_context", None)
+    player_id = context.get("player_id") if context else None
+    return bool(
+        player_id is not None
+        and interaction.user
+        and str(interaction.user.id) == str(player_id)
+    )
+
+
 def _configurator_for_mode(
     *,
     service,
@@ -76,14 +90,11 @@ def _configurator_for_mode(
 
         configurator_mixins.insert(0, StoryConfiguratorMixin)
 
-    if configurator_mixins:
-        configurator_type = type(
-            "BalloonFrontierConfigurator",
-            tuple(configurator_mixins) + (BalloonConfigurator,),
-            {},
-        )
-    else:
-        configurator_type = BalloonConfigurator
+    configurator_type = type(
+        "BalloonFrontierConfigurator",
+        tuple(configurator_mixins) + (BalloonConfigurator,),
+        {"interaction_check": _configurator_interaction_check},
+    )
 
     configurator = configurator_type(service=wrapped)
     configurator._game_entry_context = {
