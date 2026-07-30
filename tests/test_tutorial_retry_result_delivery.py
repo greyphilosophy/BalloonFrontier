@@ -2,7 +2,7 @@
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, call
 
 from balloon_frontier.discord_ui import launch_handler
 from balloon_frontier.discord_ui.modals import _LaunchButton
@@ -78,8 +78,8 @@ def test_result_edit_retries_without_rejected_continue_view():
     )
 
     assert interaction.edit_original_response.await_args_list == [
-        (( ), {"content": "successful flight report", "view": continue_view}),
-        (( ), {"content": "successful flight report", "view": None}),
+        call(content="successful flight report", view=continue_view),
+        call(content="successful flight report", view=None),
     ]
 
 
