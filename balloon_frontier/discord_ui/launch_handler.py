@@ -122,6 +122,7 @@ def _tutorial_continue_view(configurator, interaction, result):
         channel_kind=context["channel_kind"],
         service=context["service"],
         on_finished=context.get("on_finished"),
+        on_view_changed=context.get("on_view_changed"),
     )
     setattr(interaction, "_balloon_frontier_tutorial_view_attached", True)
     return view
@@ -138,6 +139,19 @@ async def _send_results(interaction, content: str) -> bool:
         await followup.send(content=content)
         return True
     return False
+
+
+async def _attach_tutorial_continue_view(interaction, continue_view) -> None:
+    """Attach optional tutorial controls without invalidating a completed flight."""
+    if continue_view is None:
+        return
+    try:
+        await interaction.edit_original_response(view=continue_view)
+    except (discord.HTTPException, ValueError):
+        logger.warning(
+            "Tutorial completed, but continuation controls could not be attached",
+            exc_info=True,
+        )
 
 
 async def run_launch(configurator: "BalloonConfigurator", interaction: discord.Interaction,
@@ -203,7 +217,11 @@ async def run_launch(configurator: "BalloonConfigurator", interaction: discord.I
             result_content = result_content.replace("\n" + chart_str, mission_text + "\n" + chart_str) if chart_str else result_content + mission_text
         result_content = result_content[:1997] + "..." if len(result_content) > 2000 else result_content
 
-        continue_view = _tutorial_continue_view(configurator, interaction, result)
+        try:
+            continue_view = _tutorial_continue_view(configurator, interaction, result)
+        except Exception:
+            logger.exception("Failed to build tutorial continuation controls")
+            continue_view = None
         followup = getattr(interaction, "followup", None)
         supports_followup = followup is not None and hasattr(followup, "send")
 
@@ -214,8 +232,7 @@ async def run_launch(configurator: "BalloonConfigurator", interaction: discord.I
             except (discord.HTTPException, ValueError):
                 logger.warning("Discord flight animation interrupted", exc_info=True)
             await _send_results(interaction, result_content)
-            if continue_view is not None:
-                await interaction.edit_original_response(view=continue_view)
+            await _attach_tutorial_continue_view(interaction, continue_view)
         else:
             # Lightweight mocks and older adapters do not expose follow-ups.
             # Keep their output atomic so tutorial controls do not cause a
