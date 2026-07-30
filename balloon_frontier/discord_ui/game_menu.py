@@ -71,6 +71,7 @@ def _configurator_for_mode(
     player_id: str,
     channel_kind: str,
     on_finished: Callable[[], None] | None,
+    on_view_changed: Callable[[discord.ui.View], None] | None = None,
 ):
     session_service = SessionAwareFlightService(
         service,
@@ -109,12 +110,16 @@ def _configurator_for_mode(
     )
 
     configurator = configurator_type(service=wrapped)
+    # Resumable sessions live for the process lifetime rather than expiring with
+    # the original Discord message's component timeout.
+    configurator.timeout = None
     configurator._game_entry_context = {
         "service": service,
         "mode": mode,
         "player_id": player_id,
         "channel_kind": channel_kind,
         "on_finished": on_finished,
+        "on_view_changed": on_view_changed,
     }
     return configurator
 
@@ -127,6 +132,7 @@ async def start_mode(
     player_id: str,
     channel_kind: str,
     on_finished: Callable[[], None] | None = None,
+    on_view_changed: Callable[[discord.ui.View], None] | None = None,
 ) -> None:
     configurator = _configurator_for_mode(
         service=service,
@@ -134,12 +140,15 @@ async def start_mode(
         player_id=player_id,
         channel_kind=channel_kind,
         on_finished=on_finished,
+        on_view_changed=on_view_changed,
     )
     configurator._msg = interaction.message
     await interaction.response.edit_message(
         content=configurator._step_content(),
         view=configurator,
     )
+    if on_view_changed is not None:
+        on_view_changed(configurator)
 
 
 class GameModeView(discord.ui.View):
@@ -150,12 +159,14 @@ class GameModeView(discord.ui.View):
         channel_kind: str,
         service,
         on_finished: Callable[[], None] | None = None,
+        on_view_changed: Callable[[discord.ui.View], None] | None = None,
     ) -> None:
-        super().__init__(timeout=300)
+        super().__init__(timeout=None)
         self.player_id = str(player_id)
         self.channel_kind = channel_kind
         self.service = service
         self.on_finished = on_finished
+        self.on_view_changed = on_view_changed
         self._msg = None
 
         player = PlayerRegistry.get_or_create(self.player_id)
@@ -180,6 +191,7 @@ class GameModeView(discord.ui.View):
             player_id=self.player_id,
             channel_kind=self.channel_kind,
             on_finished=self.on_finished,
+            on_view_changed=self.on_view_changed,
         )
 
 
@@ -200,6 +212,7 @@ class _ContinueToStoryButton(discord.ui.Button):
             player_id=self.parent_view.player_id,
             channel_kind=self.parent_view.channel_kind,
             on_finished=self.parent_view.on_finished,
+            on_view_changed=self.parent_view.on_view_changed,
         )
 
 
@@ -213,12 +226,18 @@ class ContinueToStoryView(discord.ui.View):
         channel_kind: str,
         service,
         on_finished: Callable[[], None] | None = None,
+        on_view_changed: Callable[[discord.ui.View], None] | None = None,
     ) -> None:
-        super().__init__(timeout=600)
+        super().__init__(timeout=None)
         self.player_id = str(player_id)
         self.channel_kind = channel_kind
         self.service = service
         self.on_finished = on_finished
+        self.on_view_changed = on_view_changed
+        self._resume_content = (
+            "🎈 **Tutorial Complete**\n\n"
+            "Your progress is saved. Continue into Story Mode when you are ready."
+        )
         self.add_item(_ContinueToStoryButton(self))
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
