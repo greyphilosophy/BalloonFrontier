@@ -40,7 +40,6 @@ class _ManualGasMassModal(discord.ui.Modal):
 
         current = parent.state.get("manual_gas_mass")
         default_str = "" if current is None else str(current)
-
         self.mass_input = discord.ui.TextInput(
             label="Gas mass (kg)",
             placeholder="e.g. 12.5",
@@ -104,26 +103,29 @@ class _LaunchButton(discord.ui.Button):
         if not completed_this_launch:
             return
 
+        # The current launch handler owns tutorial continuation creation,
+        # attachment, and resumable-session registration. Keep the fallback only
+        # for older/custom handlers that do not set this marker.
+        if getattr(
+            interaction,
+            "_balloon_frontier_tutorial_continuation_handled",
+            False,
+        ):
+            return
+
         player_id = str(interaction.user.id)
         from balloon_frontier.discord_ui.game_menu import ContinueToStoryView
 
+        kwargs = {
+            "player_id": player_id,
+            "channel_kind": context["channel_kind"],
+            "service": context["service"],
+            "on_finished": context.get("on_finished"),
+        }
         on_view_changed = context.get("on_view_changed")
-        view = ContinueToStoryView(
-            player_id=player_id,
-            channel_kind=context["channel_kind"],
-            service=context["service"],
-            on_finished=context.get("on_finished"),
-            on_view_changed=on_view_changed,
-        )
-
-        # The launch handler normally attached equivalent continuation controls
-        # during the final render. Record the new resumable state without issuing
-        # another message edit. Older/custom handlers still use this callback's
-        # edit fallback.
-        if getattr(interaction, "_balloon_frontier_tutorial_view_attached", False):
-            if on_view_changed is not None:
-                on_view_changed(view)
-            return
+        if on_view_changed is not None:
+            kwargs["on_view_changed"] = on_view_changed
+        view = ContinueToStoryView(**kwargs)
 
         await interaction.edit_original_response(view=view)
         if on_view_changed is not None:
