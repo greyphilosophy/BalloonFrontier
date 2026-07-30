@@ -52,6 +52,11 @@ def _channel_kind(channel) -> str:
 def _remember_active_view(player_id: str | int, view: discord.ui.View) -> None:
     """Record the live view whose mutable state represents a player's session."""
     key = str(player_id)
+    previous = _active_views.get(key)
+    if previous is not None and previous is not view:
+        stop = getattr(previous, "stop", None)
+        if callable(stop):
+            stop()
     _engaged_players.add(key)
     _active_views[key] = view
 
