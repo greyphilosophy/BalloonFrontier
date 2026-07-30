@@ -24,7 +24,7 @@ class DiscordFlightAnimator:
     async def play(self, interaction, moments: Sequence[FlightMoment]) -> str | None:
         if not moments:
             return None
-        delay = self.duration_s / max(1, len(moments))
+        delay = self.duration_s / max(1, len(moments) - 1)
         final_content = None
         for index, moment in enumerate(moments):
             final_content = self.render(moment, index)
