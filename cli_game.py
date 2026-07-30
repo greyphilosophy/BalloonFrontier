@@ -42,13 +42,18 @@ def show_game_mode_menu():
     return modes[idx] if idx is not None else None
 
 
+def get_balloon_choice(balloons):
+    """Return the selected balloon id from the supplied playable list."""
+    idx = get_choice(len(balloons), f"Balloon (1-{len(balloons)})")
+    return balloons[idx].id if idx is not None else None
+
+
 def show_balloon_menu():
     balloons = [b for b in CATALOG.all_balloons() if b.id not in ("s21", "s29")]
     print("\n  Balloon size:\n  " + "─" * 45)
     for i, b in enumerate(balloons, 1):
         print(f"  {i}. {b.name} ({b.max_volume_m3:.1f}m³, burst@{b.burst_volume_m3:.1f}m³, {b.mass_kg*1000}g)")
-    idx = get_choice(len(balloons), f"Balloon (1-{len(balloons)})")
-    return balloons[idx].id if idx is not None else None
+    return get_balloon_choice(balloons)
 
 
 def show_gas_menu():
@@ -135,7 +140,13 @@ def show_results(outcome: FlightOutcome, balloon_key, gas_type, gas_mass, payloa
             print(f"    {'PASS' if mission.completed else 'FAIL'} {mission.mission_id}{reward}: {mission.explanation}")
 
 
-def play(args):
+def play(args=None):
+    if args is None:
+        args = argparse.Namespace(
+            no_animation=False,
+            no_color=False,
+            animation_speed=1.0,
+        )
     print("\n  +-----------------------------------------------+")
     print("  |             BALLOON FRONTIER                  |")
     print("  +-----------------------------------------------+")
