@@ -103,14 +103,20 @@ class _LaunchButton(discord.ui.Button):
         if not completed_this_launch:
             return
 
-        # The current launch handler owns tutorial continuation creation,
-        # attachment, and resumable-session registration. Keep the fallback only
-        # for older/custom handlers that do not set this marker.
-        if getattr(
+        # Current handlers use the broader continuation marker; older/custom
+        # handlers may only mark that the view was already attached. Either means
+        # the fallback must not create or edit a second continuation view.
+        continuation_handled = getattr(
             interaction,
             "_balloon_frontier_tutorial_continuation_handled",
             False,
-        ):
+        )
+        continuation_attached = getattr(
+            interaction,
+            "_balloon_frontier_tutorial_view_attached",
+            False,
+        )
+        if continuation_handled or continuation_attached:
             return
 
         player_id = str(interaction.user.id)
