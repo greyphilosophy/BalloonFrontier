@@ -15,9 +15,13 @@ class _LiveWizard:
     def __init__(self, content="current wizard step"):
         self.content = content
         self._msg = None
+        self.stopped = False
 
     def _step_content(self):
         return self.content
+
+    def stop(self):
+        self.stopped = True
 
 
 class _Destination:
@@ -78,6 +82,19 @@ def test_send_game_menu_resumes_instead_of_restarting_active_player(monkeypatch)
         view=view,
     )
     assert discord_bot._active_views["player-2"] is view
+    assert not view.stopped
+
+
+def test_replacing_active_view_retires_superseded_controls():
+    first = _LiveWizard("Choose mode")
+    second = _LiveWizard("Step 1: Choose gas")
+
+    discord_bot._remember_active_view("player-stale", first)
+    discord_bot._remember_active_view("player-stale", second)
+
+    assert first.stopped
+    assert not second.stopped
+    assert discord_bot._active_views["player-stale"] is second
 
 
 def test_finish_session_returns_player_to_idle_state():
