@@ -99,12 +99,45 @@ def run_simulation(gas_type, gas_mass, gas_temperature_k, payload_mass, drag_coe
     return telemetry, summary
 
 
-async def _send_results(interaction, content: str) -> None:
+def _tutorial_continue_view(configurator, interaction, result):
+    context = getattr(configurator, "_game_entry_context", None)
+    if not context:
+        return None
+
+    from balloon_frontier.game_modes import GameMode
+
+    if context.get("mode") is not GameMode.TUTORIAL:
+        return None
+    completed = any(
+        mission.mission_id == "first_flight" and mission.completed
+        for mission in result.mission_results
+    )
+    if not completed:
+        return None
+
+    from balloon_frontier.discord_ui.game_menu import ContinueToStoryView
+
+    view = ContinueToStoryView(
+        player_id=str(interaction.user.id),
+        channel_kind=context["channel_kind"],
+        service=context["service"],
+        on_finished=context.get("on_finished"),
+    )
+    setattr(interaction, "_balloon_frontier_tutorial_view_attached", True)
+    return view
+
+
+async def _send_results(interaction, content: str) -> bool:
+    """Send results as a follow-up when supported.
+
+    Returns True when a follow-up was sent, False when the caller must use the
+    original interaction response as a compatibility fallback.
+    """
     followup = getattr(interaction, "followup", None)
     if followup is not None and hasattr(followup, "send"):
         await followup.send(content=content)
-    else:
-        await interaction.edit_original_response(content=content, view=None)
+        return True
+    return False
 
 
 async def run_launch(configurator: "BalloonConfigurator", interaction: discord.Interaction,
@@ -169,12 +202,28 @@ async def run_launch(configurator: "BalloonConfigurator", interaction: discord.I
             mission_text = "\n".join(lines)
             result_content = result_content.replace("\n" + chart_str, mission_text + "\n" + chart_str) if chart_str else result_content + mission_text
         result_content = result_content[:1997] + "..." if len(result_content) > 2000 else result_content
-        moments = build_flight_moments(result_obj.telemetry, max_frames=7)
-        try:
-            await DiscordFlightAnimator(duration_s=3.5).play(interaction, moments)
-        except (discord.HTTPException, ValueError):
-            logger.warning("Discord flight animation interrupted", exc_info=True)
-        await _send_results(interaction, result_content)
+
+        continue_view = _tutorial_continue_view(configurator, interaction, result)
+        followup = getattr(interaction, "followup", None)
+        supports_followup = followup is not None and hasattr(followup, "send")
+
+        if supports_followup:
+            moments = build_flight_moments(result_obj.telemetry, max_frames=7)
+            try:
+                await DiscordFlightAnimator(duration_s=3.5).play(interaction, moments)
+            except (discord.HTTPException, ValueError):
+                logger.warning("Discord flight animation interrupted", exc_info=True)
+            await _send_results(interaction, result_content)
+            if continue_view is not None:
+                await interaction.edit_original_response(view=continue_view)
+        else:
+            # Lightweight mocks and older adapters do not expose follow-ups.
+            # Keep their output atomic so tutorial controls do not cause a
+            # second content render or overwrite the result report.
+            await interaction.edit_original_response(
+                content=result_content,
+                view=continue_view,
+            )
         return result
     except Exception:
         logger.exception("Balloon launch failed")
