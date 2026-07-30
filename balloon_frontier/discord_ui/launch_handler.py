@@ -10,7 +10,7 @@ import discord
 from balloon_frontier.ascii_chart import chart_to_string
 from balloon_frontier.discord_ui.animator import DiscordFlightAnimator
 from balloon_frontier.flight_score import calculate_flight_score
-from balloon_frontier.flight_service import FlightService, FlightServiceError
+from balloon_frontier.flight_service import FlightService
 from balloon_frontier.launch_result import FillMode, LaunchRequest
 from balloon_frontier.medal_tier import get_medal_emoji, medal_tier_to_string
 from balloon_frontier.missions import load_mission_directory
@@ -184,6 +184,7 @@ async def _edit_results_with_optional_view(interaction, content: str, continue_v
 async def run_launch(configurator: "BalloonConfigurator", interaction: discord.Interaction,
                      service: FlightService):
     await interaction.response.defer(thinking=True, ephemeral=False)
+    simulation_completed = False
     try:
         player_id = str(interaction.user.id) if getattr(interaction, "user", None) else "anonymous"
         state = configurator.state
@@ -210,6 +211,7 @@ async def run_launch(configurator: "BalloonConfigurator", interaction: discord.I
             logger.exception("Flight service failed")
             await interaction.edit_original_response(content="❌ The launch simulation failed. Please try again.", view=None)
             return None
+        simulation_completed = True
 
         result_obj = result.result
         tel = [{"time": tp.time_s, "alt": tp.altitude_m, "vel": tp.velocity_mps,
@@ -270,9 +272,14 @@ async def run_launch(configurator: "BalloonConfigurator", interaction: discord.I
             )
         return result
     except Exception:
-        logger.exception("Balloon launch result delivery failed")
-        await interaction.edit_original_response(
-            content="⚠️ The flight completed, but its results could not be displayed. Please try `/play` to continue.",
-            view=None,
-        )
+        if simulation_completed:
+            logger.exception("Balloon launch result delivery failed")
+            content = (
+                "⚠️ The flight completed, but its results could not be displayed. "
+                "Please try `/play` to continue."
+            )
+        else:
+            logger.exception("Balloon launch setup failed")
+            content = "❌ The launch simulation failed. Please try again."
+        await interaction.edit_original_response(content=content, view=None)
         return None
