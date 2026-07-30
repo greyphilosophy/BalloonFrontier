@@ -91,12 +91,6 @@ class _LaunchButton(discord.ui.Button):
             service=self._service,
         )
 
-        # The launch handler now attaches tutorial continuation controls as
-        # part of the final render. Keep this fallback for callers that use an
-        # older/custom launch handler, but do not issue a duplicate edit.
-        if getattr(interaction, "_balloon_frontier_tutorial_view_attached", False):
-            return
-
         context = getattr(self._parent, "_game_entry_context", None)
         if not context or context.get("mode") is not GameMode.TUTORIAL:
             return
@@ -113,10 +107,24 @@ class _LaunchButton(discord.ui.Button):
         player_id = str(interaction.user.id)
         from balloon_frontier.discord_ui.game_menu import ContinueToStoryView
 
+        on_view_changed = context.get("on_view_changed")
         view = ContinueToStoryView(
             player_id=player_id,
             channel_kind=context["channel_kind"],
             service=context["service"],
             on_finished=context.get("on_finished"),
+            on_view_changed=on_view_changed,
         )
+
+        # The launch handler normally attached equivalent continuation controls
+        # during the final render. Record the new resumable state without issuing
+        # another message edit. Older/custom handlers still use this callback's
+        # edit fallback.
+        if getattr(interaction, "_balloon_frontier_tutorial_view_attached", False):
+            if on_view_changed is not None:
+                on_view_changed(view)
+            return
+
         await interaction.edit_original_response(view=view)
+        if on_view_changed is not None:
+            on_view_changed(view)
