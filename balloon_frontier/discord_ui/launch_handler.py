@@ -187,29 +187,29 @@ async def run_launch(
     """
     await interaction.response.defer(thinking=True, ephemeral=False)
 
-    player_id = (
-        str(interaction.user.id)
-        if hasattr(interaction, "user") and interaction.user
-        else "anonymous"
-    )
-
-    state = configurator.state
-    from balloon_frontier.discord_ui.configurator import (
-        GAS_OPTIONS, ENVELOPE_OPTIONS, SITE_OPTIONS, PAYLOAD_OPTIONS,
-    )
-
-    gas_info = GAS_OPTIONS[state["gas"]]
-    env_info = ENVELOPE_OPTIONS[state["envelope"]]
-    site_info = SITE_OPTIONS[state["site"]]
-    payloads = [PAYLOAD_OPTIONS[p] for p in state["payloads"]]
-    payload_names = [p[0] for p in payloads]
-
-    gas_mass = configurator.state.get("gas_mass")
-    if gas_mass is None:
-        gas_mass = configurator._compute_gas_mass()
-        configurator.state["gas_mass"] = gas_mass
-
     try:
+        player_id = (
+            str(interaction.user.id)
+            if hasattr(interaction, "user") and interaction.user
+            else "anonymous"
+        )
+
+        state = configurator.state
+        from balloon_frontier.discord_ui.configurator import (
+            GAS_OPTIONS, ENVELOPE_OPTIONS, SITE_OPTIONS, PAYLOAD_OPTIONS,
+        )
+
+        gas_info = GAS_OPTIONS[state["gas"]]
+        env_info = ENVELOPE_OPTIONS[state["envelope"]]
+        site_info = SITE_OPTIONS[state["site"]]
+        payloads = [PAYLOAD_OPTIONS[p] for p in state["payloads"]]
+        payload_names = [p[0] for p in payloads]
+
+        gas_mass = configurator.state.get("gas_mass")
+        if gas_mass is None:
+            gas_mass = configurator._compute_gas_mass()
+            configurator.state["gas_mass"] = gas_mass
+
         fill_mode = FillMode(configurator.state.get("fill_mode", "auto"))
         manual_mass = configurator.state.get("manual_gas_mass")
 
