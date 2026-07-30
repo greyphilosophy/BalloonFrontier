@@ -91,6 +91,12 @@ class _LaunchButton(discord.ui.Button):
             service=self._service,
         )
 
+        # The launch handler now attaches tutorial continuation controls as
+        # part of the final render. Keep this fallback for callers that use an
+        # older/custom launch handler, but do not issue a duplicate edit.
+        if getattr(interaction, "_balloon_frontier_tutorial_view_attached", False):
+            return
+
         context = getattr(self._parent, "_game_entry_context", None)
         if not context or context.get("mode") is not GameMode.TUTORIAL:
             return
