@@ -17,9 +17,13 @@ from balloon_frontier.discord_ui.configurator import BalloonConfigurator
 
 
 class _ModeButton(discord.ui.Button):
-    def __init__(self, mode: GameMode, parent: "GameModeView") -> None:
-        player = PlayerRegistry.get_or_create(parent.player_id)
-        tutorial_complete = "first_flight" in player.missions_completed
+    def __init__(
+        self,
+        mode: GameMode,
+        parent: "GameModeView",
+        *,
+        tutorial_complete: bool,
+    ) -> None:
         label = mode.label
         if mode is GameMode.TUTORIAL and tutorial_complete:
             label = "Replay Tutorial"
@@ -130,8 +134,17 @@ class GameModeView(discord.ui.View):
         self.service = service
         self.on_finished = on_finished
         self._msg = None
+
+        player = PlayerRegistry.get_or_create(self.player_id)
+        tutorial_complete = "first_flight" in player.missions_completed
         for mode in GameMode:
-            self.add_item(_ModeButton(mode, self))
+            self.add_item(
+                _ModeButton(
+                    mode,
+                    self,
+                    tutorial_complete=tutorial_complete,
+                )
+            )
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         return bool(interaction.user and str(interaction.user.id) == self.player_id)
