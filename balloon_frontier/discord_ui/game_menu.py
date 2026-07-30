@@ -55,6 +55,15 @@ async def _configurator_interaction_check(
     )
 
 
+def _configurator_get_player_state(configurator: BalloonConfigurator):
+    """Read progression for the player bound to this game session."""
+    context = getattr(configurator, "_game_entry_context", None)
+    player_id = context.get("player_id") if context else None
+    if player_id is None:
+        return None
+    return PlayerRegistry.get_or_create(str(player_id))
+
+
 def _configurator_for_mode(
     *,
     service,
@@ -93,7 +102,10 @@ def _configurator_for_mode(
     configurator_type = type(
         "BalloonFrontierConfigurator",
         tuple(configurator_mixins) + (BalloonConfigurator,),
-        {"interaction_check": _configurator_interaction_check},
+        {
+            "interaction_check": _configurator_interaction_check,
+            "_get_player_state": _configurator_get_player_state,
+        },
     )
 
     configurator = configurator_type(service=wrapped)
