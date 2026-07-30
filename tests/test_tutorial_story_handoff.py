@@ -179,6 +179,19 @@ def test_completed_players_see_replay_and_continue_labels(monkeypatch):
     assert lookups == ["player"]
 
 
+def test_configurator_restricts_every_step_to_the_original_player():
+    configurator = game_menu._configurator_for_mode(
+        service=object(),
+        mode=GameMode.FREE_PLAY,
+        player_id="player",
+        channel_kind="dm",
+        on_finished=None,
+    )
+
+    assert asyncio.run(configurator.interaction_check(_Interaction("player")))
+    assert not asyncio.run(configurator.interaction_check(_Interaction("other")))
+
+
 def test_handoff_restricts_buttons_to_the_original_player():
     view = game_menu.ContinueToStoryView(
         player_id="player",
