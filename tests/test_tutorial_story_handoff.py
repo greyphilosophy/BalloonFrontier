@@ -155,10 +155,16 @@ def test_continue_button_opens_story_mode(monkeypatch):
 def test_completed_players_see_replay_and_continue_labels(monkeypatch):
     player = PlayerState("player")
     player.missions_completed.append("first_flight")
+    lookups = []
+
+    def get_player(cls, player_id):
+        lookups.append(player_id)
+        return player
+
     monkeypatch.setattr(
         PlayerRegistry,
         "get_or_create",
-        classmethod(lambda cls, player_id: player),
+        classmethod(get_player),
     )
 
     view = game_menu.GameModeView(
@@ -170,6 +176,7 @@ def test_completed_players_see_replay_and_continue_labels(monkeypatch):
 
     assert labels[GameMode.TUTORIAL] == "Replay Tutorial"
     assert labels[GameMode.STORY] == "Continue Story"
+    assert lookups == ["player"]
 
 
 def test_handoff_restricts_buttons_to_the_original_player():
