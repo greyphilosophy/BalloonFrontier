@@ -125,7 +125,68 @@ def test_tutorial_continue_view_registers_the_exact_created_view(monkeypatch):
     )
 
 
-def test_launch_button_skips_legacy_fallback_when_handler_owned_continuation(monkeypatch):
+def test_registry_failure_does_not_discard_created_continue_view(monkeypatch):
+    created_view = object()
+    constructor = Mock(return_value=created_view)
+
+    from balloon_frontier.discord_ui import game_menu
+
+    monkeypatch.setattr(game_menu, "ContinueToStoryView", constructor)
+
+    def reject_registration(view):
+        raise RuntimeError("registry unavailable")
+
+    configurator = SimpleNamespace(
+        _game_entry_context={
+            "mode": GameMode.TUTORIAL,
+            "channel_kind": "dm",
+            "service": "root-service",
+            "on_finished": None,
+            "on_view_changed": reject_registration,
+        }
+    )
+    interaction = SimpleNamespace(user=SimpleNamespace(id="player"))
+    result = SimpleNamespace(
+        mission_results=(
+            SimpleNamespace(mission_id="first_flight", completed=True),
+        )
+    )
+
+    view = launch_handler._tutorial_continue_view(
+        configurator,
+        interaction,
+        result,
+    )
+
+    assert view is created_view
+    assert interaction._balloon_frontier_tutorial_continuation_handled is True
+
+
+def test_terminal_status_edit_failure_is_contained():
+    interaction = SimpleNamespace(
+        edit_original_response=AsyncMock(
+            side_effect=RuntimeError("interaction expired")
+        )
+    )
+
+    edited = asyncio.run(
+        launch_handler._safe_edit_original_response(
+            interaction,
+            content="status",
+            view=None,
+        )
+    )
+
+    assert edited is False
+    interaction.edit_original_response.assert_awaited_once_with(
+        content="status",
+        view=None,
+    )
+
+
+def test_launch_button_skips_legacy_fallback_when_handler_owned_continuation(
+    monkeypatch,
+):
     outcome = SimpleNamespace(
         mission_results=(
             SimpleNamespace(mission_id="first_flight", completed=True),
