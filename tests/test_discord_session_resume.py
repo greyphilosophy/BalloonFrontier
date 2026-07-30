@@ -5,6 +5,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import discord_bot
+from balloon_frontier.discord_ui import launch_handler
+from balloon_frontier.discord_ui.game_menu import ContinueToStoryView
+from balloon_frontier.discord_ui.modals import _LaunchButton
+from balloon_frontier.game_modes import GameMode
 
 
 class _LiveWizard:
@@ -84,3 +88,43 @@ def test_finish_session_returns_player_to_idle_state():
 
     assert "player-3" not in discord_bot._engaged_players
     assert "player-3" not in discord_bot._active_views
+
+
+def test_completed_tutorial_updates_resumable_view_without_duplicate_edit(monkeypatch):
+    player_id = "tutorial-player"
+    context = {
+        "mode": GameMode.TUTORIAL,
+        "channel_kind": "dm",
+        "service": SimpleNamespace(),
+        "on_finished": lambda: None,
+        "on_view_changed": lambda view: discord_bot._remember_active_view(
+            player_id, view
+        ),
+    }
+    parent = SimpleNamespace(_game_entry_context=context)
+    button = _LaunchButton(parent, service=SimpleNamespace())
+    outcome = SimpleNamespace(
+        mission_results=(
+            SimpleNamespace(
+                mission_id="first_flight",
+                completed=True,
+            ),
+        )
+    )
+    monkeypatch.setattr(
+        launch_handler,
+        "run_launch",
+        AsyncMock(return_value=outcome),
+    )
+    interaction = SimpleNamespace(
+        user=SimpleNamespace(id=player_id),
+        _balloon_frontier_tutorial_view_attached=True,
+        edit_original_response=AsyncMock(),
+    )
+
+    asyncio.run(button.callback(interaction))
+
+    resumed = discord_bot._active_views[player_id]
+    assert isinstance(resumed, ContinueToStoryView)
+    assert "Tutorial Complete" in discord_bot._resume_content(resumed)
+    interaction.edit_original_response.assert_not_awaited()
