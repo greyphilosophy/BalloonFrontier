@@ -115,16 +115,23 @@ def _tutorial_continue_view(configurator, interaction, result):
     if not completed:
         return None
 
+    setattr(interaction, "_balloon_frontier_tutorial_continuation_handled", True)
+
     from balloon_frontier.discord_ui.game_menu import ContinueToStoryView
 
-    view = ContinueToStoryView(
-        player_id=str(interaction.user.id),
-        channel_kind=context["channel_kind"],
-        service=context["service"],
-        on_finished=context.get("on_finished"),
-        on_view_changed=context.get("on_view_changed"),
-    )
-    setattr(interaction, "_balloon_frontier_tutorial_view_attached", True)
+    kwargs = {
+        "player_id": str(interaction.user.id),
+        "channel_kind": context["channel_kind"],
+        "service": context["service"],
+        "on_finished": context.get("on_finished"),
+    }
+    on_view_changed = context.get("on_view_changed")
+    if on_view_changed is not None:
+        kwargs["on_view_changed"] = on_view_changed
+
+    view = ContinueToStoryView(**kwargs)
+    if on_view_changed is not None:
+        on_view_changed(view)
     return view
 
 
@@ -141,17 +148,37 @@ async def _send_results(interaction, content: str) -> bool:
     return False
 
 
-async def _attach_tutorial_continue_view(interaction, continue_view) -> None:
+async def _attach_tutorial_continue_view(interaction, continue_view) -> bool:
     """Attach optional tutorial controls without invalidating a completed flight."""
     if continue_view is None:
-        return
+        return False
     try:
         await interaction.edit_original_response(view=continue_view)
-    except (discord.HTTPException, ValueError):
+    except Exception:
         logger.warning(
             "Tutorial completed, but continuation controls could not be attached",
             exc_info=True,
         )
+        return False
+    setattr(interaction, "_balloon_frontier_tutorial_view_attached", True)
+    return True
+
+
+async def _edit_results_with_optional_view(interaction, content: str, continue_view) -> None:
+    """Render results, retrying without optional controls if Discord rejects them."""
+    try:
+        await interaction.edit_original_response(
+            content=content,
+            view=continue_view,
+        )
+    except Exception:
+        if continue_view is None:
+            raise
+        logger.warning(
+            "Tutorial results rendered, but continuation controls were rejected",
+            exc_info=True,
+        )
+        await interaction.edit_original_response(content=content, view=None)
 
 
 async def run_launch(configurator: "BalloonConfigurator", interaction: discord.Interaction,
@@ -179,10 +206,11 @@ async def run_launch(configurator: "BalloonConfigurator", interaction: discord.I
             player_id=player_id, balloon_size=None)
         try:
             result = await asyncio.to_thread(service.run, launch_request)
-        except FlightServiceError:
+        except Exception:
             logger.exception("Flight service failed")
             await interaction.edit_original_response(content="❌ The launch simulation failed. Please try again.", view=None)
             return None
+
         result_obj = result.result
         tel = [{"time": tp.time_s, "alt": tp.altitude_m, "vel": tp.velocity_mps,
                 "burst": tp.burst, "landed": tp.landed, "crashed": tp.crashed}
@@ -220,6 +248,7 @@ async def run_launch(configurator: "BalloonConfigurator", interaction: discord.I
         try:
             continue_view = _tutorial_continue_view(configurator, interaction, result)
         except Exception:
+            setattr(interaction, "_balloon_frontier_tutorial_continuation_handled", True)
             logger.exception("Failed to build tutorial continuation controls")
             continue_view = None
         followup = getattr(interaction, "followup", None)
@@ -234,15 +263,16 @@ async def run_launch(configurator: "BalloonConfigurator", interaction: discord.I
             await _send_results(interaction, result_content)
             await _attach_tutorial_continue_view(interaction, continue_view)
         else:
-            # Lightweight mocks and older adapters do not expose follow-ups.
-            # Keep their output atomic so tutorial controls do not cause a
-            # second content render or overwrite the result report.
-            await interaction.edit_original_response(
-                content=result_content,
-                view=continue_view,
+            await _edit_results_with_optional_view(
+                interaction,
+                result_content,
+                continue_view,
             )
         return result
     except Exception:
-        logger.exception("Balloon launch failed")
-        await interaction.edit_original_response(content="❌ The launch simulation failed. Please try again.", view=None)
+        logger.exception("Balloon launch result delivery failed")
+        await interaction.edit_original_response(
+            content="⚠️ The flight completed, but its results could not be displayed. Please try `/play` to continue.",
+            view=None,
+        )
         return None
