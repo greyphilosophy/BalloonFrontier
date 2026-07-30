@@ -80,11 +80,12 @@ def test_game_menu_prompt_explains_menu_only_flow():
     assert "menus and buttons" in prompt
 
 
-def test_send_game_menu_suppresses_duplicates_and_play_can_reset(monkeypatch):
+def test_send_game_menu_resumes_active_view_and_play_can_reset(monkeypatch):
     import discord_bot
     import balloon_frontier.flight_service as flight_service_module
 
     discord_bot._engaged_players.clear()
+    discord_bot._active_views.clear()
     monkeypatch.setattr(flight_service_module, "flight_service", object())
     destination = FakeDestination()
 
@@ -95,7 +96,7 @@ def test_send_game_menu_suppresses_duplicates_and_play_can_reset(monkeypatch):
             channel_kind="dm",
         )
     )
-    duplicate = asyncio.run(
+    resumed = asyncio.run(
         discord_bot.send_game_menu(
             destination,
             player_id="player",
@@ -112,9 +113,12 @@ def test_send_game_menu_suppresses_duplicates_and_play_can_reset(monkeypatch):
     )
 
     assert first is not None
-    assert duplicate is None
+    assert resumed is not None
+    assert resumed.view is first.view
     assert reset is not None
-    assert len(destination.sent) == 2
+    assert reset.view is not first.view
+    assert len(destination.sent) == 3
 
     reset.view.on_finished()
     assert "player" not in discord_bot._engaged_players
+    assert "player" not in discord_bot._active_views
