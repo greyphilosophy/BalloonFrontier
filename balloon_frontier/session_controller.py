@@ -38,6 +38,19 @@ def get_mode_policy(mode: GameMode | str | int) -> ModePolicy:
     return _POLICIES[parsed]
 
 
+def _effective_mode(mode: GameMode, player_id: str | int | None) -> GameMode:
+    """Quietly use the first-flight session for a new Story player."""
+    if mode is not GameMode.STORY or player_id is None:
+        return mode
+
+    from .progression import PlayerRegistry
+
+    player = PlayerRegistry.get_or_create(str(player_id))
+    if "first_flight" not in player.missions_completed:
+        return GameMode.TUTORIAL
+    return mode
+
+
 def _stable_seed(mode: GameMode, configuration: Mapping[str, Any], context: Mapping[str, Any]) -> int:
     payload = json.dumps({"mode": mode.value, "configuration": configuration, "context": context}, sort_keys=True, separators=(",", ":"), default=str)
     return int.from_bytes(hashlib.sha256(payload.encode("utf-8")).digest()[:4], "big")
@@ -106,10 +119,15 @@ def plan_session(
     context: Mapping[str, Any] | None = None,
     mission_dir: str | None = None,
 ) -> SessionPlan:
-    policy = get_mode_policy(mode)
+    requested = mode if isinstance(mode, GameMode) else select_game_mode(mode)
+    effective = _effective_mode(requested, player_id)
+    policy = get_mode_policy(effective)
     session = GameSession(mode=policy.mode, player_id=player_id)
     session.set_configuration(configuration)
-    frozen_context = MappingProxyType(dict(context or {}))
+    frozen_context = MappingProxyType({
+        **dict(context or {}),
+        "requested_mode": requested.value,
+    })
     missions = assign_missions_for_mode(
         policy.mode,
         session.configuration,
