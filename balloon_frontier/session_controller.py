@@ -38,9 +38,17 @@ def get_mode_policy(mode: GameMode | str | int) -> ModePolicy:
     return _POLICIES[parsed]
 
 
-def _effective_mode(mode: GameMode, player_id: str | int | None) -> GameMode:
-    """Quietly use the first-flight session for a new Story player."""
-    if mode is not GameMode.STORY or player_id is None:
+def _effective_mode(
+    mode: GameMode,
+    player_id: str | int | None,
+    context: Mapping[str, Any] | None = None,
+) -> GameMode:
+    """Quietly use first-flight only where the transport supplies its hidden UI."""
+    if (
+        mode is not GameMode.STORY
+        or player_id is None
+        or (context or {}).get("ui") != "discord"
+    ):
         return mode
 
     from .progression import PlayerRegistry
@@ -70,14 +78,14 @@ def assign_missions_for_mode(
     context: Mapping[str, Any] | None = None,
     mission_dir: str | None = None,
 ) -> tuple[str, ...]:
-    """Assign the active chapter without substituting easier missions."""
+    """Assign the active chapter without substituting unsupported transport flows."""
 
     requested = mode if isinstance(mode, GameMode) else select_game_mode(mode)
-    policy = get_mode_policy(_effective_mode(requested, player_id))
+    context = dict(context or {})
+    policy = get_mode_policy(_effective_mode(requested, player_id, context))
     if not policy.requires_missions:
         return ()
 
-    context = dict(context or {})
     payloads = [p for p in configuration.get("payloads", ()) if p != "none"]
     site = configuration.get("site") or configuration.get("launch_site")
     ensure_missions_loaded(mission_dir)
@@ -121,10 +129,10 @@ def plan_session(
     mission_dir: str | None = None,
 ) -> SessionPlan:
     requested = mode if isinstance(mode, GameMode) else select_game_mode(mode)
-    policy = get_mode_policy(_effective_mode(requested, player_id))
+    frozen_context = MappingProxyType(dict(context or {}))
+    policy = get_mode_policy(_effective_mode(requested, player_id, frozen_context))
     session = GameSession(mode=policy.mode, player_id=player_id)
     session.set_configuration(configuration)
-    frozen_context = MappingProxyType(dict(context or {}))
     missions = assign_missions_for_mode(
         policy.mode,
         session.configuration,
