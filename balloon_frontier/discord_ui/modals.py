@@ -40,7 +40,6 @@ class _ManualGasMassModal(discord.ui.Modal):
 
         current = parent.state.get("manual_gas_mass")
         default_str = "" if current is None else str(current)
-
         self.mass_input = discord.ui.TextInput(
             label="Gas mass (kg)",
             placeholder="e.g. 12.5",
@@ -104,27 +103,37 @@ class _LaunchButton(discord.ui.Button):
         if not completed_this_launch:
             return
 
+        # Current handlers own construction, attachment, and registration. Older
+        # handlers may only mark that Discord was already edited; in that case the
+        # fallback must still construct and register the resumable view.
+        if getattr(
+            interaction,
+            "_balloon_frontier_tutorial_continuation_handled",
+            False,
+        ):
+            return
+
+        continuation_attached = getattr(
+            interaction,
+            "_balloon_frontier_tutorial_view_attached",
+            False,
+        )
+
         player_id = str(interaction.user.id)
         from balloon_frontier.discord_ui.game_menu import ContinueToStoryView
 
+        kwargs = {
+            "player_id": player_id,
+            "channel_kind": context["channel_kind"],
+            "service": context["service"],
+            "on_finished": context.get("on_finished"),
+        }
         on_view_changed = context.get("on_view_changed")
-        view = ContinueToStoryView(
-            player_id=player_id,
-            channel_kind=context["channel_kind"],
-            service=context["service"],
-            on_finished=context.get("on_finished"),
-            on_view_changed=on_view_changed,
-        )
+        if on_view_changed is not None:
+            kwargs["on_view_changed"] = on_view_changed
+        view = ContinueToStoryView(**kwargs)
 
-        # The launch handler normally attached equivalent continuation controls
-        # during the final render. Record the new resumable state without issuing
-        # another message edit. Older/custom handlers still use this callback's
-        # edit fallback.
-        if getattr(interaction, "_balloon_frontier_tutorial_view_attached", False):
-            if on_view_changed is not None:
-                on_view_changed(view)
-            return
-
-        await interaction.edit_original_response(view=view)
+        if not continuation_attached:
+            await interaction.edit_original_response(view=view)
         if on_view_changed is not None:
             on_view_changed(view)
