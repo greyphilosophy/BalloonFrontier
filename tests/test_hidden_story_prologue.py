@@ -78,3 +78,20 @@ def test_discord_story_prologue_hides_tutorial_signposting(monkeypatch):
     assert "Tutorial" not in content
     assert "Green buttons" not in content
     assert all(item.style.name != "success" for item in configurator.children)
+
+    context = configurator._game_entry_context
+    assert context["requested_mode"] is GameMode.STORY
+    assert context["mode"] is GameMode.TUTORIAL
+    assert context["hidden_story_prologue"] is True
+
+
+def test_first_flight_handoff_uses_career_neutral_copy():
+    view = game_menu.ContinueToStoryView(
+        player_id="new-player",
+        channel_kind="dm",
+        service=object(),
+    )
+
+    assert "First Flight Complete" in view._resume_content
+    assert "Tutorial" not in view._resume_content
+    assert view.children[0].label == "Continue Career"
