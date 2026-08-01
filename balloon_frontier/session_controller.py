@@ -98,9 +98,10 @@ def assign_missions_for_mode(
             return (mission_id,)
 
     if policy.mode is GameMode.TUTORIAL and "first_flight" in MISSIONS:
-        mission = MISSIONS["first_flight"]
-        if _mission_matches_configuration(mission, payloads, site):
-            return ("first_flight",)
+        # Tutorial choices are intentionally exploratory. Assign the same mission
+        # even when the selected configuration cannot satisfy it; the tutorial
+        # evaluator explains why that design failed.
+        return ("first_flight",)
 
     seed = _stable_seed(policy.mode, configuration, context)
     return tuple(select_missions(
