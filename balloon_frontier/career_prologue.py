@@ -44,5 +44,8 @@ class DiscoveryFirstFlightConfiguratorMixin(TutorialConfiguratorMixin):
         # Discovery mode keeps every option visually neutral. The same introductory
         # catalog and evaluator are used, but nothing reveals a recommended route.
         for item in self.children:
-            if isinstance(item, _OptionButton) and item.style is discord.ButtonStyle.success:
+            if (
+                isinstance(item, _OptionButton)
+                and item.style == discord.ButtonStyle.success
+            ):
                 item.style = discord.ButtonStyle.primary
