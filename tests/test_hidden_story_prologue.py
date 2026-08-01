@@ -50,6 +50,29 @@ def test_new_discord_story_player_gets_first_flight_session(monkeypatch):
     assert dict(plan.context) == {"ui": "discord"}
 
 
+def test_exploratory_story_choice_still_assigns_first_flight(monkeypatch):
+    player = PlayerState("new-player")
+    monkeypatch.setattr(
+        PlayerRegistry,
+        "get_or_create",
+        classmethod(lambda cls, player_id: player),
+    )
+    configuration = {
+        **_configuration(),
+        "payloads": ("none",),
+    }
+
+    plan = plan_session(
+        GameMode.STORY,
+        configuration,
+        player_id="new-player",
+        context={"ui": "discord"},
+    )
+
+    assert plan.session.mode is GameMode.TUTORIAL
+    assert plan.missions == ("first_flight",)
+
+
 def test_new_non_discord_story_player_keeps_normal_story(monkeypatch):
     player = PlayerState("new-player")
     monkeypatch.setattr(
