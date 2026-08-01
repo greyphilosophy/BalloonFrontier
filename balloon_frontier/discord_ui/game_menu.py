@@ -99,6 +99,7 @@ def _configurator_for_mode(
     elif mode is GameMode.STORY and supports_wizard_mixins:
         from balloon_frontier.career_prologue import (
             DiscoveryFirstFlightConfiguratorMixin,
+            DiscoveryFirstFlightService,
             needs_first_flight,
         )
 
@@ -107,6 +108,7 @@ def _configurator_for_mode(
             from balloon_frontier.tutorial_catalog import ensure_discord_tutorial_options
 
             ensure_discord_tutorial_options()
+            wrapped.service = DiscoveryFirstFlightService(wrapped.service)
             configurator_mixins.insert(0, DiscoveryFirstFlightConfiguratorMixin)
         else:
             from balloon_frontier.story import StoryConfiguratorMixin
