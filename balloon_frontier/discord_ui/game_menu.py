@@ -96,9 +96,20 @@ def _configurator_for_mode(
         if supports_wizard_mixins:
             configurator_mixins.insert(0, TutorialConfiguratorMixin)
     elif mode is GameMode.STORY and supports_wizard_mixins:
-        from balloon_frontier.story import StoryConfiguratorMixin
+        from balloon_frontier.career_prologue import (
+            DiscoveryFirstFlightConfiguratorMixin,
+            needs_first_flight,
+        )
 
-        configurator_mixins.insert(0, StoryConfiguratorMixin)
+        if needs_first_flight(player_id):
+            from balloon_frontier.tutorial_catalog import ensure_discord_tutorial_options
+
+            ensure_discord_tutorial_options()
+            configurator_mixins.insert(0, DiscoveryFirstFlightConfiguratorMixin)
+        else:
+            from balloon_frontier.story import StoryConfiguratorMixin
+
+            configurator_mixins.insert(0, StoryConfiguratorMixin)
 
     configurator_type = type(
         "BalloonFrontierConfigurator",
@@ -110,8 +121,6 @@ def _configurator_for_mode(
     )
 
     configurator = configurator_type(service=wrapped)
-    # Resumable sessions live for the process lifetime rather than expiring with
-    # the original Discord message's component timeout.
     configurator.timeout = None
     configurator._game_entry_context = {
         "service": service,
