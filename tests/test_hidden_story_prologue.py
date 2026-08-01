@@ -1,10 +1,23 @@
 """Story starts with the first-flight tutorial without presenting it as a tutorial."""
 
-from balloon_frontier.career_prologue import DiscoveryFirstFlightConfiguratorMixin
+from dataclasses import dataclass
+
+from balloon_frontier.balloon_cluster import BalloonClusterFlightService
+from balloon_frontier.career_prologue import (
+    DiscoveryFirstFlightConfiguratorMixin,
+    DiscoveryFirstFlightService,
+    discovery_first_flight_outcome,
+)
 from balloon_frontier.discord_ui import game_menu
 from balloon_frontier.game_modes import GameMode
+from balloon_frontier.launch_result import MissionResult
 from balloon_frontier.progression import PlayerRegistry, PlayerState
 from balloon_frontier.session_controller import plan_session
+
+
+@dataclass(frozen=True)
+class _Outcome:
+    mission_results: tuple[MissionResult, ...]
 
 
 def _configuration():
@@ -73,6 +86,8 @@ def test_discord_story_prologue_hides_tutorial_signposting(monkeypatch):
     )
 
     assert isinstance(configurator, DiscoveryFirstFlightConfiguratorMixin)
+    assert isinstance(configurator._service, BalloonClusterFlightService)
+    assert isinstance(configurator._service.service, DiscoveryFirstFlightService)
     content = configurator._step_content()
     assert "Your First Flight" in content
     assert "Tutorial" not in content
@@ -95,3 +110,51 @@ def test_first_flight_handoff_uses_career_neutral_copy():
     assert "First Flight Complete" in view._resume_content
     assert "Tutorial" not in view._resume_content
     assert view.children[0].label == "Continue Career"
+
+
+def test_hidden_prologue_debrief_does_not_reference_guided_choices():
+    outcome = _Outcome(
+        mission_results=(
+            MissionResult(
+                mission_id="first_flight",
+                completed=False,
+                reward=0,
+                explanation=(
+                    "**Try next**\n- Follow the green recommended choices and launch again."
+                ),
+            ),
+        )
+    )
+
+    rewritten = discovery_first_flight_outcome(outcome)
+    result = rewritten.mission_results[0]
+
+    assert result.completed is False
+    assert result.reward == 0
+    assert "green" not in result.explanation.lower()
+    assert "recommended choices" not in result.explanation.lower()
+    assert "different combination" in result.explanation
+
+
+def test_hidden_prologue_success_keeps_reward_with_discovery_wording():
+    outcome = _Outcome(
+        mission_results=(
+            MissionResult(
+                mission_id="first_flight",
+                completed=True,
+                reward=500,
+                explanation=(
+                    "**Why**\n- The recommended gas, assist envelope, fill, and "
+                    "active control worked together."
+                ),
+            ),
+        )
+    )
+
+    rewritten = discovery_first_flight_outcome(outcome)
+    result = rewritten.mission_results[0]
+
+    assert result.completed is True
+    assert result.reward == 500
+    assert "recommended gas" not in result.explanation
+    assert "Your gas, envelope, fill, and active-control choices" in result.explanation
