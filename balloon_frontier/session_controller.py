@@ -72,7 +72,8 @@ def assign_missions_for_mode(
 ) -> tuple[str, ...]:
     """Assign the active chapter without substituting easier missions."""
 
-    policy = get_mode_policy(mode)
+    requested = mode if isinstance(mode, GameMode) else select_game_mode(mode)
+    policy = get_mode_policy(_effective_mode(requested, player_id))
     if not policy.requires_missions:
         return ()
 
@@ -120,14 +121,10 @@ def plan_session(
     mission_dir: str | None = None,
 ) -> SessionPlan:
     requested = mode if isinstance(mode, GameMode) else select_game_mode(mode)
-    effective = _effective_mode(requested, player_id)
-    policy = get_mode_policy(effective)
+    policy = get_mode_policy(_effective_mode(requested, player_id))
     session = GameSession(mode=policy.mode, player_id=player_id)
     session.set_configuration(configuration)
-    frozen_context = MappingProxyType({
-        **dict(context or {}),
-        "requested_mode": requested.value,
-    })
+    frozen_context = MappingProxyType(dict(context or {}))
     missions = assign_missions_for_mode(
         policy.mode,
         session.configuration,
