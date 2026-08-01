@@ -1,4 +1,4 @@
-"""Story starts with the first-flight tutorial without presenting it as a tutorial."""
+"""Story starts with first flight without presenting it as a tutorial."""
 
 from dataclasses import dataclass
 
@@ -30,7 +30,7 @@ def _configuration():
     }
 
 
-def test_new_story_player_gets_first_flight_session(monkeypatch):
+def test_new_discord_story_player_gets_first_flight_session(monkeypatch):
     player = PlayerState("new-player")
     monkeypatch.setattr(
         PlayerRegistry,
@@ -50,6 +50,26 @@ def test_new_story_player_gets_first_flight_session(monkeypatch):
     assert dict(plan.context) == {"ui": "discord"}
 
 
+def test_new_non_discord_story_player_keeps_normal_story(monkeypatch):
+    player = PlayerState("new-player")
+    monkeypatch.setattr(
+        PlayerRegistry,
+        "get_or_create",
+        classmethod(lambda cls, player_id: player),
+    )
+
+    plan = plan_session(
+        GameMode.STORY,
+        _configuration(),
+        player_id="new-player",
+        context={"ui": "cli"},
+    )
+
+    assert plan.session.mode is GameMode.STORY
+    assert plan.missions == ("edge_of_space",)
+    assert dict(plan.context) == {"ui": "cli"}
+
+
 def test_completed_player_starts_normal_story(monkeypatch):
     player = PlayerState("returning-player")
     player.missions_completed.append("first_flight")
@@ -63,6 +83,7 @@ def test_completed_player_starts_normal_story(monkeypatch):
         GameMode.STORY,
         _configuration(),
         player_id="returning-player",
+        context={"ui": "discord"},
     )
 
     assert plan.session.mode is GameMode.STORY
