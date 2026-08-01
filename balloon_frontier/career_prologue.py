@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import discord
 
 from balloon_frontier.progression import PlayerRegistry
@@ -19,12 +21,52 @@ PROLOGUE_BRIEFING = (
     "There is no prescribed design. Experiment, observe the result, and improve it."
 )
 
+_DISCOVERY_DEBRIEF_REPLACEMENTS = {
+    "The recommended gas, assist envelope, fill, and active control worked together.": (
+        "Your gas, envelope, fill, and active-control choices worked together."
+    ),
+    "Follow the green recommended choices and launch again.": (
+        "Try a different combination of gas, envelope, fill, and control, then launch again."
+    ),
+}
+
 
 def needs_first_flight(player_id: str | int | None) -> bool:
     if player_id is None:
         return False
     player = PlayerRegistry.get_or_create(str(player_id))
     return FIRST_FLIGHT_MISSION_ID not in player.missions_completed
+
+
+def discovery_first_flight_outcome(outcome):
+    """Rewrite guided tutorial wording without changing evaluation or rewards."""
+    rewritten = []
+    changed = False
+    for result in outcome.mission_results:
+        if result.mission_id != FIRST_FLIGHT_MISSION_ID:
+            rewritten.append(result)
+            continue
+        explanation = result.explanation
+        for guided, discovery in _DISCOVERY_DEBRIEF_REPLACEMENTS.items():
+            explanation = explanation.replace(guided, discovery)
+        rewritten.append(replace(result, explanation=explanation))
+        changed = changed or explanation != result.explanation
+    if not changed:
+        return outcome
+    return replace(outcome, mission_results=tuple(rewritten))
+
+
+class DiscoveryFirstFlightService:
+    """Keep the tutorial evaluator while presenting a discovery-oriented debrief."""
+
+    def __init__(self, service) -> None:
+        self.service = service
+
+    def __getattr__(self, name):
+        return getattr(self.service, name)
+
+    def run(self, request):
+        return discovery_first_flight_outcome(self.service.run(request))
 
 
 class DiscoveryFirstFlightConfiguratorMixin(TutorialConfiguratorMixin):
