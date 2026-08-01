@@ -88,6 +88,7 @@ def _configurator_for_mode(
         for name in ("build_buttons", "_compute_gas_mass", "_build_config_text")
     )
     configurator_mixins = [BalloonClusterConfiguratorMixin] if supports_wizard_mixins else []
+    hidden_story_prologue = False
     if mode is GameMode.TUTORIAL:
         from balloon_frontier.tutorial import TutorialConfiguratorMixin
         from balloon_frontier.tutorial_catalog import ensure_discord_tutorial_options
@@ -101,7 +102,8 @@ def _configurator_for_mode(
             needs_first_flight,
         )
 
-        if needs_first_flight(player_id):
+        hidden_story_prologue = needs_first_flight(player_id)
+        if hidden_story_prologue:
             from balloon_frontier.tutorial_catalog import ensure_discord_tutorial_options
 
             ensure_discord_tutorial_options()
@@ -124,7 +126,9 @@ def _configurator_for_mode(
     configurator.timeout = None
     configurator._game_entry_context = {
         "service": service,
-        "mode": mode,
+        "mode": GameMode.TUTORIAL if hidden_story_prologue else mode,
+        "requested_mode": mode,
+        "hidden_story_prologue": hidden_story_prologue,
         "player_id": player_id,
         "channel_kind": channel_kind,
         "on_finished": on_finished,
@@ -231,7 +235,7 @@ class GameModeView(discord.ui.View):
 class _ContinueToStoryButton(discord.ui.Button):
     def __init__(self, parent: "ContinueToStoryView") -> None:
         super().__init__(
-            label="Continue to Story Mode",
+            label="Continue Career",
             style=discord.ButtonStyle.success,
             custom_id="continue_to_story",
         )
@@ -252,7 +256,7 @@ class _ContinueToStoryButton(discord.ui.Button):
 
 
 class ContinueToStoryView(discord.ui.View):
-    """One-click handoff from a completed tutorial into Chapter 1."""
+    """One-click handoff from the completed first flight into the career."""
 
     def __init__(
         self,
@@ -270,8 +274,8 @@ class ContinueToStoryView(discord.ui.View):
         self.on_finished = on_finished
         self.on_view_changed = on_view_changed
         self._resume_content = (
-            "🎈 **Tutorial Complete**\n\n"
-            "Your progress is saved. Continue into Story Mode when you are ready."
+            "🎈 **First Flight Complete**\n\n"
+            "Your progress is saved. Continue your balloon career when you are ready."
         )
         self.add_item(_ContinueToStoryButton(self))
 
