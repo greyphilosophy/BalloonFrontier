@@ -112,17 +112,17 @@ def test_altitude_threshold_is_not_classified_as_no_liftoff():
     assert "Did not lift off" not in narrative
 
 
-def test_duration_threshold_is_not_classified_as_no_liftoff():
+def test_long_near_ground_run_is_still_no_liftoff():
     narrative = generate_narrative_summary(
         peak_altitude=0.4,
         burst=False,
         landed=False,
         crashed=False,
-        time_of_flight=10.0,
+        time_of_flight=120.0,
     )
 
-    assert "Still climbing slowly" in narrative
-    assert "Did not lift off" not in narrative
+    assert "Did not lift off" in narrative
+    assert "Still climbing slowly" not in narrative
 
 
 def test_meaningful_long_run_keeps_slow_climb_narrative():
