@@ -67,6 +67,64 @@ def test_near_ground_short_run_is_not_described_as_climbing():
     assert "gaining altitude" not in narrative
 
 
+def test_no_liftoff_replacement_preserves_weather_and_mission_context():
+    narrative = generate_narrative_summary(
+        peak_altitude=0.4,
+        burst=False,
+        landed=False,
+        crashed=False,
+        time_of_flight=1.0,
+        weather_briefing="Calm test weather",
+        mission_result={
+            "missions": [
+                {
+                    "title": "Ground Test",
+                    "is_success": False,
+                    "score": 0,
+                    "notes": "No sustained climb.",
+                }
+            ],
+            "overall_score": 0,
+            "overall_success": False,
+            "reputation_gained": 0,
+            "budget_earned": 0,
+            "player_state": {"reputation": 0, "budget": 100},
+            "new_unlocks": [],
+        },
+    )
+
+    assert "Calm test weather" in narrative
+    assert "Did not lift off" in narrative
+    assert "Ground Test" in narrative
+    assert "Overall Score: 0.0/100" in narrative
+
+
+def test_altitude_threshold_is_not_classified_as_no_liftoff():
+    narrative = generate_narrative_summary(
+        peak_altitude=5.0,
+        burst=False,
+        landed=False,
+        crashed=False,
+        time_of_flight=1.0,
+    )
+
+    assert "Still climbing slowly" in narrative
+    assert "Did not lift off" not in narrative
+
+
+def test_duration_threshold_is_not_classified_as_no_liftoff():
+    narrative = generate_narrative_summary(
+        peak_altitude=0.4,
+        burst=False,
+        landed=False,
+        crashed=False,
+        time_of_flight=10.0,
+    )
+
+    assert "Still climbing slowly" in narrative
+    assert "Did not lift off" not in narrative
+
+
 def test_meaningful_long_run_keeps_slow_climb_narrative():
     narrative = generate_narrative_summary(
         peak_altitude=100.0,
