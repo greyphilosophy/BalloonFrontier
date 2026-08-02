@@ -10,14 +10,29 @@ safe fraction of burst capacity at the selected launch conditions.
 from __future__ import annotations
 
 
+def _resolved_launch_temperature_k(request) -> float:
+    """Resolve the gas temperature used by both fill and simulation startup."""
+    from balloon_frontier.physics import atmosphere_temperature
+
+    altitude_m = float(request.site.altitude_m)
+    ambient_k = atmosphere_temperature(altitude_m)
+
+    if request.gas_temperature_delta_k is not None:
+        resolved_k = ambient_k + float(request.gas_temperature_delta_k)
+    elif request.site.gas_temperature_k is not None:
+        resolved_k = float(request.site.gas_temperature_k)
+    else:
+        resolved_k = ambient_k + float(request.site.temperature_offset_k)
+
+    if resolved_k <= 0.0:
+        raise ValueError("Launch gas temperature must be greater than 0 K")
+    return resolved_k
+
+
 def _launch_fill_gas_mass_kg(request) -> float:
     """Return a nominal preset or manual fill capped below burst capacity."""
     from balloon_frontier.catalog import FillMode
-    from balloon_frontier.physics import (
-        atmosphere_pressure,
-        atmosphere_temperature,
-        gas_density,
-    )
+    from balloon_frontier.physics import atmosphere_pressure, gas_density
 
     balloon = request.balloon
     envelope = request.envelope
@@ -34,17 +49,9 @@ def _launch_fill_gas_mass_kg(request) -> float:
     is_manual = request.fill_mode == FillMode.MANUAL
     manual_quantity = int(getattr(request, "balloon_count", 1)) if is_manual else 1
 
-    # Match the initial simulation state. Launch altitude changes ambient
-    # pressure, and an explicit gas-temperature offset changes the volume that
-    # a given gas mass occupies before the first simulation tick.
     launch_altitude_m = float(request.site.altitude_m)
     launch_pressure_pa = atmosphere_pressure(launch_altitude_m)
-    launch_temperature_k = atmosphere_temperature(launch_altitude_m)
-    if request.gas_temperature_delta_k is not None:
-        launch_temperature_k += float(request.gas_temperature_delta_k)
-    if launch_temperature_k <= 0.0:
-        raise ValueError("Launch gas temperature must be greater than 0 K")
-
+    launch_temperature_k = _resolved_launch_temperature_k(request)
     gas_density_kg_m3 = gas_density(
         request.gas.id,
         launch_temperature_k,
@@ -83,19 +90,39 @@ def _launch_fill_gas_mass_kg(request) -> float:
     return min(gas_mass_kg, safe_mass_kg)
 
 
+def _launch_simulation_state(original):
+    """Wrap state construction so it uses the same resolved launch temperature."""
+    def to_simulation_state(request):
+        state = original(request)
+        state.gas_temperature_k = _resolved_launch_temperature_k(request)
+        state.gas_temperature_delta_k = None
+        return state
+
+    to_simulation_state._balloon_frontier_launch_temperature = True
+    return to_simulation_state
+
+
 def install_nominal_preset_fill() -> None:
-    """Install the corrected canonical gas-mass property exactly once."""
+    """Install corrected fill and launch-temperature behavior exactly once."""
     from balloon_frontier.launch_result import LaunchRequest
 
-    current = LaunchRequest.gas_mass_kg
-    if getattr(current.fget, "_balloon_frontier_nominal_fill", False):
-        return
+    current_property = LaunchRequest.gas_mass_kg
+    if not getattr(current_property.fget, "_balloon_frontier_nominal_fill", False):
+        _launch_fill_gas_mass_kg._balloon_frontier_nominal_fill = True
+        LaunchRequest.gas_mass_kg = property(
+            _launch_fill_gas_mass_kg,
+            doc=(
+                "Calculate gas mass from nominal launch volume and clamp all fills "
+                "below the configured burst-safe capacity at launch conditions."
+            ),
+        )
 
-    _launch_fill_gas_mass_kg._balloon_frontier_nominal_fill = True
-    LaunchRequest.gas_mass_kg = property(
-        _launch_fill_gas_mass_kg,
-        doc=(
-            "Calculate gas mass from nominal launch volume and clamp all fills "
-            "below the configured burst-safe capacity at launch conditions."
-        ),
-    )
+    current_state_builder = LaunchRequest.to_simulation_state
+    if not getattr(
+        current_state_builder,
+        "_balloon_frontier_launch_temperature",
+        False,
+    ):
+        LaunchRequest.to_simulation_state = _launch_simulation_state(
+            current_state_builder
+        )
