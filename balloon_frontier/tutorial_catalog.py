@@ -15,7 +15,7 @@ SCIENTIFIC_FILM_BALLOON_NAME = "Scientific Film Balloon"
 TUTORIAL_ASSIST_ENVELOPE = EnvelopeDefinition(
     id=TUTORIAL_ENVELOPE_ID,
     name="Foil Party Balloon",
-    max_volume_m3=0.30,
+    max_volume_m3=0.40,
     mass_kg=0.05,
     drag_coefficient=2.0,
     burst_stretch_ratio=3.0,
@@ -79,6 +79,18 @@ def ensure_discord_tutorial_options() -> None:
     shared = ENVELOPE_OPTIONS.get("mylar")
     if shared is not None:
         ENVELOPE_OPTIONS["mylar"] = (SCIENTIFIC_FILM_BALLOON_NAME, *shared[1:])
+
+    # The tutorial launch path uses the real tutorial-only ID. Register its
+    # display tuple so request construction and final reporting describe the
+    # same envelope that the physics engine simulates.
+    ENVELOPE_OPTIONS[TUTORIAL_ENVELOPE_ID] = (
+        TUTORIAL_ASSIST_ENVELOPE.name,
+        TUTORIAL_ASSIST_ENVELOPE.max_volume_m3,
+        TUTORIAL_ASSIST_ENVELOPE.mass_kg,
+        TUTORIAL_ASSIST_ENVELOPE.drag_coefficient,
+        TUTORIAL_ASSIST_ENVELOPE.burst_stretch_ratio,
+        TUTORIAL_ASSIST_ENVELOPE.cost,
+    )
 
     PAYLOAD_OPTIONS.setdefault(
         QUADCOPTER_ID,
