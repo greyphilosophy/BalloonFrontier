@@ -51,3 +51,12 @@ _install_nominal_preset_fill()
 from .narrative_guard import install_narrative_guard as _install_narrative_guard
 
 _install_narrative_guard()
+
+# Real discord.Interaction objects may reject arbitrary custom attributes.
+# Keep tutorial continuation state on application-owned objects and preserve
+# completed reports when follow-up delivery fails.
+from .discord_continuation_guard import (
+    install_discord_continuation_guard as _install_discord_continuation_guard,
+)
+
+_install_discord_continuation_guard()
