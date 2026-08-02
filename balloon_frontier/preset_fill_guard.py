@@ -4,7 +4,7 @@ The legacy ``LaunchRequest.gas_mass_kg`` implementation used burst volume as
 its preset baseline. That could begin a contained envelope at or beyond its
 burst threshold. This module keeps nominal volume as the preset baseline and
 clamps every launch fill, including manual fills, to the envelope's configured
-safe fraction of burst capacity.
+safe fraction of burst capacity at the selected launch conditions.
 """
 
 from __future__ import annotations
@@ -13,7 +13,11 @@ from __future__ import annotations
 def _launch_fill_gas_mass_kg(request) -> float:
     """Return a nominal preset or manual fill capped below burst capacity."""
     from balloon_frontier.catalog import FillMode
-    from balloon_frontier.physics import atmosphere_pressure, gas_density
+    from balloon_frontier.physics import (
+        atmosphere_pressure,
+        atmosphere_temperature,
+        gas_density,
+    )
 
     balloon = request.balloon
     envelope = request.envelope
@@ -30,10 +34,21 @@ def _launch_fill_gas_mass_kg(request) -> float:
     is_manual = request.fill_mode == FillMode.MANUAL
     manual_quantity = int(getattr(request, "balloon_count", 1)) if is_manual else 1
 
+    # Match the initial simulation state. Launch altitude changes ambient
+    # pressure, and an explicit gas-temperature offset changes the volume that
+    # a given gas mass occupies before the first simulation tick.
+    launch_altitude_m = float(request.site.altitude_m)
+    launch_pressure_pa = atmosphere_pressure(launch_altitude_m)
+    launch_temperature_k = atmosphere_temperature(launch_altitude_m)
+    if request.gas_temperature_delta_k is not None:
+        launch_temperature_k += float(request.gas_temperature_delta_k)
+    if launch_temperature_k <= 0.0:
+        raise ValueError("Launch gas temperature must be greater than 0 K")
+
     gas_density_kg_m3 = gas_density(
         request.gas.id,
-        288.15,
-        atmosphere_pressure(0.0),
+        launch_temperature_k,
+        launch_pressure_pa,
     )
 
     # Automatic presets are calculated per envelope. Manual mass is defined as
@@ -81,6 +96,6 @@ def install_nominal_preset_fill() -> None:
         _launch_fill_gas_mass_kg,
         doc=(
             "Calculate gas mass from nominal launch volume and clamp all fills "
-            "below the configured burst-safe capacity."
+            "below the configured burst-safe capacity at launch conditions."
         ),
     )
