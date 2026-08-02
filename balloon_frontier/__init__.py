@@ -60,3 +60,11 @@ from .discord_continuation_guard import (
 )
 
 _install_discord_continuation_guard()
+
+# Subdivide only numerically stiff horizontal-drag steps so quadratic drag
+# approaches the wind velocity without sign-flipping into an overflow.
+from .simulation_stability_guard import (
+    install_simulation_stability_guard as _install_simulation_stability_guard,
+)
+
+_install_simulation_stability_guard()
