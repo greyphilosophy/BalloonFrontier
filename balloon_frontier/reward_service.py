@@ -24,6 +24,23 @@ class RewardService:
     def __init__(self, repository: PlayerRepository) -> None:
         self.repository = repository
 
+    @staticmethod
+    def _with_status(
+        mission: MissionResult,
+        *,
+        status: str,
+        emphasized: bool = True,
+    ) -> MissionResult:
+        """Append status to a real debrief, but preserve legacy empty-result text."""
+        if not mission.explanation:
+            return replace(mission, reward=0, explanation=status)
+        suffix = f"*{status}*" if emphasized else status
+        return replace(
+            mission,
+            reward=0,
+            explanation=f"{mission.explanation}\n\n{suffix}",
+        )
+
     def apply(
         self,
         player_id: str,
@@ -80,34 +97,26 @@ class RewardService:
             if not mission.completed:
                 return mission
             if mission.mission_id in rolled_back_rewards:
-                return replace(
+                return self._with_status(
                     mission,
-                    reward=0,
-                    explanation=(
-                        mission.explanation
-                        + "\n\n*The mission completed, but its reward could not be saved. "
-                        "Please try again.*"
+                    status=(
+                        "Mission completed, but the reward could not be saved. "
+                        "Please try again."
                     ),
                 )
             if mission.mission_id in applied_set:
                 return mission
             if save_failed:
-                return replace(
+                return self._with_status(
                     mission,
-                    reward=0,
-                    explanation=(
-                        mission.explanation
-                        + "\n\n*The reward could not be applied because progression "
-                        "persistence failed.*"
+                    status=(
+                        "Mission completed but reward could not be applied "
+                        "(progression error)."
                     ),
                 )
-            return replace(
+            return self._with_status(
                 mission,
-                reward=0,
-                explanation=(
-                    mission.explanation
-                    + "\n\n*Mission completed previously; no additional reward awarded.*"
-                ),
+                status="Mission completed previously; no additional reward awarded.",
             )
 
         return tuple(reconcile(mission) for mission in mission_results)
