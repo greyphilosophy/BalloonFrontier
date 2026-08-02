@@ -34,21 +34,20 @@ def _launch_fill_gas_mass_kg(request) -> float:
         atmosphere_pressure(0.0),
     )
 
-    # A launch fill may use only the configured safe fraction of the volume at
-    # which the envelope would burst. This keeps every configuration safely
-    # below an already-bursting state before the first simulation tick.
+    # Automatic presets are calculated per envelope. Manual mass is defined as
+    # a total for the complete cluster, so its safety ceiling must scale with
+    # balloon_count when present.
     safe_volume_m3 = (
         nominal_volume_m3
         * burst_stretch_ratio
         * envelope.safe_fill_fraction
     )
+    if request.fill_mode == FillMode.MANUAL:
+        safe_volume_m3 *= int(getattr(request, "balloon_count", 1))
     safe_mass_kg = gas_density_kg_m3 * safe_volume_m3
 
     if request.fill_mode == FillMode.MANUAL:
         assert request.manual_gas_mass_kg is not None
-        # Manual entry remains user-controlled within physical launch limits.
-        # Oversized entries are reduced to the safe launch maximum rather than
-        # allowing an already-bursting initial state into the simulation.
         gas_mass_kg = max(0.001, float(request.manual_gas_mass_kg))
     else:
         gas_mass_kg = (
