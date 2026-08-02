@@ -2,25 +2,38 @@
 
 from __future__ import annotations
 
+from functools import wraps
 from typing import Callable
 
 _NO_LIFTOFF_ALTITUDE_M = 5.0
 _NO_LIFTOFF_DURATION_S = 10.0
-_SLOW_CLIMB_TEXT = (
-    "📈 **Still climbing slowly...**\n"
-    "  Your balloon is gaining altitude but not fast enough. "
-    "Try heavier gas fill or lighter payloads."
-)
-_NO_LIFTOFF_TEXT = (
-    "🛑 **Did not lift off**\n"
+_SLOW_CLIMB_HEADING = "📈 **Still climbing slowly...**"
+_NO_LIFTOFF_LINES = [
+    "🛑 **Did not lift off**",
     "  The vehicle remained near the launch site and the flight ended before "
-    "a sustained climb began."
-)
+    "a sustained climb began.",
+]
+
+
+def _replace_slow_climb_block(narrative: str) -> str:
+    """Replace only the slow-climb outcome block, preserving surrounding context."""
+    lines = narrative.splitlines()
+    try:
+        index = lines.index(_SLOW_CLIMB_HEADING)
+    except ValueError:
+        return narrative
+
+    end = index + 1
+    while end < len(lines) and lines[end].startswith("  "):
+        end += 1
+    lines[index:end] = _NO_LIFTOFF_LINES
+    return "\n".join(lines)
 
 
 def grounded_narrative_summary(original: Callable):
     """Wrap a narrative generator with a near-ground no-liftoff correction."""
 
+    @wraps(original)
     def generate(
         peak_altitude: float,
         burst: bool,
@@ -47,7 +60,7 @@ def grounded_narrative_summary(original: Callable):
             and time_of_flight < _NO_LIFTOFF_DURATION_S
         )
         if did_not_lift_off:
-            return narrative.replace(_SLOW_CLIMB_TEXT, _NO_LIFTOFF_TEXT)
+            return _replace_slow_climb_block(narrative)
         return narrative
 
     return generate
