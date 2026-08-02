@@ -67,9 +67,16 @@ def test_manual_fill_is_clamped_below_burst_safe_capacity():
         * request.envelope.safe_fill_fraction
     )
     safe_mass = _gas_density(request) * safe_volume
+    actual_volume = gas_volume(
+        request.gas_mass_kg,
+        request.gas.id,
+        288.15,
+        atmosphere_pressure(0.0),
+    )
 
     assert request.gas_mass_kg == pytest.approx(safe_mass)
-    assert safe_volume < request.envelope.burst_volume_m3
+    assert actual_volume == pytest.approx(safe_volume)
+    assert actual_volume < request.envelope.burst_volume_m3
 
 
 def test_quadcopter_does_not_include_a_pressure_valve():
