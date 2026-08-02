@@ -46,6 +46,9 @@ def _launch_fill_gas_mass_kg(request) -> float:
 
     if request.fill_mode == FillMode.MANUAL:
         assert request.manual_gas_mass_kg is not None
+        # Manual entry remains user-controlled within physical launch limits.
+        # Oversized entries are reduced to the safe launch maximum rather than
+        # allowing an already-bursting initial state into the simulation.
         gas_mass_kg = max(0.001, float(request.manual_gas_mass_kg))
     else:
         gas_mass_kg = (
