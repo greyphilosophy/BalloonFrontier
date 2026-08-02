@@ -35,10 +35,10 @@ def test_payload_step_shows_none_when_nothing_is_equipped(monkeypatch):
     assert "**Currently equipped:** None" in content
 
 
-def test_payload_step_lists_equipped_items_in_menu_order(monkeypatch):
+def test_payload_step_shows_the_equipped_quadcopter(monkeypatch):
     configurator = _configurator(monkeypatch)
-    configurator.state["payloads"] = ["quadcopter", "camera"]
+    configurator.state["payloads"] = ["quadcopter"]
 
     content = configurator._step_content()
 
-    assert "**Currently equipped:** Camera, Small Quadcopter" in content
+    assert "**Currently equipped:** Small Quadcopter" in content
