@@ -79,7 +79,7 @@ def test_discord_launch_uses_and_reports_the_effective_tutorial_envelope():
     assert service.request.envelope_id == TUTORIAL_ENVELOPE_ID
     assert service.request.gas_mass_kg < 0.1
     assert configurator.state["envelope"] == "mylar"
-    assert configurator.state["gas_mass"] == 33.856
+    assert configurator.state["gas_mass"] == service.request.gas_mass_kg
 
     rendered = interaction.edit_original_response.await_args.kwargs["content"]
     assert "Envelope: Foil Party Balloon" in rendered
