@@ -27,6 +27,8 @@ def _launch_fill_gas_mass_kg(request) -> float:
         if balloon is not None
         else envelope.burst_stretch_ratio
     )
+    is_manual = request.fill_mode == FillMode.MANUAL
+    manual_quantity = int(getattr(request, "balloon_count", 1)) if is_manual else 1
 
     gas_density_kg_m3 = gas_density(
         request.gas.id,
@@ -35,18 +37,17 @@ def _launch_fill_gas_mass_kg(request) -> float:
     )
 
     # Automatic presets are calculated per envelope. Manual mass is defined as
-    # a total for the complete cluster, so its safety ceiling must scale with
-    # balloon_count when present.
+    # a total for the complete cluster, so all per-envelope limits must scale
+    # with balloon_count before they are applied to that total.
     safe_volume_m3 = (
         nominal_volume_m3
         * burst_stretch_ratio
         * envelope.safe_fill_fraction
+        * manual_quantity
     )
-    if request.fill_mode == FillMode.MANUAL:
-        safe_volume_m3 *= int(getattr(request, "balloon_count", 1))
     safe_mass_kg = gas_density_kg_m3 * safe_volume_m3
 
-    if request.fill_mode == FillMode.MANUAL:
+    if is_manual:
         assert request.manual_gas_mass_kg is not None
         gas_mass_kg = max(0.001, float(request.manual_gas_mass_kg))
     else:
@@ -56,10 +57,12 @@ def _launch_fill_gas_mass_kg(request) -> float:
             * request.fill_mode.get_multiplier()
         )
 
-    # CLI balloon definitions may provide stricter manufacturer fill limits.
+    # CLI balloon definitions provide per-balloon manufacturer limits. Scale
+    # them only for manual cluster totals; automatic fills are multiplied by the
+    # cluster request after this per-envelope property returns.
     if balloon is not None and balloon.fill_range_g != (0, 0):
-        min_mass_kg = float(balloon.fill_range_g[0]) / 1000.0
-        max_mass_kg = float(balloon.fill_range_g[1]) / 1000.0
+        min_mass_kg = float(balloon.fill_range_g[0]) / 1000.0 * manual_quantity
+        max_mass_kg = float(balloon.fill_range_g[1]) / 1000.0 * manual_quantity
         gas_mass_kg = min(max(gas_mass_kg, min_mass_kg), max_mass_kg)
 
     return min(gas_mass_kg, safe_mass_kg)
