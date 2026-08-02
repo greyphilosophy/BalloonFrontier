@@ -51,6 +51,9 @@ def test_unresolved_quadcopter_flight_does_not_invent_a_control_failure():
     assert "does not yet simulate quadcopter battery endurance" in mission.explanation
     assert "cannot identify a specific control failure" in mission.explanation
     assert "telemetry does not prove which one prevented recovery" in mission.explanation
+    assert "Possible contributing tradeoffs" in mission.explanation
+    assert "Latex is flexible" in mission.explanation
+    assert "Heavy fill" in mission.explanation
 
 
 def test_recommended_configuration_cannot_pass_without_confirmed_recovery():
@@ -63,6 +66,9 @@ def test_recommended_configuration_cannot_pass_without_confirmed_recovery():
     assert mission.reward == 0
     assert "did not complete a confirmed recovery" in mission.explanation
     assert "completed the endurance course under control" not in mission.explanation
+    assert "worked together" not in mission.explanation
+    assert "Try one different choice" not in mission.explanation
+    assert "confirm a landing" in mission.explanation
 
 
 def test_confirmed_recovery_can_still_complete_recommended_route():
