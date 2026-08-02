@@ -68,3 +68,11 @@ from .simulation_stability_guard import (
 )
 
 _install_simulation_stability_guard()
+
+# Keep unresolved tutorial debriefs evidence-based and preserve chart spacing
+# in Discord by fencing the ASCII trajectory before report assembly.
+from .tutorial_report_guard import (
+    install_tutorial_report_guard as _install_tutorial_report_guard,
+)
+
+_install_tutorial_report_guard()

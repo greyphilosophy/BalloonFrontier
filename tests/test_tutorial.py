@@ -19,13 +19,13 @@ from balloon_frontier.tutorial import (
 from balloon_frontier.tutorial_catalog import ensure_discord_tutorial_options
 
 
-def _outcome():
+def _outcome(*, landed=False):
     return FlightOutcome(
         result=SimpleNamespace(
             peak_altitude_m=0.0,
             duration_s=0.0,
             burst=False,
-            landed=False,
+            landed=landed,
             crashed=False,
         )
     )
@@ -62,34 +62,38 @@ def test_discord_tutorial_exposes_quadcopter_option():
     assert PAYLOAD_OPTIONS["quadcopter"][0] == "Small Quadcopter"
 
 
-def test_party_balloon_helium_quadcopter_completes_tutorial():
-    mission = evaluate_tutorial_outcome(_request(), _outcome()).mission_results[0]
+def test_party_balloon_helium_quadcopter_completes_tutorial_after_recovery():
+    mission = evaluate_tutorial_outcome(
+        _request(),
+        _outcome(landed=True),
+    ).mission_results[0]
 
     assert mission.completed
     assert mission.reward == 500
     assert "completed the endurance course under control" in mission.explanation
-    assert "No landing was confirmed" in mission.explanation
+    assert "landed successfully" in mission.explanation
 
 
-def test_unavailable_hydrogen_route_receives_generic_failure_debrief():
+def test_unavailable_hydrogen_route_receives_evidence_based_failure_debrief():
     mission = evaluate_tutorial_outcome(
         _request(gas="hydrogen"), _outcome()
     ).mission_results[0]
 
     assert not mission.completed
     assert mission.reward == 0
-    assert "did not complete the endurance course safely" in mission.explanation
+    assert "did not complete a confirmed recovery" in mission.explanation
+    assert "cannot identify a specific control failure" in mission.explanation
     assert "What happened" in mission.explanation
 
 
-def test_latex_route_explains_steering_tradeoff():
+def test_latex_route_explains_uncertain_recovery_cause():
     mission = evaluate_tutorial_outcome(
         _request(envelope="latex"), _outcome()
     ).mission_results[0]
 
     assert not mission.completed
-    assert "Latex is flexible" in mission.explanation
-    assert "Foil Party Balloon" in mission.explanation
+    assert "telemetry does not prove which one prevented recovery" in mission.explanation
+    assert "cannot identify a specific control failure" in mission.explanation
 
 
 def test_tutorial_prompts_show_goal_and_visual_guidance_not_explanations():
@@ -156,7 +160,7 @@ def test_tutorial_applies_final_reward_exactly_once(monkeypatch):
     monkeypatch.setattr(
         _PlannedFlightService,
         "run",
-        lambda self, launch_request: _outcome(),
+        lambda self, launch_request: _outcome(landed=True),
     )
 
     outcome = SessionAwareFlightService(
