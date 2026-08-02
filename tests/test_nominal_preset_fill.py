@@ -106,8 +106,8 @@ def test_pressure_valve_adds_its_own_mass_and_cost():
     state = request.to_simulation_state()
 
     assert valve.has_valve is True
-    assert valve.mass_kg > 0
-    assert valve.cost > 0
+    assert valve.mass_kg == pytest.approx(0.3)
+    assert valve.cost == 250
     assert state.has_pressure_valve is True
     assert request.total_payload_mass_kg == pytest.approx(
         QUADCOPTER.mass_kg + valve.mass_kg
