@@ -26,7 +26,7 @@ def _configurator(monkeypatch):
     return configurator
 
 
-def test_payload_step_shows_none_when_nothing_is_equipped(monkeypatch):
+def test_payload_step_confirms_none_is_equipped(monkeypatch):
     configurator = _configurator(monkeypatch)
     configurator.state["payloads"] = ["none"]
 
@@ -35,7 +35,7 @@ def test_payload_step_shows_none_when_nothing_is_equipped(monkeypatch):
     assert "**Currently equipped:** None" in content
 
 
-def test_payload_step_shows_the_equipped_quadcopter(monkeypatch):
+def test_payload_step_confirms_quadcopter_is_equipped(monkeypatch):
     configurator = _configurator(monkeypatch)
     configurator.state["payloads"] = ["quadcopter"]
 
