@@ -154,6 +154,39 @@ def test_tutorial_continue_view_registers_the_exact_created_view(monkeypatch):
     )
 
 
+def test_failed_continue_view_construction_leaves_fallback_available(monkeypatch):
+    from balloon_frontier.discord_ui import game_menu
+
+    monkeypatch.setattr(
+        game_menu,
+        "ContinueToStoryView",
+        Mock(side_effect=RuntimeError("constructor failed")),
+    )
+    configurator = SimpleNamespace(
+        _game_entry_context={
+            "mode": GameMode.TUTORIAL,
+            "channel_kind": "dm",
+            "service": "root-service",
+            "on_finished": None,
+        }
+    )
+    interaction = _SlottedInteraction()
+    result = SimpleNamespace(
+        mission_results=(
+            SimpleNamespace(mission_id="first_flight", completed=True),
+        )
+    )
+
+    view = launch_handler._tutorial_continue_view(
+        configurator,
+        interaction,
+        result,
+    )
+
+    assert view is None
+    assert not hasattr(configurator, "_tutorial_continuation_handled")
+
+
 def test_registry_failure_does_not_discard_created_continue_view(monkeypatch):
     created_view = object()
     constructor = Mock(return_value=created_view)
