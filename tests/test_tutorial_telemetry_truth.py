@@ -29,12 +29,24 @@ def _outcome(*, burst=False, landed=False, crashed=False):
     )
 
 
-def test_unconfirmed_recovery_is_reported_without_failing_endurance_course():
+def test_unconfirmed_recovery_fails_endurance_course_without_inventing_cause():
     mission = evaluate_tutorial_outcome(_request(), _outcome()).mission_results[0]
+
+    assert not mission.completed
+    assert mission.reward == 0
+    assert "still airborne" in mission.explanation
+    assert "cannot identify a specific control failure" in mission.explanation
+
+
+def test_confirmed_recovery_completes_recommended_route():
+    mission = evaluate_tutorial_outcome(
+        _request(),
+        _outcome(landed=True),
+    ).mission_results[0]
 
     assert mission.completed
     assert mission.reward == 500
-    assert "No landing was confirmed" in mission.explanation
+    assert "landed successfully" in mission.explanation
 
 
 def test_recommended_design_cannot_pass_after_burst_even_if_it_lands():
