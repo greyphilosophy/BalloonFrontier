@@ -38,12 +38,19 @@ def test_tutorial_party_balloon_is_small_and_does_not_replace_scientific_film_ba
     assert 0.25 <= approximate_gross_lift_kg <= 0.35
 
 
-def test_tutorial_quadcopter_has_integrated_pressure_relief():
+def test_tutorial_quadcopter_and_pressure_valve_are_separate_equipment():
     ensure_discord_tutorial_options()
 
     payload = CATALOG.payload("quadcopter")
     assert payload is QUADCOPTER
     assert payload.mass_kg == 0.25
-    assert payload.has_valve
-    assert "automatic_venting" in payload.capabilities
-    assert PAYLOAD_OPTIONS["quadcopter"][3] is True
+    assert payload.has_valve is False
+    assert "automatic_venting" not in payload.capabilities
+    assert PAYLOAD_OPTIONS["quadcopter"][3] is False
+
+    valve = CATALOG.payload("valve")
+    assert valve.name == "Pressure Valve"
+    assert valve.mass_kg == 0.3
+    assert valve.cost == 250
+    assert valve.has_valve is True
+    assert PAYLOAD_OPTIONS["valve"] == ("Pressure Valve", 0.3, 250, True)
