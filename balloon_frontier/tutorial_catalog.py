@@ -24,6 +24,8 @@ TUTORIAL_ASSIST_ENVELOPE = EnvelopeDefinition(
     safe_fill_fraction=0.55,
 )
 
+# Active steering is independent from pressure management. The shared catalog's
+# ``valve`` payload supplies venting only when the player pays its mass and cost.
 QUADCOPTER = PayloadDefinition(
     id=QUADCOPTER_ID,
     name="Small Quadcopter",
