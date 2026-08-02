@@ -62,6 +62,31 @@ class PayloadFeedbackConfiguratorMixin:
         content += f"\n\n**Currently equipped:** {self._equipped_payload_summary()}"
         return content
 
+    def build_buttons(self):
+        """Use payload names and distinguish the destructive clear action."""
+        super().build_buttons()
+
+        from balloon_frontier.discord_ui.configurator import _Step
+        from balloon_frontier.discord_ui.views import _OptionButton
+
+        if self._current_step != _Step.CHOOSE_PAYLOADS:
+            return
+
+        options = self._payload_feedback_options()
+        keys = list(options)
+        for item in self.children:
+            if not isinstance(item, _OptionButton):
+                continue
+            index = item._index - 1
+            if index < 0 or index >= len(keys):
+                continue
+            key = keys[index]
+            item.label = (
+                "Clear payloads"
+                if key == "none"
+                else f"Toggle {options[key][0]}"
+            )
+
     async def _advance(self, interaction):
         from balloon_frontier.discord_ui.configurator import _Step
 
