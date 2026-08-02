@@ -24,13 +24,15 @@ TUTORIAL_ASSIST_ENVELOPE = EnvelopeDefinition(
     safe_fill_fraction=0.55,
 )
 
+# Active steering is independent from pressure management. The shared catalog's
+# ``valve`` payload supplies venting only when the player pays its mass and cost.
 QUADCOPTER = PayloadDefinition(
     id=QUADCOPTER_ID,
     name="Small Quadcopter",
     mass_kg=0.25,
     cost=250,
-    has_valve=True,
-    capabilities=("powered_flight", "radio_control", "automatic_venting"),
+    has_valve=False,
+    capabilities=("powered_flight", "radio_control"),
 )
 
 
@@ -82,6 +84,14 @@ def ensure_discord_tutorial_options() -> None:
         QUADCOPTER_ID,
         (QUADCOPTER.name, QUADCOPTER.mass_kg, QUADCOPTER.cost, QUADCOPTER.has_valve),
     )
+
+    # The pressure valve is shared equipment, not part of the quadcopter. Make
+    # it independently selectable in both explicit Tutorial mode and the hidden
+    # Story prologue. The green recommendation remains the quadcopter alone, so
+    # the player can compare the valve's added mass and cost deliberately.
+    from balloon_frontier import tutorial
+
+    tutorial.TUTORIAL_OPTION_KEYS[3] = (QUADCOPTER_ID, "valve", "none")
 
 
 ensure_tutorial_catalog()

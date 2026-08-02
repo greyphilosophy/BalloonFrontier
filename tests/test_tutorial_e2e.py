@@ -121,10 +121,10 @@ def test_tutorial_hides_unavailable_choices(monkeypatch):
     configurator.build_buttons()
     payload_content = configurator._step_content()
     assert "Small Quadcopter" in payload_content
+    assert "Pressure Valve" in payload_content
     assert "None" in payload_content
     assert "Camera" not in payload_content
-    assert "Pressure Valve" not in payload_content
-    assert len(_option_buttons(configurator)) == 2
+    assert len(_option_buttons(configurator)) == 3
 
     configurator._current_step = _Step.CHOOSE_SITE
     configurator.build_buttons()
@@ -143,7 +143,7 @@ def test_every_visible_tutorial_configuration_has_an_educational_debrief():
     sites = TUTORIAL_OPTION_KEYS[_Step.CHOOSE_SITE]
 
     combinations = list(product(gases, envelopes, fills, payloads, sites))
-    assert len(combinations) == 40
+    assert len(combinations) == 60
 
     for gas, envelope, fill, payload, site in combinations:
         request = SimpleNamespace(

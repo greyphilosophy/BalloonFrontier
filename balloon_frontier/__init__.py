@@ -41,6 +41,12 @@ from .tutorial_catalog import ensure_tutorial_catalog as _ensure_tutorial_catalo
 
 _ensure_tutorial_catalog()
 
+# Use nominal launch volume for presets and clamp every fill below the
+# envelope's configured burst-safe capacity.
+from .preset_fill_guard import install_nominal_preset_fill as _install_nominal_preset_fill
+
+_install_nominal_preset_fill()
+
 # Keep near-ground terminal simulations from being described as ongoing climbs.
 from .narrative_guard import install_narrative_guard as _install_narrative_guard
 
