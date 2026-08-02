@@ -83,6 +83,30 @@ class DiscoveryFirstFlightConfiguratorMixin(TutorialConfiguratorMixin):
         ]
         return ", ".join(names) if names else "None"
 
+    async def _on_payload(self, interaction, index: int):
+        """Toggle a payload and identify the exact change in the refreshed message."""
+        from balloon_frontier.discord_ui.configurator import _Step
+
+        options = self._tutorial_options(_Step.CHOOSE_PAYLOADS)
+        keys = list(options)
+        if index < 1 or index > len(keys):
+            await interaction.response.send_message(
+                "That option isn't available right now.", ephemeral=True
+            )
+            return
+
+        selected_key = keys[index - 1]
+        selected_name = options[selected_key][0]
+        current = set(self.state.get("payloads") or ("none",))
+        if selected_key == "none":
+            self._payload_toggle_feedback = "🧹 **Payloads cleared.**"
+        elif selected_key in current:
+            self._payload_toggle_feedback = f"➖ **Removed:** {selected_name}"
+        else:
+            self._payload_toggle_feedback = f"✅ **Added:** {selected_name}"
+
+        await super()._on_payload(interaction, index)
+
     def _step_content(self) -> str:
         from balloon_frontier.discord_ui.configurator import _Step
 
@@ -91,6 +115,9 @@ class DiscoveryFirstFlightConfiguratorMixin(TutorialConfiguratorMixin):
         if content.startswith(guidance):
             content = content[len(guidance):]
         if self._current_step == _Step.CHOOSE_PAYLOADS:
+            feedback = getattr(self, "_payload_toggle_feedback", None)
+            if feedback:
+                content += f"\n\n{feedback}"
             content += (
                 "\n\n**Currently equipped:** "
                 f"{self._equipped_payload_summary()}"
