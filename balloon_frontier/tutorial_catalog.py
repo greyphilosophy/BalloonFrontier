@@ -83,5 +83,12 @@ def ensure_discord_tutorial_options() -> None:
         (QUADCOPTER.name, QUADCOPTER.mass_kg, QUADCOPTER.cost, QUADCOPTER.has_valve),
     )
 
+    # The pressure valve is shared equipment, not part of the quadcopter. Make
+    # it independently selectable in both explicit Tutorial mode and the hidden
+    # Story prologue while preserving the recommended quadcopter-only route.
+    from balloon_frontier import tutorial
+
+    tutorial.TUTORIAL_OPTION_KEYS[3] = (QUADCOPTER_ID, "valve", "none")
+
 
 ensure_tutorial_catalog()
