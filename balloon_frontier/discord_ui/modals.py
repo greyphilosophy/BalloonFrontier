@@ -109,6 +109,15 @@ class _LaunchButton(discord.ui.Button):
         if getattr(self._parent, "_tutorial_continuation_handled", False):
             return
 
+        # Older handlers may already have attached the view and recorded that on
+        # the interaction. Reading that legacy marker is safe; only writing new
+        # arbitrary attributes to discord.Interaction is unsafe.
+        continuation_attached = getattr(
+            interaction,
+            "_balloon_frontier_tutorial_view_attached",
+            False,
+        )
+
         try:
             player_id = str(interaction.user.id)
             from balloon_frontier.discord_ui.game_menu import ContinueToStoryView
@@ -124,7 +133,8 @@ class _LaunchButton(discord.ui.Button):
                 kwargs["on_view_changed"] = on_view_changed
             view = ContinueToStoryView(**kwargs)
 
-            await interaction.edit_original_response(view=view)
+            if not continuation_attached:
+                await interaction.edit_original_response(view=view)
             self._parent._tutorial_continuation_handled = True
             if on_view_changed is not None:
                 on_view_changed(view)
