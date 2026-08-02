@@ -1,0 +1,74 @@
+"""Shared Discord feedback for multi-select payload toggles."""
+
+from __future__ import annotations
+
+
+class PayloadFeedbackConfiguratorMixin:
+    """Show the exact payload toggle action and resulting equipped loadout."""
+
+    def _payload_feedback_options(self):
+        from balloon_frontier.discord_ui.configurator import PAYLOAD_OPTIONS, _Step
+
+        tutorial_options = getattr(self, "_tutorial_options", None)
+        if callable(tutorial_options):
+            try:
+                return tutorial_options(_Step.CHOOSE_PAYLOADS)
+            except (KeyError, TypeError, ValueError):
+                pass
+        return PAYLOAD_OPTIONS
+
+    def _equipped_payload_summary(self) -> str:
+        options = self._payload_feedback_options()
+        selected = set(self.state.get("payloads") or ("none",))
+        names = [
+            payload[0]
+            for key, payload in options.items()
+            if key in selected and key != "none"
+        ]
+        return ", ".join(names) if names else "None"
+
+    async def _on_payload(self, interaction, index: int):
+        options = self._payload_feedback_options()
+        keys = list(options)
+        if index < 1 or index > len(keys):
+            await interaction.response.send_message(
+                "That option isn't available right now.",
+                ephemeral=True,
+            )
+            return
+
+        selected_key = keys[index - 1]
+        selected_name = options[selected_key][0]
+        current = set(self.state.get("payloads") or ("none",))
+        if selected_key == "none":
+            self._payload_toggle_feedback = "🧹 **Payloads cleared.**"
+        elif selected_key in current:
+            self._payload_toggle_feedback = f"➖ **Removed:** {selected_name}"
+        else:
+            self._payload_toggle_feedback = f"✅ **Added:** {selected_name}"
+
+        await super()._on_payload(interaction, index)
+
+    def _step_content(self) -> str:
+        from balloon_frontier.discord_ui.configurator import _Step
+
+        content = super()._step_content()
+        if self._current_step != _Step.CHOOSE_PAYLOADS:
+            return content
+
+        feedback = getattr(self, "_payload_toggle_feedback", None)
+        if feedback:
+            content += f"\n\n{feedback}"
+        content += f"\n\n**Currently equipped:** {self._equipped_payload_summary()}"
+        return content
+
+    async def _advance(self, interaction):
+        from balloon_frontier.discord_ui.configurator import _Step
+
+        if self._current_step == _Step.CHOOSE_PAYLOADS:
+            self._payload_toggle_feedback = None
+        await super()._advance(interaction)
+
+    def _prev_step(self):
+        self._payload_toggle_feedback = None
+        return super()._prev_step()

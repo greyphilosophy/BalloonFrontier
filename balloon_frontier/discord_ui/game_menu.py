@@ -14,6 +14,9 @@ from balloon_frontier.game_modes import GameMode
 from balloon_frontier.progression import PlayerRegistry
 from balloon_frontier.session_adapters import SessionAwareFlightService
 from balloon_frontier.discord_ui.configurator import BalloonConfigurator
+from balloon_frontier.discord_ui.payload_feedback import (
+    PayloadFeedbackConfiguratorMixin,
+)
 
 
 class _ModeButton(discord.ui.Button):
@@ -87,7 +90,11 @@ def _configurator_for_mode(
         hasattr(BalloonConfigurator, name)
         for name in ("build_buttons", "_compute_gas_mass", "_build_config_text")
     )
-    configurator_mixins = [BalloonClusterConfiguratorMixin] if supports_wizard_mixins else []
+    configurator_mixins = (
+        [PayloadFeedbackConfiguratorMixin, BalloonClusterConfiguratorMixin]
+        if supports_wizard_mixins
+        else []
+    )
     hidden_story_prologue = False
     if mode is GameMode.TUTORIAL:
         from balloon_frontier.tutorial import TutorialConfiguratorMixin
@@ -95,7 +102,7 @@ def _configurator_for_mode(
 
         ensure_discord_tutorial_options()
         if supports_wizard_mixins:
-            configurator_mixins.insert(0, TutorialConfiguratorMixin)
+            configurator_mixins.insert(1, TutorialConfiguratorMixin)
     elif mode is GameMode.STORY and supports_wizard_mixins:
         from balloon_frontier.career_prologue import (
             DiscoveryFirstFlightConfiguratorMixin,
@@ -109,11 +116,11 @@ def _configurator_for_mode(
 
             ensure_discord_tutorial_options()
             wrapped.service = DiscoveryFirstFlightService(wrapped.service)
-            configurator_mixins.insert(0, DiscoveryFirstFlightConfiguratorMixin)
+            configurator_mixins.insert(1, DiscoveryFirstFlightConfiguratorMixin)
         else:
             from balloon_frontier.story import StoryConfiguratorMixin
 
-            configurator_mixins.insert(0, StoryConfiguratorMixin)
+            configurator_mixins.insert(1, StoryConfiguratorMixin)
 
     configurator_type = type(
         "BalloonFrontierConfigurator",
