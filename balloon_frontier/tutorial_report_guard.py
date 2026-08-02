@@ -52,13 +52,16 @@ def _clarify_unresolved_quadcopter_outcome(original):
             try_marker = "\n**Try next**\n- "
             if why_marker in explanation and try_marker in explanation:
                 before, remainder = explanation.split(why_marker, 1)
-                _old_why, after = remainder.split(try_marker, 1)
+                old_why, after = remainder.split(try_marker, 1)
+                possible_tradeoffs = old_why.replace("\n- ", "\n  - ")
                 explanation = (
                     before
                     + why_marker
                     + _UNMODELED_CONTROL_NOTE
                     + "\n- "
                     + _RECOVERY_TRADEOFF_NOTE
+                    + "\n- Possible contributing tradeoffs:\n  - "
+                    + possible_tradeoffs
                     + try_marker
                     + after
                 )
@@ -145,7 +148,8 @@ def _safe_discord_content(content: str, limit: int = 2000) -> str:
         opening = text.rfind("```")
         if opening >= 0:
             suffix = "\n*Trajectory omitted because the report reached Discord's message limit.*"
-            return (text[:opening].rstrip() + suffix)[:limit]
+            available = max(0, limit - len(suffix))
+            return text[:opening].rstrip()[:available] + suffix
 
     if len(text) > limit:
         text = text[: limit - 3].rstrip() + "..."
