@@ -79,6 +79,42 @@ def test_manual_fill_is_clamped_below_burst_safe_capacity():
     assert actual_volume < request.envelope.burst_volume_m3
 
 
+def test_manual_cluster_fill_uses_total_cluster_safety_capacity():
+    request = ClusteredLaunchRequest(
+        gas_id="helium",
+        envelope_id="latex",
+        payload_ids=("quadcopter",),
+        launch_site_id="field",
+        fill_mode=FillMode.MANUAL,
+        manual_gas_mass_kg=100.0,
+        balloon_count=3,
+    )
+
+    per_balloon_safe_volume = (
+        request.envelope.burst_volume_m3
+        * request.envelope.safe_fill_fraction
+    )
+    expected_total_mass = (
+        _gas_density(request) * per_balloon_safe_volume * request.balloon_count
+    )
+
+    assert request.gas_mass_kg == pytest.approx(expected_total_mass)
+
+    state = request.to_simulation_state()
+    actual_total_volume = gas_volume(
+        state.gas_mass_kg,
+        state.gas_type,
+        288.15,
+        atmosphere_pressure(0.0),
+    )
+    assert actual_total_volume == pytest.approx(
+        per_balloon_safe_volume * request.balloon_count
+    )
+    assert actual_total_volume < (
+        request.envelope.burst_volume_m3 * request.balloon_count
+    )
+
+
 def test_quadcopter_does_not_include_a_pressure_valve():
     request = LaunchRequest(
         gas_id="helium",
