@@ -72,11 +72,29 @@ class DiscoveryFirstFlightService:
 class DiscoveryFirstFlightConfiguratorMixin(TutorialConfiguratorMixin):
     """Use tutorial physics and equipment without presenting tutorial guidance."""
 
+    def _equipped_payload_summary(self) -> str:
+        """Describe the current payload state in stable menu order."""
+        options = self._tutorial_payload_options()
+        selected = set(self.state.get("payloads") or ("none",))
+        names = [
+            payload[0]
+            for key, payload in options.items()
+            if key in selected and key != "none"
+        ]
+        return ", ".join(names) if names else "None"
+
     def _step_content(self) -> str:
+        from balloon_frontier.discord_ui.configurator import _Step
+
         content = super()._step_content()
         guidance = tutorial_guidance(self._current_step) + "\n\n"
         if content.startswith(guidance):
             content = content[len(guidance):]
+        if self._current_step == _Step.CHOOSE_PAYLOADS:
+            content += (
+                "\n\n**Currently equipped:** "
+                f"{self._equipped_payload_summary()}"
+            )
         return PROLOGUE_BRIEFING + "\n\n" + content
 
     def build_buttons(self):
