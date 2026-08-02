@@ -24,10 +24,6 @@ def _safe_tutorial_continue_view(configurator, interaction, result):
     if not completed:
         return None
 
-    # Configurators are application-owned objects and can safely retain this
-    # bookkeeping. Real discord.Interaction instances may reject unknown attrs.
-    setattr(configurator, "_tutorial_continuation_handled", True)
-
     try:
         from balloon_frontier.discord_ui.game_menu import ContinueToStoryView
 
@@ -41,6 +37,11 @@ def _safe_tutorial_continue_view(configurator, interaction, result):
         if on_view_changed is not None:
             kwargs["on_view_changed"] = on_view_changed
         view = ContinueToStoryView(**kwargs)
+
+        # Mark ownership only after construction succeeds. If construction fails,
+        # the launch-button compatibility fallback remains available.
+        setattr(configurator, "_tutorial_continuation_handled", True)
+
         if on_view_changed is not None:
             try:
                 on_view_changed(view)
