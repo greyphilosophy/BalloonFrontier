@@ -22,9 +22,16 @@ def test_tutorial_party_balloon_is_small_and_does_not_replace_scientific_film_ba
     assert TUTORIAL_ENVELOPE_ID == "tutorial_party_balloon"
     assert tutorial_envelope is TUTORIAL_ASSIST_ENVELOPE
     assert tutorial_envelope.name == "Foil Party Balloon"
-    assert tutorial_envelope.max_volume_m3 == 0.30
+    assert tutorial_envelope.max_volume_m3 == 0.40
     assert tutorial_options["mylar"][0] == "Foil Party Balloon"
-    assert tutorial_options["mylar"][1] == 0.30
+    assert tutorial_options["mylar"][1] == 0.40
+    assert ENVELOPE_OPTIONS[TUTORIAL_ENVELOPE_ID][0] == "Foil Party Balloon"
+    assert ENVELOPE_OPTIONS[TUTORIAL_ENVELOPE_ID][1] == 0.40
+
+    # The assist envelope remains compact, but now has enough practical lift
+    # margin for its 0.25 kg quadcopter and 0.05 kg envelope mass.
+    approximate_gross_lift_kg = tutorial_envelope.max_volume_m3 * 1.05
+    assert 0.40 <= approximate_gross_lift_kg <= 0.45
 
     # The legacy ID remains compatible, but its display name now identifies the
     # 200 m³ envelope as scientific equipment rather than a birthday balloon.
@@ -33,9 +40,6 @@ def test_tutorial_party_balloon_is_small_and_does_not_replace_scientific_film_ba
     assert shared_mylar.max_volume_m3 == 200.0
     assert ENVELOPE_OPTIONS["mylar"][0] == SCIENTIFIC_FILM_BALLOON_NAME
     assert ENVELOPE_OPTIONS["mylar"][1] == 200.0
-
-    approximate_gross_lift_kg = tutorial_envelope.max_volume_m3 * 1.05
-    assert 0.25 <= approximate_gross_lift_kg <= 0.35
 
 
 def test_tutorial_quadcopter_and_pressure_valve_are_separate_equipment():
