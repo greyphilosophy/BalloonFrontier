@@ -103,21 +103,11 @@ class _LaunchButton(discord.ui.Button):
         if not completed_this_launch:
             return
 
-        # Current handlers own construction, attachment, and registration. Older
-        # handlers may only mark that Discord was already edited; in that case the
-        # fallback must still construct and register the resumable view.
-        if getattr(
-            interaction,
-            "_balloon_frontier_tutorial_continuation_handled",
-            False,
-        ):
+        # Current handlers own construction, attachment, and registration.
+        # Store that marker on the application-owned configurator rather than
+        # mutating discord.Interaction, which may reject unknown attributes.
+        if getattr(self._parent, "_tutorial_continuation_handled", False):
             return
-
-        continuation_attached = getattr(
-            interaction,
-            "_balloon_frontier_tutorial_view_attached",
-            False,
-        )
 
         player_id = str(interaction.user.id)
         from balloon_frontier.discord_ui.game_menu import ContinueToStoryView
@@ -133,7 +123,6 @@ class _LaunchButton(discord.ui.Button):
             kwargs["on_view_changed"] = on_view_changed
         view = ContinueToStoryView(**kwargs)
 
-        if not continuation_attached:
-            await interaction.edit_original_response(view=view)
+        await interaction.edit_original_response(view=view)
         if on_view_changed is not None:
             on_view_changed(view)
