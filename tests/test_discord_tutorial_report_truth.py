@@ -8,9 +8,9 @@ from balloon_frontier.tutorial import evaluate_tutorial_outcome
 from balloon_frontier.tutorial_report_guard import _safe_discord_content
 
 
-def _request(*, envelope="latex", fill="heavy"):
+def _request(*, gas="helium", envelope="latex", fill="heavy"):
     return SimpleNamespace(
-        gas_id="helium",
+        gas_id=gas,
         envelope_id=envelope,
         fill_mode=SimpleNamespace(value=fill),
         payload_ids=("quadcopter",),
@@ -19,14 +19,20 @@ def _request(*, envelope="latex", fill="heavy"):
     )
 
 
-def _outcome(*, landed=False, final_velocity=-2.0):
+def _outcome(
+    *,
+    burst=False,
+    landed=False,
+    crashed=False,
+    final_velocity=-2.0,
+):
     return FlightOutcome(
         result=SimpleNamespace(
             peak_altitude_m=5548.0,
             duration_s=4704.0,
-            burst=False,
+            burst=burst,
             landed=landed,
-            crashed=False,
+            crashed=crashed,
             telemetry=(
                 SimpleNamespace(altitude_m=0.0, velocity_mps=3.0),
                 SimpleNamespace(altitude_m=5548.0, velocity_mps=0.0),
@@ -67,6 +73,33 @@ def test_confirmed_recovery_can_still_complete_recommended_route():
 
     assert mission.completed
     assert mission.reward == 500
+    assert "landed successfully" in mission.explanation
+
+
+def test_recommended_design_cannot_pass_after_burst_even_if_it_lands():
+    mission = evaluate_tutorial_outcome(
+        _request(envelope="mylar", fill="auto"),
+        _outcome(burst=True, landed=True),
+    ).mission_results[0]
+
+    assert not mission.completed
+    assert mission.reward == 0
+    assert "The balloon burst" in mission.explanation
+    assert "The aircraft landed successfully" in mission.explanation
+
+
+def test_safe_hot_air_flight_reports_tradeoff_without_inventing_events():
+    mission = evaluate_tutorial_outcome(
+        _request(gas="hot_air", envelope="mylar", fill="auto"),
+        _outcome(landed=True),
+    ).mission_results[0]
+
+    assert not mission.completed
+    assert mission.reward == 0
+    assert "The aircraft landed successfully" in mission.explanation
+    assert "Hot air offers less lift and endurance" in mission.explanation
+    assert "crashed" not in mission.explanation.lower()
+    assert "burst" not in mission.explanation.lower()
 
 
 def test_discord_trajectory_chart_is_wrapped_in_text_code_fence():
