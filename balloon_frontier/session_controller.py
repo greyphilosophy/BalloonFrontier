@@ -38,6 +38,27 @@ def get_mode_policy(mode: GameMode | str | int) -> ModePolicy:
     return _POLICIES[parsed]
 
 
+def _effective_mode(
+    mode: GameMode,
+    player_id: str | int | None,
+    context: Mapping[str, Any] | None = None,
+) -> GameMode:
+    """Quietly use first-flight only where the transport supplies its hidden UI."""
+    if (
+        mode is not GameMode.STORY
+        or player_id is None
+        or (context or {}).get("ui") != "discord"
+    ):
+        return mode
+
+    from .progression import PlayerRegistry
+
+    player = PlayerRegistry.get_or_create(str(player_id))
+    if "first_flight" not in player.missions_completed:
+        return GameMode.TUTORIAL
+    return mode
+
+
 def _stable_seed(mode: GameMode, configuration: Mapping[str, Any], context: Mapping[str, Any]) -> int:
     payload = json.dumps({"mode": mode.value, "configuration": configuration, "context": context}, sort_keys=True, separators=(",", ":"), default=str)
     return int.from_bytes(hashlib.sha256(payload.encode("utf-8")).digest()[:4], "big")
@@ -57,13 +78,14 @@ def assign_missions_for_mode(
     context: Mapping[str, Any] | None = None,
     mission_dir: str | None = None,
 ) -> tuple[str, ...]:
-    """Assign the active chapter without substituting easier missions."""
+    """Assign the active chapter without substituting unsupported transport flows."""
 
-    policy = get_mode_policy(mode)
+    requested = mode if isinstance(mode, GameMode) else select_game_mode(mode)
+    context = dict(context or {})
+    policy = get_mode_policy(_effective_mode(requested, player_id, context))
     if not policy.requires_missions:
         return ()
 
-    context = dict(context or {})
     payloads = [p for p in configuration.get("payloads", ()) if p != "none"]
     site = configuration.get("site") or configuration.get("launch_site")
     ensure_missions_loaded(mission_dir)
@@ -76,9 +98,10 @@ def assign_missions_for_mode(
             return (mission_id,)
 
     if policy.mode is GameMode.TUTORIAL and "first_flight" in MISSIONS:
-        mission = MISSIONS["first_flight"]
-        if _mission_matches_configuration(mission, payloads, site):
-            return ("first_flight",)
+        # Tutorial choices are intentionally exploratory. Assign the same mission
+        # even when the selected configuration cannot satisfy it; the tutorial
+        # evaluator explains why that design failed.
+        return ("first_flight",)
 
     seed = _stable_seed(policy.mode, configuration, context)
     return tuple(select_missions(
@@ -106,10 +129,11 @@ def plan_session(
     context: Mapping[str, Any] | None = None,
     mission_dir: str | None = None,
 ) -> SessionPlan:
-    policy = get_mode_policy(mode)
+    requested = mode if isinstance(mode, GameMode) else select_game_mode(mode)
+    frozen_context = MappingProxyType(dict(context or {}))
+    policy = get_mode_policy(_effective_mode(requested, player_id, frozen_context))
     session = GameSession(mode=policy.mode, player_id=player_id)
     session.set_configuration(configuration)
-    frozen_context = MappingProxyType(dict(context or {}))
     missions = assign_missions_for_mode(
         policy.mode,
         session.configuration,

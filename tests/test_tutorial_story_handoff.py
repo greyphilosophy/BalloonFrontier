@@ -57,7 +57,7 @@ def test_completed_tutorial_adds_continue_to_story_view(monkeypatch):
     assert isinstance(view, game_menu.ContinueToStoryView)
     assert view.player_id == "player"
     assert view.channel_kind == "dm"
-    assert view.children[0].label == "Continue to Story Mode"
+    assert view.children[0].label == "Continue Career"
 
 
 def test_failed_tutorial_does_not_offer_story_handoff(monkeypatch):

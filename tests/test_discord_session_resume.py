@@ -143,5 +143,6 @@ def test_completed_tutorial_updates_resumable_view_without_duplicate_edit(monkey
 
     resumed = discord_bot._active_views[player_id]
     assert isinstance(resumed, ContinueToStoryView)
-    assert "Tutorial Complete" in discord_bot._resume_content(resumed)
+    assert "First Flight Complete" in discord_bot._resume_content(resumed)
+    assert "Tutorial" not in discord_bot._resume_content(resumed)
     interaction.edit_original_response.assert_not_awaited()
