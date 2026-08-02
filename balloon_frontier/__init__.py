@@ -40,3 +40,8 @@ from .medal_tier import MedalTier, get_medal_tier, medal_tier_to_string
 from .tutorial_catalog import ensure_tutorial_catalog as _ensure_tutorial_catalog
 
 _ensure_tutorial_catalog()
+
+# Keep near-ground terminal simulations from being described as ongoing climbs.
+from .narrative_guard import install_narrative_guard as _install_narrative_guard
+
+_install_narrative_guard()
