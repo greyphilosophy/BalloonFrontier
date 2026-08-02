@@ -29,8 +29,8 @@ QUADCOPTER = PayloadDefinition(
     name="Small Quadcopter",
     mass_kg=0.25,
     cost=250,
-    has_valve=True,
-    capabilities=("powered_flight", "radio_control", "automatic_venting"),
+    has_valve=False,
+    capabilities=("powered_flight", "radio_control"),
 )
 
 
