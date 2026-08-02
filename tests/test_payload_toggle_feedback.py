@@ -7,11 +7,12 @@ from unittest.mock import AsyncMock
 from balloon_frontier.career_prologue import DiscoveryFirstFlightConfiguratorMixin
 from balloon_frontier.discord_ui import game_menu
 from balloon_frontier.discord_ui.configurator import _Step
+from balloon_frontier.discord_ui.payload_feedback import PayloadFeedbackConfiguratorMixin
 from balloon_frontier.game_modes import GameMode
 from balloon_frontier.progression import PlayerRegistry, PlayerState
 
 
-def _configurator(monkeypatch):
+def _configurator(monkeypatch, mode=GameMode.STORY):
     player = PlayerState("payload-feedback-player")
     monkeypatch.setattr(
         PlayerRegistry,
@@ -20,12 +21,14 @@ def _configurator(monkeypatch):
     )
     configurator = game_menu._configurator_for_mode(
         service=object(),
-        mode=GameMode.STORY,
+        mode=mode,
         player_id=player.player_id,
         channel_kind="dm",
         on_finished=None,
     )
-    assert isinstance(configurator, DiscoveryFirstFlightConfiguratorMixin)
+    assert isinstance(configurator, PayloadFeedbackConfiguratorMixin)
+    if mode is GameMode.STORY:
+        assert isinstance(configurator, DiscoveryFirstFlightConfiguratorMixin)
     configurator._current_step = _Step.CHOOSE_PAYLOADS
     configurator.state["payloads"] = ["none"]
     configurator.build_buttons()
@@ -65,3 +68,40 @@ def test_removing_last_payload_edits_message_with_empty_loadout(monkeypatch):
     content = interaction.response.edit_message.await_args.kwargs["content"]
     assert "➖ **Removed:** Small Quadcopter" in content
     assert "**Currently equipped:** None" in content
+
+
+def test_explicit_tutorial_receives_the_same_toggle_feedback(monkeypatch):
+    configurator = _configurator(monkeypatch, GameMode.TUTORIAL)
+    interaction = _interaction()
+
+    asyncio.run(configurator._on_payload(interaction, 1))
+
+    content = interaction.response.edit_message.await_args.kwargs["content"]
+    assert "✅ **Added:** Small Quadcopter" in content
+    assert "**Currently equipped:** Small Quadcopter" in content
+
+
+def test_free_play_payload_toggle_receives_direct_feedback(monkeypatch):
+    configurator = _configurator(monkeypatch, GameMode.FREE_PLAY)
+    interaction = _interaction()
+
+    asyncio.run(configurator._on_payload(interaction, 1))
+
+    content = interaction.response.edit_message.await_args.kwargs["content"]
+    assert "✅ **Added:** Camera" in content
+    assert "**Currently equipped:** Camera" in content
+
+
+def test_toggle_action_feedback_does_not_reappear_after_navigation(monkeypatch):
+    configurator = _configurator(monkeypatch)
+    interaction = _interaction()
+    asyncio.run(configurator._on_payload(interaction, 1))
+    assert "✅ **Added:** Small Quadcopter" in configurator._step_content()
+
+    asyncio.run(configurator._advance(interaction))
+    assert configurator._current_step == _Step.CHOOSE_SITE
+    configurator._prev_step()
+
+    content = configurator._step_content()
+    assert "✅ **Added:** Small Quadcopter" not in content
+    assert "**Currently equipped:** Small Quadcopter" in content
