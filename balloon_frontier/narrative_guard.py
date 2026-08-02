@@ -6,7 +6,6 @@ from functools import wraps
 from typing import Callable
 
 _NO_LIFTOFF_ALTITUDE_M = 5.0
-_NO_LIFTOFF_DURATION_S = 10.0
 _SLOW_CLIMB_HEADING = "📈 **Still climbing slowly...**"
 _NO_LIFTOFF_LINES = [
     "🛑 **Did not lift off**",
@@ -57,7 +56,6 @@ def grounded_narrative_summary(original: Callable):
             and not landed
             and not crashed
             and peak_altitude < _NO_LIFTOFF_ALTITUDE_M
-            and time_of_flight < _NO_LIFTOFF_DURATION_S
         )
         if did_not_lift_off:
             return _replace_slow_climb_block(narrative)
