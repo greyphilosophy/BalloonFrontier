@@ -115,6 +115,32 @@ def test_manual_cluster_fill_uses_total_cluster_safety_capacity():
     )
 
 
+def test_manual_cluster_scales_cli_manufacturer_limit():
+    request = ClusteredLaunchRequest(
+        gas_id="helium",
+        envelope_id="latex",
+        payload_ids=("none",),
+        launch_site_id="field",
+        fill_mode=FillMode.MANUAL,
+        manual_gas_mass_kg=100.0,
+        balloon_size="s36",
+        balloon_count=3,
+    )
+
+    assert request.balloon is not None
+    per_balloon_max_kg = request.balloon.fill_range_g[1] / 1000.0
+    safe_total_kg = (
+        _gas_density(request)
+        * request.balloon.max_volume_m3
+        * request.balloon.burst_stretch_ratio
+        * request.envelope.safe_fill_fraction
+        * request.balloon_count
+    )
+    expected_total_kg = min(per_balloon_max_kg * 3, safe_total_kg)
+
+    assert request.gas_mass_kg == pytest.approx(expected_total_kg)
+
+
 def test_quadcopter_does_not_include_a_pressure_valve():
     request = LaunchRequest(
         gas_id="helium",
