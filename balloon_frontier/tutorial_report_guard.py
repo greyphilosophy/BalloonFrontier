@@ -30,7 +30,16 @@ def _unresolved(result) -> bool:
 def _clarify_unresolved_quadcopter_outcome(original):
     @wraps(original)
     def evaluate(request, outcome):
-        evaluated = original(request, outcome)
+        # Discord constructs the real tutorial-only envelope request. Preserve the
+        # player's guided "mylar" choice only for the tutorial route comparison.
+        from balloon_frontier.tutorial_catalog import TUTORIAL_ENVELOPE_ID
+
+        evaluation_request = (
+            replace(request, envelope_id="mylar")
+            if request.envelope_id == TUTORIAL_ENVELOPE_ID
+            else request
+        )
+        evaluated = original(evaluation_request, outcome)
         result = outcome.result
         if not _unresolved(result) or "quadcopter" not in set(request.payload_ids):
             return evaluated
@@ -58,10 +67,7 @@ def _clarify_unresolved_quadcopter_outcome(original):
             if why_marker in explanation and try_marker in explanation:
                 before, remainder = explanation.split(why_marker, 1)
                 old_why, after = remainder.split(try_marker, 1)
-                why_lines = [
-                    _UNMODELED_CONTROL_NOTE,
-                    _RECOVERY_TRADEOFF_NOTE,
-                ]
+                why_lines = [_UNMODELED_CONTROL_NOTE, _RECOVERY_TRADEOFF_NOTE]
                 if not was_completed:
                     possible_tradeoffs = old_why.replace("\n- ", "\n  - ")
                     why_lines.append(
@@ -89,6 +95,51 @@ def _clarify_unresolved_quadcopter_outcome(original):
 
     evaluate._balloon_frontier_evidence_based_debrief = True
     return evaluate
+
+
+def _effective_tutorial_launch(original):
+    """Construct the Discord launch from the envelope actually being simulated."""
+
+    @wraps(original)
+    async def run(configurator, interaction, service):
+        from balloon_frontier.game_modes import GameMode
+        from balloon_frontier.launch_result import FillMode, LaunchRequest
+        from balloon_frontier.tutorial_catalog import (
+            TUTORIAL_ENVELOPE_ID,
+            ensure_discord_tutorial_options,
+        )
+
+        context = getattr(configurator, "_game_entry_context", None) or {}
+        state = configurator.state
+        if (
+            context.get("mode") is not GameMode.TUTORIAL
+            or state.get("envelope") != "mylar"
+        ):
+            return await original(configurator, interaction, service)
+
+        ensure_discord_tutorial_options()
+        previous_envelope = state.get("envelope")
+        previous_gas_mass = state.get("gas_mass")
+        effective_request = LaunchRequest(
+            gas_id=state["gas"],
+            envelope_id=TUTORIAL_ENVELOPE_ID,
+            payload_ids=tuple(state.get("payloads") or ()),
+            launch_site_id=state["site"],
+            fill_mode=FillMode(state.get("fill_mode", "auto")),
+            manual_gas_mass_kg=state.get("manual_gas_mass"),
+            player_id=str(interaction.user.id),
+            balloon_size=None,
+        )
+        state["envelope"] = TUTORIAL_ENVELOPE_ID
+        state["gas_mass"] = effective_request.gas_mass_kg
+        try:
+            return await original(configurator, interaction, service)
+        finally:
+            state["envelope"] = previous_envelope
+            state["gas_mass"] = previous_gas_mass
+
+    run._balloon_frontier_effective_tutorial_request = True
+    return run
 
 
 def _fenced_chart(original):
@@ -150,23 +201,19 @@ def _replace_unresolved_descent_narrative(original):
 
 
 def _safe_discord_content(content: str, limit: int = 2000) -> str:
-    """Keep content within Discord limits without leaving an open code fence."""
     text = str(content)
     if len(text) <= limit and text.count("```") % 2 == 0:
         return text
-
     if text.count("```") % 2:
         opening = text.rfind("```")
         if opening >= 0:
             suffix = "\n*Trajectory omitted because the report reached Discord's message limit.*"
             available = max(0, limit - len(suffix))
             return text[:opening].rstrip()[:available] + suffix
-
     if len(text) > limit:
         text = text[: limit - 3].rstrip() + "..."
     if text.count("```") % 2:
-        opening = text.rfind("```")
-        text = text[:opening].rstrip()
+        text = text[: text.rfind("```")].rstrip()
     return text[:limit]
 
 
@@ -182,18 +229,13 @@ def _safe_send_results(original):
 def _safe_edit_results(original):
     @wraps(original)
     async def edit(interaction, content: str, continue_view):
-        return await original(
-            interaction,
-            _safe_discord_content(content),
-            continue_view,
-        )
+        return await original(interaction, _safe_discord_content(content), continue_view)
 
     edit._balloon_frontier_balanced_content = True
     return edit
 
 
 def install_tutorial_report_guard() -> None:
-    """Install report corrections exactly once."""
     from balloon_frontier import tutorial
     from balloon_frontier.discord_ui import launch_handler
 
@@ -205,6 +247,13 @@ def install_tutorial_report_guard() -> None:
         tutorial.evaluate_tutorial_outcome = _clarify_unresolved_quadcopter_outcome(
             tutorial.evaluate_tutorial_outcome
         )
+
+    if not getattr(
+        launch_handler.run_launch,
+        "_balloon_frontier_effective_tutorial_request",
+        False,
+    ):
+        launch_handler.run_launch = _effective_tutorial_launch(launch_handler.run_launch)
 
     if not getattr(
         launch_handler.chart_to_string,
@@ -227,9 +276,7 @@ def install_tutorial_report_guard() -> None:
         "_balloon_frontier_balanced_content",
         False,
     ):
-        launch_handler._send_results = _safe_send_results(
-            launch_handler._send_results
-        )
+        launch_handler._send_results = _safe_send_results(launch_handler._send_results)
 
     if not getattr(
         launch_handler._edit_results_with_optional_view,
