@@ -45,3 +45,8 @@ _ensure_tutorial_catalog()
 from .narrative_guard import install_narrative_guard as _install_narrative_guard
 
 _install_narrative_guard()
+
+# Preset fills use nominal launch volume; burst volume is expansion headroom.
+from .preset_fill_guard import install_nominal_preset_fill as _install_nominal_preset_fill
+
+_install_nominal_preset_fill()
