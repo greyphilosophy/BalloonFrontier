@@ -109,20 +109,29 @@ class _LaunchButton(discord.ui.Button):
         if getattr(self._parent, "_tutorial_continuation_handled", False):
             return
 
-        player_id = str(interaction.user.id)
-        from balloon_frontier.discord_ui.game_menu import ContinueToStoryView
+        try:
+            player_id = str(interaction.user.id)
+            from balloon_frontier.discord_ui.game_menu import ContinueToStoryView
 
-        kwargs = {
-            "player_id": player_id,
-            "channel_kind": context["channel_kind"],
-            "service": context["service"],
-            "on_finished": context.get("on_finished"),
-        }
-        on_view_changed = context.get("on_view_changed")
-        if on_view_changed is not None:
-            kwargs["on_view_changed"] = on_view_changed
-        view = ContinueToStoryView(**kwargs)
+            kwargs = {
+                "player_id": player_id,
+                "channel_kind": context["channel_kind"],
+                "service": context["service"],
+                "on_finished": context.get("on_finished"),
+            }
+            on_view_changed = context.get("on_view_changed")
+            if on_view_changed is not None:
+                kwargs["on_view_changed"] = on_view_changed
+            view = ContinueToStoryView(**kwargs)
 
-        await interaction.edit_original_response(view=view)
-        if on_view_changed is not None:
-            on_view_changed(view)
+            await interaction.edit_original_response(view=view)
+            self._parent._tutorial_continuation_handled = True
+            if on_view_changed is not None:
+                on_view_changed(view)
+        except Exception:
+            # The flight and report already succeeded. Optional compatibility
+            # controls must not turn that completion into another callback error.
+            logger.warning(
+                "Could not attach tutorial continuation fallback",
+                exc_info=True,
+            )
