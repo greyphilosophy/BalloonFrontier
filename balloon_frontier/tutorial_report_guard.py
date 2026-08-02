@@ -14,6 +14,10 @@ _RECOVERY_TRADEOFF_NOTE = (
     "The selected configuration has design tradeoffs, but the telemetry does "
     "not prove which one prevented recovery."
 )
+_RECOVERY_NEXT_STEP = (
+    "Repeat the flight and confirm a landing before treating the recovery mission "
+    "as complete."
+)
 
 
 def _unresolved(result) -> bool:
@@ -37,6 +41,7 @@ def _clarify_unresolved_quadcopter_outcome(original):
                 rewritten.append(mission)
                 continue
 
+            was_completed = mission.completed
             explanation = mission.explanation.replace(
                 "The aircraft completed the endurance course under control.",
                 "The aircraft did not complete a confirmed recovery.",
@@ -53,15 +58,21 @@ def _clarify_unresolved_quadcopter_outcome(original):
             if why_marker in explanation and try_marker in explanation:
                 before, remainder = explanation.split(why_marker, 1)
                 old_why, after = remainder.split(try_marker, 1)
-                possible_tradeoffs = old_why.replace("\n- ", "\n  - ")
+                why_lines = [
+                    _UNMODELED_CONTROL_NOTE,
+                    _RECOVERY_TRADEOFF_NOTE,
+                ]
+                if not was_completed:
+                    possible_tradeoffs = old_why.replace("\n- ", "\n  - ")
+                    why_lines.append(
+                        "Possible contributing tradeoffs:\n  - " + possible_tradeoffs
+                    )
+                if was_completed:
+                    after = _RECOVERY_NEXT_STEP
                 explanation = (
                     before
                     + why_marker
-                    + _UNMODELED_CONTROL_NOTE
-                    + "\n- "
-                    + _RECOVERY_TRADEOFF_NOTE
-                    + "\n- Possible contributing tradeoffs:\n  - "
-                    + possible_tradeoffs
+                    + "\n- ".join(why_lines)
                     + try_marker
                     + after
                 )
