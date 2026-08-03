@@ -11,17 +11,16 @@ from balloon_frontier.tutorial_result_delivery import (
     _capture_trajectory,
     _captured_trajectory,
     _split_delivery_active,
+    _split_discord_messages,
     _split_send_results,
 )
 
 
 def test_tutorial_report_and_trajectory_are_sent_as_separate_messages():
     async def original_send(interaction, content):
-        interaction.sent.append(content)
-        return True
+        raise AssertionError("Tutorial follow-ups should bypass the truncating sender")
 
     interaction = SimpleNamespace(
-        sent=[],
         followup=SimpleNamespace(send=AsyncMock()),
     )
     wrapped_chart = _capture_trajectory(lambda: "```text\ntrajectory\n```")
@@ -43,10 +42,21 @@ def test_tutorial_report_and_trajectory_are_sent_as_separate_messages():
         _captured_trajectory.reset(chart_token)
         _split_delivery_active.reset(active_token)
 
-    assert interaction.sent == ["Launch report"]
-    interaction.followup.send.assert_awaited_once_with(
-        content="```text\ntrajectory\n```"
-    )
+    assert interaction.followup.send.await_args_list[0].kwargs == {
+        "content": "Launch report"
+    }
+    assert interaction.followup.send.await_args_list[1].kwargs == {
+        "content": "```text\ntrajectory\n```"
+    }
+
+
+def test_oversized_report_is_split_without_dropping_text():
+    content = "\n".join(["A" * 900, "B" * 900, "C" * 900])
+    messages = _split_discord_messages(content)
+
+    assert len(messages) == 2
+    assert all(len(message) <= 2000 for message in messages)
+    assert "\n".join(messages) == content
 
 
 def test_non_tutorial_chart_rendering_is_unchanged():
