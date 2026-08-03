@@ -119,6 +119,33 @@ def _without_trajectory_sentinel(content: str) -> str:
     ).rstrip()
 
 
+def _split_discord_messages(content: str, limit: int = 2000) -> tuple[str, ...]:
+    """Split plain report text at line boundaries without dropping content."""
+    text = str(content).strip()
+    if not text:
+        return ()
+    if len(text) <= limit:
+        return (text,)
+
+    messages: list[str] = []
+    current = ""
+    for line in text.splitlines():
+        candidate = line if not current else f"{current}\n{line}"
+        if len(candidate) <= limit:
+            current = candidate
+            continue
+        if current:
+            messages.append(current)
+            current = ""
+        while len(line) > limit:
+            messages.append(line[:limit])
+            line = line[limit:]
+        current = line
+    if current:
+        messages.append(current)
+    return tuple(messages)
+
+
 async def _send_chart_followup(interaction, chart: str | None) -> bool:
     if not chart:
         return False
@@ -135,11 +162,15 @@ def _split_send_results(original):
         if not _split_delivery_active.get():
             return await original(interaction, content)
 
+        followup = getattr(interaction, "followup", None)
+        if followup is None or not hasattr(followup, "send"):
+            return await original(interaction, _without_trajectory_sentinel(content))
+
         report = _without_trajectory_sentinel(content)
-        sent = await original(interaction, report)
-        if sent:
-            await _send_chart_followup(interaction, _captured_trajectory.get())
-        return sent
+        for message in _split_discord_messages(report):
+            await followup.send(content=message)
+        await _send_chart_followup(interaction, _captured_trajectory.get())
+        return True
 
     send._balloon_frontier_split_tutorial_messages = True
     return send
@@ -155,7 +186,11 @@ def _split_edit_results(original):
         chart = _captured_trajectory.get()
         followup = getattr(interaction, "followup", None)
         if followup is not None and hasattr(followup, "send"):
-            await original(interaction, report, continue_view)
+            messages = _split_discord_messages(report)
+            first = messages[0] if messages else "Flight complete."
+            await original(interaction, first, continue_view)
+            for message in messages[1:]:
+                await followup.send(content=message)
             await _send_chart_followup(interaction, chart)
             return None
 
@@ -189,7 +224,10 @@ def _build_next_action_view(configurator, interaction, result):
     )
     callback = context.get("on_view_changed")
     if callback is not None:
-        callback(view)
+        try:
+            callback(view)
+        except Exception:
+            pass
     return view
 
 
