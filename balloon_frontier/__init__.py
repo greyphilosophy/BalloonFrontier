@@ -77,3 +77,9 @@ from .tutorial_state_guard import (
 )
 
 _install_tutorial_state_guard()
+
+from .tutorial_result_delivery import (
+    install_tutorial_result_delivery as _install_tutorial_result_delivery,
+)
+
+_install_tutorial_result_delivery()
