@@ -6,6 +6,17 @@ from dataclasses import replace
 from functools import wraps
 
 
+def _insert_observed_facts(explanation: str, facts: list[str]) -> str:
+    """Add facts to What happened without depending on exact bullet formatting."""
+    if not facts:
+        return explanation
+    marker = "\n**Why**"
+    if marker not in explanation:
+        return explanation + "\n- " + "\n- ".join(facts)
+    before, after = explanation.split(marker, 1)
+    return before.rstrip() + "\n- " + "\n- ".join(facts) + marker + after
+
+
 def install_tutorial_mission_guard() -> None:
     from balloon_frontier import tutorial
     from balloon_frontier.tutorial_powered_flight import (
@@ -105,11 +116,7 @@ def install_tutorial_mission_guard() -> None:
             elif photo_observable and has_aircraft:
                 facts.append("The aircraft did not hold photo altitude long enough to capture the required shots.")
 
-            if facts:
-                marker = "\n**Why**\n- "
-                if marker in explanation:
-                    before, after = explanation.split(marker, 1)
-                    explanation = before + "\n- " + "\n- ".join(facts) + marker + after
+            explanation = _insert_observed_facts(explanation, facts)
 
             energy_met = not assessment.eligible or assessment.can_complete_route
             if photo_observable:
@@ -146,10 +153,7 @@ def install_tutorial_mission_guard() -> None:
                 else "The aircraft did not complete the endurance course safely."
             )
             if legacy_note not in explanation:
-                marker = "\n**Why**\n- "
-                if marker in explanation:
-                    before, after = explanation.split(marker, 1)
-                    explanation = before + "\n- " + legacy_note + marker + after
+                explanation = _insert_observed_facts(explanation, [legacy_note])
 
             rewritten.append(
                 replace(
