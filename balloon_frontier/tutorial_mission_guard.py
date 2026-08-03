@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from functools import wraps
 
 
 def install_tutorial_mission_guard() -> None:
     from balloon_frontier import tutorial
-    from balloon_frontier.tutorial_powered_flight import apply_tutorial_powered_flight
+    from balloon_frontier.tutorial_powered_flight import (
+        apply_tutorial_powered_flight,
+        assess_tutorial_powered_flight,
+        tutorial_photo_captured,
+    )
 
     tutorial.TUTORIAL_STEPS.update(
         {
@@ -44,13 +49,23 @@ def install_tutorial_mission_guard() -> None:
 
     @wraps(current)
     def evaluate(request, outcome):
-        powered = apply_tutorial_powered_flight(request, outcome)
+        assessment = assess_tutorial_powered_flight(request, outcome)
+        powered = apply_tutorial_powered_flight(request, outcome, assessment)
         evaluated = current(request, powered)
+        result = powered.result
+        photo_captured = tutorial_photo_captured(result)
+        safe_recovery = (
+            bool(getattr(result, "landed", False))
+            and not bool(getattr(result, "burst", False))
+            and not bool(getattr(result, "crashed", False))
+        )
+
         rewritten = []
         for mission in evaluated.mission_results:
             if mission.mission_id != "first_flight":
                 rewritten.append(mission)
                 continue
+
             explanation = mission.explanation.replace(
                 "completed the endurance course under control",
                 "completed the school photo route under control",
@@ -64,15 +79,46 @@ def install_tutorial_mission_guard() -> None:
                 "Use helium for the endurance route.",
                 "Use helium to reduce rotor load for the yearbook photo route.",
             )
+
+            facts = []
+            if assessment.eligible:
+                facts.append(
+                    "The balloon supported "
+                    f"{assessment.supported_fraction * 100:.0f}% of the vehicle's weight; "
+                    f"the rotors carried {assessment.rotor_load_fraction * 100:.0f}%."
+                )
+                facts.append(
+                    "Estimated assisted endurance was "
+                    f"{assessment.estimated_endurance_s:.0f} s for a "
+                    f"{assessment.route_time_s:.0f} s photo route."
+                )
+            if photo_captured:
+                facts.append("The quadcopter held photo altitude long enough to capture the yearbook shots.")
+            elif "quadcopter" in set(request.payload_ids):
+                facts.append("The aircraft did not hold photo altitude long enough to capture the required shots.")
+
+            if facts:
+                marker = "\n**Why**\n- "
+                if marker in explanation:
+                    before, after = explanation.split(marker, 1)
+                    explanation = before + "\n- " + "\n- ".join(facts) + marker + after
+
+            completed = bool(mission.completed and photo_captured and safe_recovery)
+            reward = mission.reward if completed else 0
+            if mission.completed and not completed:
+                explanation = explanation.replace(
+                    "The aircraft completed the school photo route under control.",
+                    "The aircraft did not complete the school photo route safely.",
+                )
+
             rewritten.append(
-                type(mission)(
-                    mission_id=mission.mission_id,
-                    completed=mission.completed,
-                    reward=mission.reward,
+                replace(
+                    mission,
+                    completed=completed,
+                    reward=reward,
                     explanation=explanation,
                 )
             )
-        from dataclasses import replace
 
         return replace(evaluated, mission_results=tuple(rewritten))
 
