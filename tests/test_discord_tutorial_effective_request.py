@@ -163,7 +163,7 @@ def test_inadequate_buoyancy_fails_battery_budget_without_fabricated_flight():
 
     evaluated = evaluate_tutorial_outcome(request, original)
     assert not evaluated.mission_results[0].completed
-    assert "did not hold photo altitude" in evaluated.mission_results[0].explanation
+    assert "battery endurance was not sufficient" in evaluated.mission_results[0].explanation
 
 
 def test_photo_altitude_hold_is_required_even_after_safe_landing():
