@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+from balloon_frontier.flight_score import calculate_flight_score
 from balloon_frontier.launch_result import FlightResult, TelemetryPoint
+from balloon_frontier.medal_tier import get_medal_emoji, medal_tier_to_string
 
 PHOTO_ALTITUDE_M = 30.0
 PHOTO_HOLD_TIME_S = 45.0
@@ -144,7 +146,13 @@ def apply_tutorial_powered_flight(request, outcome, assessment=None):
         point(120.0, 38.0, 0.0, 120.0),
         point(PHOTO_ROUTE_TIME_S, 0.0, -0.5, 0.0, landed=True),
     )
+    powered_result = FlightResult(telemetry=points, launch_request=result.launch_request)
+    peak = powered_result.peak_altitude_m
+    score = calculate_flight_score(peak, 1, powered_result.duration_s)
     return replace(
         outcome,
-        result=FlightResult(telemetry=points, launch_request=result.launch_request),
+        result=powered_result,
+        score=score,
+        medal_name=medal_tier_to_string(peak),
+        medal_emoji=get_medal_emoji(peak),
     )
