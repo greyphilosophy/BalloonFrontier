@@ -66,8 +66,12 @@ from .tutorial_report_guard import (
 
 _install_tutorial_report_guard()
 
-# The report guard temporarily exposes the tutorial-only request while launching.
-# Restore the user-facing alias afterward without restoring a stale gas-mass cache.
+from .tutorial_mission_guard import (
+    install_tutorial_mission_guard as _install_tutorial_mission_guard,
+)
+
+_install_tutorial_mission_guard()
+
 from .tutorial_state_guard import (
     install_tutorial_state_guard as _install_tutorial_state_guard,
 )
