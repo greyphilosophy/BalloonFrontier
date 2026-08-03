@@ -112,7 +112,7 @@ def install_tutorial_mission_guard() -> None:
                 if not assessment.can_complete_route:
                     facts.append("The estimated battery endurance was not sufficient to complete the route.")
             if photo_observable and photo_captured:
-                facts.append("The quadcopter held photo altitude long enough to capture the yearbook shots.")
+                facts.append("The quadcopter captured the yearbook shots after holding photo altitude long enough.")
             elif photo_observable and has_aircraft:
                 facts.append("The aircraft did not hold photo altitude long enough to capture the required shots.")
 
