@@ -27,6 +27,8 @@ def _outcome(*, landed=False):
             burst=False,
             landed=landed,
             crashed=False,
+            telemetry=(),
+            launch_request=None,
         )
     )
 
@@ -49,10 +51,12 @@ def _request(
     )
 
 
-def test_quadcopter_is_a_real_shared_catalog_component():
+def test_quadcopter_is_the_powered_camera_aircraft():
     quadcopter = CATALOG.payload("quadcopter")
     assert quadcopter.name == "Small Quadcopter"
+    assert "powered_flight" in quadcopter.capabilities
     assert "radio_control" in quadcopter.capabilities
+    assert "camera" in quadcopter.capabilities
 
 
 def test_discord_tutorial_exposes_quadcopter_option():
@@ -62,45 +66,38 @@ def test_discord_tutorial_exposes_quadcopter_option():
     assert PAYLOAD_OPTIONS["quadcopter"][0] == "Small Quadcopter"
 
 
-def test_party_balloon_helium_quadcopter_completes_tutorial_after_recovery():
-    mission = evaluate_tutorial_outcome(
-        _request(),
-        _outcome(landed=True),
-    ).mission_results[0]
+def test_party_balloon_helium_quadcopter_completes_school_photo_route():
+    mission = evaluate_tutorial_outcome(_request(), _outcome()).mission_results[0]
 
     assert mission.completed
     assert mission.reward == 500
-    assert "completed the endurance course under control" in mission.explanation
+    assert "completed the school photo route under control" in mission.explanation
     assert "landed successfully" in mission.explanation
+    assert "quadcopter supplied the remaining lift" in mission.explanation
 
 
-def test_unavailable_hydrogen_route_receives_evidence_based_failure_debrief():
+def test_unavailable_hydrogen_route_receives_failure_debrief():
     mission = evaluate_tutorial_outcome(
         _request(gas="hydrogen"), _outcome()
     ).mission_results[0]
 
     assert not mission.completed
     assert mission.reward == 0
-    assert "did not complete a confirmed recovery" in mission.explanation
-    assert "cannot identify a specific control failure" in mission.explanation
+    assert "school photo route" in mission.explanation
     assert "What happened" in mission.explanation
 
 
-def test_latex_route_explains_uncertain_recovery_cause():
-    mission = evaluate_tutorial_outcome(
-        _request(envelope="latex"), _outcome()
-    ).mission_results[0]
-
-    assert not mission.completed
-    assert "telemetry does not prove which one prevented recovery" in mission.explanation
-    assert "cannot identify a specific control failure" in mission.explanation
-
-
-def test_tutorial_prompts_show_goal_and_visual_guidance_not_explanations():
+def test_tutorial_prompts_explain_spring_break_yearbook_mission():
     gas_prompt = tutorial_guidance(0)
-    assert "density" in gas_prompt
-    assert "Green buttons" in gas_prompt
-    assert "Use helium" not in gas_prompt
+    aircraft_prompt = tutorial_guidance(3)
+    site_prompt = tutorial_guidance(4)
+
+    assert "spring break of senior year" in gas_prompt.lower()
+    assert "yearbook" in gas_prompt.lower()
+    assert "aerial photos of the school" in gas_prompt.lower()
+    assert "camera-equipped quadcopter" in aircraft_prompt.lower()
+    assert "school photo route" in aircraft_prompt.lower()
+    assert "return safely" in site_prompt.lower()
 
 
 def test_tutorial_recommended_button_is_green_and_alternatives_remain_available():
@@ -160,7 +157,7 @@ def test_tutorial_applies_final_reward_exactly_once(monkeypatch):
     monkeypatch.setattr(
         _PlannedFlightService,
         "run",
-        lambda self, launch_request: _outcome(landed=True),
+        lambda self, launch_request: _outcome(),
     )
 
     outcome = SessionAwareFlightService(
