@@ -44,6 +44,9 @@ def assess_tutorial_powered_flight(request, outcome) -> PoweredFlightAssessment:
         and float(getattr(result, "duration_s", 0.0)) <= 0.1
         and float(getattr(result, "peak_altitude_m", 0.0)) <= 0.1
         and bool(points)
+        and hasattr(points[0], "weight_N")
+        and hasattr(points[0], "buoyancy_N")
+        and hasattr(points[0], "gas_volume_m3")
     )
     if not passive_grounding:
         return PoweredFlightAssessment(eligible=False)
@@ -80,15 +83,22 @@ def assess_tutorial_powered_flight(request, outcome) -> PoweredFlightAssessment:
 
 
 def tutorial_photo_captured(result) -> bool:
-    """Require a sustained camera hold at school-photo altitude."""
+    """Require a sustained, timestamped camera hold at school-photo altitude."""
     points = tuple(getattr(result, "telemetry", ()) or ())
+    if len(points) < 2:
+        return False
+
     dwell_s = 0.0
     for previous, current in zip(points, points[1:]):
+        previous_time = getattr(previous, "time_s", None)
+        current_time = getattr(current, "time_s", None)
+        if previous_time is None or current_time is None:
+            return False
         if (
             float(previous.altitude_m) >= PHOTO_ALTITUDE_M
             and float(current.altitude_m) >= PHOTO_ALTITUDE_M
         ):
-            dwell_s += max(0.0, float(current.time_s) - float(previous.time_s))
+            dwell_s += max(0.0, float(current_time) - float(previous_time))
     return dwell_s >= PHOTO_HOLD_TIME_S
 
 
