@@ -1,40 +1,52 @@
-# Tutorial Mission: Spring Break Yearbook Flight
+# Tutorial Mission: Spring-Break Yearbook Flight
 
 ## Story
 
-It is spring break of the player's senior year of high school. The yearbook staff still needs aerial photographs of the school before the final layout is sent to print.
+It is spring break of senior year. The yearbook staff still needs aerial photographs of the school before the final layout is sent to print.
 
-The player has access to a small camera-equipped quadcopter. It can fly under its own power, but the planned climb, photography pass, and safe return leave little battery margin. The player experiments with attaching a balloon above the aircraft to offset part of its weight and extend its useful flight time.
+The player has a small camera-equipped quadcopter. The quadcopter is the aircraft: it supplies propulsion, steering, camera control, and landing capability. A balloon is attached above it only to offset part of the vehicle's weight and reduce the rotor power needed to remain airborne.
 
-## Aircraft concept
+The complete vehicle is intentionally heavier than air.
 
-The quadcopter is the aircraft. It supplies:
+## Objective
 
-- the lift not supplied by the balloon;
-- horizontal and vertical control;
-- station keeping;
-- camera positioning;
-- the powered return and landing.
+1. Launch from the school field.
+2. Climb to at least 30 metres.
+3. Remain at or above photo altitude for at least 45 seconds so the yearbook shots can be captured.
+4. Return and land without bursting or crashing.
 
-The complete vehicle is intentionally heavier than air. The balloon is a buoyancy aid, not the primary aircraft.
+The nominal photo route takes 210 seconds.
 
-## Physics lesson
+## Buoyancy-assisted endurance model
 
-Balloon buoyancy reduces the thrust required to hover. Reducing rotor thrust can extend endurance, but balloon assistance also adds drag and can make precise maneuvering or descent more difficult. The goal is useful partial lift, not necessarily neutral or positive buoyancy.
+The general balloon simulation currently treats payloads as passive mass, so the tutorial adds a narrow powered-flight assessment when that passive model reports an immediate safe ground contact.
 
-The tutorial Foil Party Balloon remains a realistic 0.30 m³ envelope. A lightly filled weather balloon is also physically plausible because it can launch far below its maximum expanded volume.
+The assessment uses the actual first telemetry point from the selected configuration:
 
-## Mission objective
+- measured vehicle weight,
+- measured balloon buoyancy,
+- measured gas volume,
+- selected envelope drag coefficient,
+- actual added payload mass.
 
-Launch from the school field, climb to a safe photo altitude, capture the required yearbook photographs, and return the quadcopter safely.
+The fraction of weight carried by the rotors is:
 
-## Success criteria
+`rotor load fraction = 1 - buoyancy / weight`
 
-- a camera-equipped quadcopter is present;
-- the aircraft completes the school photo route under control;
-- the balloon does not burst;
-- the aircraft returns and lands safely.
+The temporary endurance estimate uses induced-power scaling with a nonzero avionics and control-power floor:
 
-## Canonical timeframe
+`power fraction = 0.22 + 0.78 × rotor load fraction^1.5 + envelope drag penalty`
 
-Spring break of senior year, before graduation.
+`estimated endurance = 150 seconds / power fraction`
+
+The powered route is generated only when estimated endurance is at least 210 seconds. A real burst, crash, incomplete flight, or inadequate energy budget is never overwritten.
+
+## Success rules
+
+Production flights with timestamped telemetry are judged by the actual objective: camera quadcopter present, sufficient photo-altitude dwell, sufficient endurance, and safe recovery. The green choices are guidance, not a hidden requirement; another configuration may succeed if it demonstrably completes the route.
+
+Legacy unit fixtures without timestamped route telemetry retain the older evaluator result because they cannot prove whether photographs were taken.
+
+## Current limitation
+
+The powered sortie remains a deterministic interim model. Rotor thrust, battery energy, camera events, and active control authority should eventually become first-class simulation state rather than a tutorial-only assessment layer.
