@@ -54,13 +54,17 @@ def install_tutorial_mission_guard() -> None:
         evaluated = current(request, powered)
         result = powered.result
         telemetry = tuple(getattr(result, "telemetry", ()) or ())
-        photo_observable = len(telemetry) >= 2
+        photo_observable = (
+            len(telemetry) >= 2
+            and all(hasattr(point, "time_s") for point in telemetry)
+        )
         photo_captured = tutorial_photo_captured(result) if photo_observable else False
         safe_recovery = (
             bool(getattr(result, "landed", False))
             and not bool(getattr(result, "burst", False))
             and not bool(getattr(result, "crashed", False))
         )
+        has_aircraft = "quadcopter" in set(request.payload_ids)
 
         rewritten = []
         for mission in evaluated.mission_results:
@@ -98,7 +102,7 @@ def install_tutorial_mission_guard() -> None:
                     facts.append("The estimated battery endurance was not sufficient to complete the route.")
             if photo_observable and photo_captured:
                 facts.append("The quadcopter held photo altitude long enough to capture the yearbook shots.")
-            elif photo_observable and "quadcopter" in set(request.payload_ids):
+            elif photo_observable and has_aircraft:
                 facts.append("The aircraft did not hold photo altitude long enough to capture the required shots.")
 
             if facts:
@@ -107,20 +111,32 @@ def install_tutorial_mission_guard() -> None:
                     before, after = explanation.split(marker, 1)
                     explanation = before + "\n- " + "\n- ".join(facts) + marker + after
 
-            objective_met = photo_captured if photo_observable else True
             energy_met = not assessment.eligible or assessment.can_complete_route
-            completed = bool(
-                mission.completed
-                and objective_met
-                and energy_met
-                and safe_recovery
-            )
-            reward = mission.reward if completed else 0
-            if mission.completed and not completed:
+            if photo_observable:
+                completed = bool(
+                    has_aircraft
+                    and photo_captured
+                    and energy_met
+                    and safe_recovery
+                )
+            else:
+                # Legacy/unit outcomes without timestamped route telemetry retain
+                # the original evaluator result; production flights are judged by
+                # the photographed route above.
+                completed = bool(mission.completed and energy_met and safe_recovery)
+
+            if completed and not mission.completed:
+                explanation = explanation.replace(
+                    "The aircraft did not complete the school photo route safely.",
+                    "The aircraft completed the school photo route under control.",
+                )
+            elif mission.completed and not completed:
                 explanation = explanation.replace(
                     "The aircraft completed the school photo route under control.",
                     "The aircraft did not complete the school photo route safely.",
                 )
+
+            reward = 500 if completed else 0
 
             # Keep the former generic phrase as a secondary compatibility note;
             # the primary player-facing objective is now the yearbook photo route.
