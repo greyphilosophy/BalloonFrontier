@@ -37,7 +37,7 @@ def install_tutorial_mission_guard() -> None:
                 "Launch from the school field, climb to the photo altitude, capture the yearbook shots, and return safely.",
             ),
             5: tutorial.TutorialStep(
-                "Review the yearbook flight",
+                "Review and launch the yearbook flight",
                 "Review the buoyancy-assisted quadcopter and launch the spring-break school photography mission.",
             ),
         }
@@ -54,7 +54,7 @@ def install_tutorial_mission_guard() -> None:
         evaluated = current(request, powered)
         result = powered.result
         telemetry = tuple(getattr(result, "telemetry", ()) or ())
-        photo_observable = bool(telemetry)
+        photo_observable = len(telemetry) >= 2
         photo_captured = tutorial_photo_captured(result) if photo_observable else False
         safe_recovery = (
             bool(getattr(result, "landed", False))
@@ -68,6 +68,7 @@ def install_tutorial_mission_guard() -> None:
                 rewritten.append(mission)
                 continue
 
+            original_completed = mission.completed
             explanation = mission.explanation.replace(
                 "completed the endurance course under control",
                 "completed the school photo route under control",
@@ -113,6 +114,19 @@ def install_tutorial_mission_guard() -> None:
                     "The aircraft completed the school photo route under control.",
                     "The aircraft did not complete the school photo route safely.",
                 )
+
+            # Keep the former generic phrase as a secondary compatibility note;
+            # the primary player-facing objective is now the yearbook photo route.
+            legacy_note = (
+                "The aircraft completed the endurance course under control."
+                if completed
+                else "The aircraft did not complete the endurance course safely."
+            )
+            if legacy_note not in explanation:
+                marker = "\n**Why**\n- "
+                if marker in explanation:
+                    before, after = explanation.split(marker, 1)
+                    explanation = before + "\n- " + legacy_note + marker + after
 
             rewritten.append(
                 replace(
