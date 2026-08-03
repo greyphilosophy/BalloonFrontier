@@ -68,7 +68,6 @@ def install_tutorial_mission_guard() -> None:
                 rewritten.append(mission)
                 continue
 
-            original_completed = mission.completed
             explanation = mission.explanation.replace(
                 "completed the endurance course under control",
                 "completed the school photo route under control",
@@ -95,6 +94,8 @@ def install_tutorial_mission_guard() -> None:
                     f"{assessment.estimated_endurance_s:.0f} s for a "
                     f"{assessment.route_time_s:.0f} s photo route."
                 )
+                if not assessment.can_complete_route:
+                    facts.append("The estimated battery endurance was not sufficient to complete the route.")
             if photo_observable and photo_captured:
                 facts.append("The quadcopter held photo altitude long enough to capture the yearbook shots.")
             elif photo_observable and "quadcopter" in set(request.payload_ids):
@@ -107,7 +108,13 @@ def install_tutorial_mission_guard() -> None:
                     explanation = before + "\n- " + "\n- ".join(facts) + marker + after
 
             objective_met = photo_captured if photo_observable else True
-            completed = bool(mission.completed and objective_met and safe_recovery)
+            energy_met = not assessment.eligible or assessment.can_complete_route
+            completed = bool(
+                mission.completed
+                and objective_met
+                and energy_met
+                and safe_recovery
+            )
             reward = mission.reward if completed else 0
             if mission.completed and not completed:
                 explanation = explanation.replace(
