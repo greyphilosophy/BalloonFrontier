@@ -15,7 +15,7 @@ SCIENTIFIC_FILM_BALLOON_NAME = "Scientific Film Balloon"
 TUTORIAL_ASSIST_ENVELOPE = EnvelopeDefinition(
     id=TUTORIAL_ENVELOPE_ID,
     name="Foil Party Balloon",
-    max_volume_m3=0.40,
+    max_volume_m3=0.30,
     mass_kg=0.05,
     drag_coefficient=2.0,
     burst_stretch_ratio=3.0,
@@ -24,15 +24,15 @@ TUTORIAL_ASSIST_ENVELOPE = EnvelopeDefinition(
     safe_fill_fraction=0.55,
 )
 
-# Active steering is independent from pressure management. The shared catalog's
-# ``valve`` payload supplies venting only when the player pays its mass and cost.
+# The quadcopter is the aircraft. Balloon lift reduces rotor load; it is not
+# required to make the complete vehicle lighter than air.
 QUADCOPTER = PayloadDefinition(
     id=QUADCOPTER_ID,
     name="Small Quadcopter",
     mass_kg=0.25,
     cost=250,
     has_valve=False,
-    capabilities=("powered_flight", "radio_control"),
+    capabilities=("powered_flight", "radio_control", "camera"),
 )
 
 
@@ -41,8 +41,6 @@ def ensure_tutorial_catalog() -> None:
     if getattr(CATALOG, "_tutorial_components_installed", False):
         return
 
-    # Preserve the legacy ``mylar`` ID for saves and requests, but give the
-    # 200 m³ envelope a name appropriate to a large scientific film balloon.
     shared_mylar = CATALOG._envelopes.get("mylar")
     if shared_mylar is not None and shared_mylar.name != SCIENTIFIC_FILM_BALLOON_NAME:
         CATALOG._envelopes["mylar"] = replace(
@@ -80,9 +78,6 @@ def ensure_discord_tutorial_options() -> None:
     if shared is not None:
         ENVELOPE_OPTIONS["mylar"] = (SCIENTIFIC_FILM_BALLOON_NAME, *shared[1:])
 
-    # The tutorial launch path uses the real tutorial-only ID. Register its
-    # display tuple so request construction and final reporting describe the
-    # same envelope that the physics engine simulates.
     ENVELOPE_OPTIONS[TUTORIAL_ENVELOPE_ID] = (
         TUTORIAL_ASSIST_ENVELOPE.name,
         TUTORIAL_ASSIST_ENVELOPE.max_volume_m3,
@@ -97,10 +92,6 @@ def ensure_discord_tutorial_options() -> None:
         (QUADCOPTER.name, QUADCOPTER.mass_kg, QUADCOPTER.cost, QUADCOPTER.has_valve),
     )
 
-    # The pressure valve is shared equipment, not part of the quadcopter. Make
-    # it independently selectable in both explicit Tutorial mode and the hidden
-    # Story prologue. The green recommendation remains the quadcopter alone, so
-    # the player can compare the valve's added mass and cost deliberately.
     from balloon_frontier import tutorial
 
     tutorial.TUTORIAL_OPTION_KEYS[3] = (QUADCOPTER_ID, "valve", "none")
