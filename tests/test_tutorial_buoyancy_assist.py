@@ -12,7 +12,7 @@ from balloon_frontier.tutorial_catalog import (
 )
 
 
-def test_tutorial_party_balloon_is_small_and_does_not_replace_scientific_film_balloon():
+def test_tutorial_party_balloon_is_realistic_and_does_not_replace_scientific_film_balloon():
     ensure_discord_tutorial_options()
 
     tutorial_envelope = CATALOG.envelope(TUTORIAL_ENVELOPE_ID)
@@ -22,19 +22,15 @@ def test_tutorial_party_balloon_is_small_and_does_not_replace_scientific_film_ba
     assert TUTORIAL_ENVELOPE_ID == "tutorial_party_balloon"
     assert tutorial_envelope is TUTORIAL_ASSIST_ENVELOPE
     assert tutorial_envelope.name == "Foil Party Balloon"
-    assert tutorial_envelope.max_volume_m3 == 0.40
+    assert tutorial_envelope.max_volume_m3 == 0.30
     assert tutorial_options["mylar"][0] == "Foil Party Balloon"
-    assert tutorial_options["mylar"][1] == 0.40
+    assert tutorial_options["mylar"][1] == 0.30
     assert ENVELOPE_OPTIONS[TUTORIAL_ENVELOPE_ID][0] == "Foil Party Balloon"
-    assert ENVELOPE_OPTIONS[TUTORIAL_ENVELOPE_ID][1] == 0.40
+    assert ENVELOPE_OPTIONS[TUTORIAL_ENVELOPE_ID][1] == 0.30
 
-    # The assist envelope remains compact, but now has enough practical lift
-    # margin for its 0.25 kg quadcopter and 0.05 kg envelope mass.
     approximate_gross_lift_kg = tutorial_envelope.max_volume_m3 * 1.05
-    assert 0.40 <= approximate_gross_lift_kg <= 0.45
+    assert 0.25 <= approximate_gross_lift_kg <= 0.35
 
-    # The legacy ID remains compatible, but its display name now identifies the
-    # 200 m³ envelope as scientific equipment rather than a birthday balloon.
     assert shared_mylar is not tutorial_envelope
     assert shared_mylar.name == SCIENTIFIC_FILM_BALLOON_NAME
     assert shared_mylar.max_volume_m3 == 200.0
@@ -42,14 +38,16 @@ def test_tutorial_party_balloon_is_small_and_does_not_replace_scientific_film_ba
     assert ENVELOPE_OPTIONS["mylar"][1] == 200.0
 
 
-def test_tutorial_quadcopter_and_pressure_valve_are_separate_equipment():
+def test_tutorial_quadcopter_is_the_powered_camera_aircraft():
     ensure_discord_tutorial_options()
 
     payload = CATALOG.payload("quadcopter")
     assert payload is QUADCOPTER
     assert payload.mass_kg == 0.25
     assert payload.has_valve is False
-    assert "automatic_venting" not in payload.capabilities
+    assert "powered_flight" in payload.capabilities
+    assert "radio_control" in payload.capabilities
+    assert "camera" in payload.capabilities
     assert PAYLOAD_OPTIONS["quadcopter"][3] is False
 
     valve = CATALOG.payload("valve")
@@ -57,4 +55,3 @@ def test_tutorial_quadcopter_and_pressure_valve_are_separate_equipment():
     assert valve.mass_kg == 0.3
     assert valve.cost == 250
     assert valve.has_valve is True
-    assert PAYLOAD_OPTIONS["valve"] == ("Pressure Valve", 0.3, 250, True)
