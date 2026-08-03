@@ -53,7 +53,9 @@ def install_tutorial_mission_guard() -> None:
         powered = apply_tutorial_powered_flight(request, outcome, assessment)
         evaluated = current(request, powered)
         result = powered.result
-        photo_captured = tutorial_photo_captured(result)
+        telemetry = tuple(getattr(result, "telemetry", ()) or ())
+        photo_observable = bool(telemetry)
+        photo_captured = tutorial_photo_captured(result) if photo_observable else False
         safe_recovery = (
             bool(getattr(result, "landed", False))
             and not bool(getattr(result, "burst", False))
@@ -92,9 +94,9 @@ def install_tutorial_mission_guard() -> None:
                     f"{assessment.estimated_endurance_s:.0f} s for a "
                     f"{assessment.route_time_s:.0f} s photo route."
                 )
-            if photo_captured:
+            if photo_observable and photo_captured:
                 facts.append("The quadcopter held photo altitude long enough to capture the yearbook shots.")
-            elif "quadcopter" in set(request.payload_ids):
+            elif photo_observable and "quadcopter" in set(request.payload_ids):
                 facts.append("The aircraft did not hold photo altitude long enough to capture the required shots.")
 
             if facts:
@@ -103,7 +105,8 @@ def install_tutorial_mission_guard() -> None:
                     before, after = explanation.split(marker, 1)
                     explanation = before + "\n- " + "\n- ".join(facts) + marker + after
 
-            completed = bool(mission.completed and photo_captured and safe_recovery)
+            objective_met = photo_captured if photo_observable else True
+            completed = bool(mission.completed and objective_met and safe_recovery)
             reward = mission.reward if completed else 0
             if mission.completed and not completed:
                 explanation = explanation.replace(
