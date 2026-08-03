@@ -19,7 +19,8 @@ from balloon_frontier.tutorial import (
 from balloon_frontier.tutorial_catalog import ensure_discord_tutorial_options
 
 
-def _outcome(*, landed=False):
+def _outcome(*, landed=True):
+    """Legacy summary fixture for a completed recovery without route telemetry."""
     return FlightOutcome(
         result=SimpleNamespace(
             peak_altitude_m=0.0,
