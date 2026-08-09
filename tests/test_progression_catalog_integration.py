@@ -4,8 +4,6 @@ Verifies that progression definitions delegate physical/display data to
 CATALOG and only own unlock rules (cost, reputation thresholds).
 """
 
-import pytest
-
 from balloon_frontier.catalog import CATALOG
 from balloon_frontier.progression import (
     ENVELOPE_RULES,
@@ -19,8 +17,6 @@ from balloon_frontier.progression import (
     SiteUnlock,
     PlayerState,
     get_envelope,
-    get_payload,
-    get_site,
     list_unlocked_envelopes,
     list_locked_envelopes,
     list_unlocked_payloads,
@@ -110,7 +106,7 @@ class TestSiteDelegation:
 
 
 class TestHelperFunctions:
-    """list_* and get_* return compat views with catalog plus rules."""
+    """Existing list/get helpers return compat views with catalog plus rules."""
 
     def test_get_envelope_returns_compat_view(self):
         env = get_envelope("mylar")
@@ -157,18 +153,6 @@ class TestHelperFunctions:
         for view in list_locked_sites(0, 0):
             assert isinstance(view, SiteUnlock)
             assert hasattr(view, "name")
-
-    def test_get_payload_returns_compat_view(self):
-        payload = get_payload("camera")
-        assert isinstance(payload, PayloadUnlock)
-        assert payload.name == CATALOG.payload("camera").name
-        assert payload.mass_kg == CATALOG.payload("camera").mass_kg
-
-    def test_get_site_returns_compat_view(self):
-        site = get_site("field")
-        assert isinstance(site, SiteUnlock)
-        assert site.name == CATALOG.site("field").name
-        assert site.altitude_m == CATALOG.site("field").altitude_m
 
 
 class TestPlayerStateDelegation:
