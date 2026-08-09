@@ -83,12 +83,15 @@ class SessionAwareFlightService:
     on_finished: Callable[[], None] | None = None
     last_plan: SessionPlan | None = None
     story_player_id: str | None = None
+    story_mission_id: str | None = None
 
     def run(self, request: Any) -> Any:
         player_id = getattr(request, "player_id", None) or self.story_player_id
         context = {"ui": self.ui}
         if self.channel_kind is not None:
             context["channel"] = self.channel_kind
+        if self.story_mission_id is not None:
+            context["story_mission_id"] = self.story_mission_id
         plan = plan_session(
             self.mode,
             configuration_from_launch_request(request),
