@@ -95,6 +95,8 @@ jobs:
           python -m pytest tests/test_discord_game_entry.py -q
       - name: Test legacy CLI suite
         run: timeout 60s python -m pytest tests/test_cli*.py -vv
+      - name: Test Story transition suites
+        run: python -m pytest tests/test_tutorial*.py tests/test_story*.py -vv
       - name: Test atmosphere provider
         run: python -m pytest tests/test_atmosphere_provider.py -q
       - name: Test atmosphere profiles
