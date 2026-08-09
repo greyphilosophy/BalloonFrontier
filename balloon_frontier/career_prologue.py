@@ -85,14 +85,6 @@ class DiscoveryFirstFlightConfiguratorMixin:
                     lines.append(
                         f"{index}  {payload[0]}  ({payload[1]}kg, ${payload[2]})"
                     )
-                selected = [
-                    self._first_flight_options(_Step.CHOOSE_PAYLOADS)[key][0]
-                    for key in self.state.get("payloads", ())
-                    if key != "none" and key in self._first_flight_options(_Step.CHOOSE_PAYLOADS)
-                ]
-                lines.append(
-                    f"\n**Currently equipped:** {', '.join(selected) if selected else 'None'}"
-                )
             elif self._current_step == _Step.CHOOSE_SITE:
                 for index, site in enumerate(options.values(), 1):
                     lines.append(f"{index}  {site.name}")
@@ -148,6 +140,7 @@ class DiscoveryFirstFlightConfiguratorMixin:
     def build_buttons(self):
         super().build_buttons()
 
+        from balloon_frontier.balloon_cluster import _BalloonCountButton
         from balloon_frontier.discord_ui.configurator import _Step
         from balloon_frontier.discord_ui.modals import _ManualGasMassButton
         from balloon_frontier.discord_ui.views import _OptionButton
@@ -155,8 +148,13 @@ class DiscoveryFirstFlightConfiguratorMixin:
         if self._current_step not in FIRST_FLIGHT_OPTION_KEYS:
             return
 
+        # Quantity and manual-mass controls are later-game choices. The first
+        # Story flight uses exactly one balloon and the listed fill presets.
+        self.state["balloon_count"] = 1
+        if hasattr(self, "_sync_balloon_count"):
+            self._sync_balloon_count()
         for item in list(self.children):
-            if isinstance(item, (_OptionButton, _ManualGasMassButton)):
+            if isinstance(item, (_OptionButton, _ManualGasMassButton, _BalloonCountButton)):
                 self.remove_item(item)
 
         callback = {
