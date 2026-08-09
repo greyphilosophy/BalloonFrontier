@@ -36,10 +36,6 @@ from .fill import (
 from .flight_score import calculate_flight_score
 from .medal_tier import MedalTier, get_medal_tier, medal_tier_to_string
 
-from .tutorial_catalog import ensure_tutorial_catalog as _ensure_tutorial_catalog
-
-_ensure_tutorial_catalog()
-
 from .preset_fill_guard import install_nominal_preset_fill as _install_nominal_preset_fill
 
 _install_nominal_preset_fill()
@@ -60,24 +56,16 @@ from .simulation_stability_guard import (
 
 _install_simulation_stability_guard()
 
+# This legacy-named guard now contains presentation-only protections. It does
+# not substitute requests, weather, equipment, evaluators, or physics.
 from .tutorial_report_guard import (
     install_tutorial_report_guard as _install_tutorial_report_guard,
 )
 
 _install_tutorial_report_guard()
 
-from .tutorial_mission_guard import (
-    install_tutorial_mission_guard as _install_tutorial_mission_guard,
-)
-
-_install_tutorial_mission_guard()
-
-from .tutorial_state_guard import (
-    install_tutorial_state_guard as _install_tutorial_state_guard,
-)
-
-_install_tutorial_state_guard()
-
+# The installer name is retained for import compatibility; it now owns only the
+# Story first-flight result split and Continue Story handoff.
 from .tutorial_result_delivery import (
     install_tutorial_result_delivery as _install_tutorial_result_delivery,
 )
