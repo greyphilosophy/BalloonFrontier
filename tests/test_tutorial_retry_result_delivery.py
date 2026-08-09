@@ -1,4 +1,4 @@
-"""Regression coverage for successful tutorial retries and result delivery."""
+"""Regression coverage for successful first-flight result delivery."""
 
 import asyncio
 from types import SimpleNamespace
@@ -27,20 +27,12 @@ def test_continue_view_failure_does_not_turn_success_into_simulation_failure():
     continue_view = object()
 
     attached = asyncio.run(
-        launch_handler._attach_tutorial_continue_view(
-            interaction,
-            continue_view,
-        )
+        launch_handler._attach_tutorial_continue_view(interaction, continue_view)
     )
 
     assert attached is False
-    interaction.edit_original_response.assert_awaited_once_with(
-        view=continue_view,
-    )
-    assert not hasattr(
-        interaction,
-        "_balloon_frontier_tutorial_view_attached",
-    )
+    interaction.edit_original_response.assert_awaited_once_with(view=continue_view)
+    assert not hasattr(interaction, "_balloon_frontier_tutorial_view_attached")
 
 
 def test_successful_continue_view_attachment_does_not_mutate_interaction():
@@ -48,10 +40,7 @@ def test_successful_continue_view_attachment_does_not_mutate_interaction():
     continue_view = object()
 
     attached = asyncio.run(
-        launch_handler._attach_tutorial_continue_view(
-            interaction,
-            continue_view,
-        )
+        launch_handler._attach_tutorial_continue_view(interaction, continue_view)
     )
 
     assert attached is True
@@ -62,10 +51,7 @@ def test_no_continue_view_requires_no_discord_edit():
     interaction = SimpleNamespace(edit_original_response=AsyncMock())
 
     attached = asyncio.run(
-        launch_handler._attach_tutorial_continue_view(
-            interaction,
-            None,
-        )
+        launch_handler._attach_tutorial_continue_view(interaction, None)
     )
 
     assert attached is False
@@ -112,26 +98,27 @@ def test_followup_failure_falls_back_to_original_response():
     )
 
 
-def test_tutorial_continue_view_registers_the_exact_created_view(monkeypatch):
+def _first_flight_context(**extra):
+    return {
+        "mode": GameMode.STORY,
+        "first_flight": True,
+        "channel_kind": "dm",
+        "service": "root-service",
+        "on_finished": None,
+        **extra,
+    }
+
+
+def test_first_flight_continue_view_registers_the_exact_created_view(monkeypatch):
     created_view = object()
     constructor = Mock(return_value=created_view)
     remembered = []
 
-    from balloon_frontier import tutorial_result_delivery
+    from balloon_frontier.discord_ui import game_menu
 
-    monkeypatch.setattr(
-        tutorial_result_delivery,
-        "TutorialNextActionView",
-        constructor,
-    )
+    monkeypatch.setattr(game_menu, "ContinueToStoryView", constructor)
     configurator = SimpleNamespace(
-        _game_entry_context={
-            "mode": GameMode.TUTORIAL,
-            "channel_kind": "dm",
-            "service": "root-service",
-            "on_finished": None,
-            "on_view_changed": remembered.append,
-        }
+        _game_entry_context=_first_flight_context(on_view_changed=remembered.append)
     )
     interaction = _SlottedInteraction()
     result = SimpleNamespace(
@@ -140,11 +127,7 @@ def test_tutorial_continue_view_registers_the_exact_created_view(monkeypatch):
         )
     )
 
-    view = launch_handler._tutorial_continue_view(
-        configurator,
-        interaction,
-        result,
-    )
+    view = launch_handler._tutorial_continue_view(configurator, interaction, result)
 
     assert view is created_view
     assert remembered == [created_view]
@@ -159,21 +142,14 @@ def test_tutorial_continue_view_registers_the_exact_created_view(monkeypatch):
 
 
 def test_failed_continue_view_construction_leaves_fallback_available(monkeypatch):
-    from balloon_frontier import tutorial_result_delivery
+    from balloon_frontier.discord_ui import game_menu
 
     monkeypatch.setattr(
-        tutorial_result_delivery,
-        "TutorialNextActionView",
+        game_menu,
+        "ContinueToStoryView",
         Mock(side_effect=RuntimeError("constructor failed")),
     )
-    configurator = SimpleNamespace(
-        _game_entry_context={
-            "mode": GameMode.TUTORIAL,
-            "channel_kind": "dm",
-            "service": "root-service",
-            "on_finished": None,
-        }
-    )
+    configurator = SimpleNamespace(_game_entry_context=_first_flight_context())
     interaction = _SlottedInteraction()
     result = SimpleNamespace(
         mission_results=(
@@ -181,11 +157,7 @@ def test_failed_continue_view_construction_leaves_fallback_available(monkeypatch
         )
     )
 
-    view = launch_handler._tutorial_continue_view(
-        configurator,
-        interaction,
-        result,
-    )
+    view = launch_handler._tutorial_continue_view(configurator, interaction, result)
 
     assert view is None
     assert not hasattr(configurator, "_tutorial_continuation_handled")
@@ -195,25 +167,15 @@ def test_registry_failure_does_not_discard_created_continue_view(monkeypatch):
     created_view = object()
     constructor = Mock(return_value=created_view)
 
-    from balloon_frontier import tutorial_result_delivery
+    from balloon_frontier.discord_ui import game_menu
 
-    monkeypatch.setattr(
-        tutorial_result_delivery,
-        "TutorialNextActionView",
-        constructor,
-    )
+    monkeypatch.setattr(game_menu, "ContinueToStoryView", constructor)
 
     def reject_registration(view):
         raise RuntimeError("registry unavailable")
 
     configurator = SimpleNamespace(
-        _game_entry_context={
-            "mode": GameMode.TUTORIAL,
-            "channel_kind": "dm",
-            "service": "root-service",
-            "on_finished": None,
-            "on_view_changed": reject_registration,
-        }
+        _game_entry_context=_first_flight_context(on_view_changed=reject_registration)
     )
     interaction = _SlottedInteraction()
     result = SimpleNamespace(
@@ -222,11 +184,7 @@ def test_registry_failure_does_not_discard_created_continue_view(monkeypatch):
         )
     )
 
-    view = launch_handler._tutorial_continue_view(
-        configurator,
-        interaction,
-        result,
-    )
+    view = launch_handler._tutorial_continue_view(configurator, interaction, result)
 
     assert view is created_view
     assert configurator._tutorial_continuation_handled is True
@@ -254,9 +212,7 @@ def test_terminal_status_edit_failure_is_contained():
     )
 
 
-def test_launch_button_skips_legacy_fallback_when_handler_owned_continuation(
-    monkeypatch,
-):
+def test_launch_button_skips_fallback_when_handler_owned_continuation(monkeypatch):
     outcome = SimpleNamespace(
         mission_results=(
             SimpleNamespace(mission_id="first_flight", completed=True),
@@ -268,13 +224,7 @@ def test_launch_button_skips_legacy_fallback_when_handler_owned_continuation(
         return outcome
 
     monkeypatch.setattr(launch_handler, "run_launch", run_launch)
-    parent = SimpleNamespace(
-        _game_entry_context={
-            "mode": GameMode.TUTORIAL,
-            "channel_kind": "dm",
-            "service": "root-service",
-        }
-    )
+    parent = SimpleNamespace(_game_entry_context=_first_flight_context())
     interaction = _SlottedInteraction()
     button = _LaunchButton(parent, service="wrapped-service")
 
