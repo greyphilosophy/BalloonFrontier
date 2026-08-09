@@ -15,6 +15,7 @@ from balloon_frontier.how_to_play import how_to_play_text
 from balloon_frontier.progression import PlayerRegistry
 from balloon_frontier.session_adapters import SessionAwareFlightService
 from balloon_frontier.story_mission_select import (
+    SelectedStoryConfiguratorMixin,
     StoryMissionChoice,
     resolve_story_mission,
     story_mission_choices,
@@ -267,7 +268,7 @@ def _configurator_for_mode(
     first_flight = False
     if mode is GameMode.STORY and supports_wizard_mixins:
         from balloon_frontier.career_prologue import DiscoveryFirstFlightConfiguratorMixin
-        from balloon_frontier.story import FIRST_FLIGHT_MISSION_ID, StoryConfiguratorMixin
+        from balloon_frontier.story import FIRST_FLIGHT_MISSION_ID
 
         first_flight = selected_story_mission_id == FIRST_FLIGHT_MISSION_ID
         if first_flight:
@@ -275,7 +276,7 @@ def _configurator_for_mode(
             # the same Story path used after onboarding.
             configurator_mixins.insert(1, DiscoveryFirstFlightConfiguratorMixin)
         else:
-            configurator_mixins.insert(1, StoryConfiguratorMixin)
+            configurator_mixins.insert(1, SelectedStoryConfiguratorMixin)
 
     configurator_type = type(
         "BalloonFrontierConfigurator",
