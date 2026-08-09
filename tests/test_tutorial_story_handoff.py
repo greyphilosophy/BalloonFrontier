@@ -87,9 +87,9 @@ def test_ordinary_story_launch_does_not_use_first_flight_handoff(monkeypatch):
     interaction.edit_original_response.assert_not_awaited()
 
 
-def test_continue_button_opens_story_mode(monkeypatch):
-    started = AsyncMock()
-    monkeypatch.setattr(game_menu, "start_mode", started)
+def test_continue_button_opens_story_mission_select(monkeypatch):
+    opened = AsyncMock()
+    monkeypatch.setattr(game_menu, "show_story_mission_select", opened)
     view = game_menu.ContinueToStoryView(
         player_id="player",
         channel_kind="dm",
@@ -99,13 +99,13 @@ def test_continue_button_opens_story_mode(monkeypatch):
 
     asyncio.run(view.children[0].callback(interaction))
 
-    started.assert_awaited_once_with(
+    opened.assert_awaited_once_with(
         interaction,
-        service="root-service",
-        mode=GameMode.STORY,
         player_id="player",
         channel_kind="dm",
+        service="root-service",
         on_finished=None,
+        on_view_changed=None,
     )
 
 
