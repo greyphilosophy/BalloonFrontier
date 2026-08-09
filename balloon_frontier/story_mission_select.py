@@ -4,12 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from balloon_frontier.atmosphere_profile import atmosphere_profiles
 from balloon_frontier.progression import PlayerRegistry
 from balloon_frontier.story import (
     COLLEGE_METEOROLOGY_CHAPTER,
     FIRST_FLIGHT_CHAPTER,
+    STORY_DISCLAIMER,
     SUMMER_HOBBYIST_CHAPTER,
     StoryChapter,
+    _LockAtmosphereButton,
+    format_atmosphere_profile,
 )
 
 
@@ -61,6 +65,13 @@ def story_mission_choices(player_id: str | int | None = None) -> tuple[StoryMiss
     return tuple(choices)
 
 
+def story_chapter_for_mission(mission_id: str) -> StoryChapter:
+    for chapter in STORY_CHAPTERS:
+        if chapter.mission_id == mission_id:
+            return chapter
+    raise ValueError(f"Unknown Story mission: {mission_id!r}")
+
+
 def resolve_story_mission(
     player_id: str | int | None = None,
     requested_mission_id: str | None = None,
@@ -87,3 +98,72 @@ def resolve_story_mission(
     # STORY_CHAPTERS always contains the first flight, but keep the fallback
     # explicit so this helper remains total if the chapter list is refactored.
     return FIRST_FLIGHT_CHAPTER.mission_id
+
+
+def selected_story_intro(
+    chapter: StoryChapter,
+    *,
+    player_id: str | None = None,
+    atmosphere_locked: bool = False,
+    include_disclaimer: bool = True,
+) -> str:
+    """Render a briefing for the selected chapter rather than progression's next one."""
+
+    bonuses = "\n".join(f"• {item}" for item in chapter.bonus_challenges)
+    text = (
+        f"📖 **{chapter.title}**\n"
+        f"*{chapter.season}*\n\n"
+        f"{chapter.introduction}\n\n"
+        "**Primary objective**\n"
+        f"{chapter.primary_objective}"
+    )
+    if bonuses:
+        text += f"\n\n**Bonus challenges**\n{bonuses}"
+    if chapter.future_challenges:
+        future = "\n".join(f"• {item}" for item in chapter.future_challenges)
+        text += f"\n\n**Future cinematic challenges**\n{future}"
+    if atmosphere_locked:
+        text += (
+            "\n\n🔒 **Measured conditions selected.** "
+            "This recorded atmosphere will drive the next launch."
+        )
+    elif player_id and atmosphere_profiles.get(str(player_id)) is not None:
+        text += "\n\n📡 A recorded atmosphere profile is available below."
+    if include_disclaimer and chapter is not FIRST_FLIGHT_CHAPTER:
+        text += f"\n\n*{STORY_DISCLAIMER}*"
+    return text
+
+
+class SelectedStoryConfiguratorMixin:
+    """Story briefing/atmosphere UI bound to the explicitly selected mission."""
+
+    def __init__(self, *args, **kwargs):
+        self._atmosphere_locked = False
+        super().__init__(*args, **kwargs)
+
+    def _selected_story_chapter(self) -> StoryChapter:
+        mission_id = getattr(self._service, "story_mission_id", None)
+        return story_chapter_for_mission(str(mission_id))
+
+    def _step_content(self) -> str:
+        player_id = getattr(self._service, "story_player_id", None)
+        text = selected_story_intro(
+            self._selected_story_chapter(),
+            player_id=player_id,
+            atmosphere_locked=self._atmosphere_locked,
+            include_disclaimer=self._current_step == 0,
+        )
+        if player_id:
+            profile = atmosphere_profiles.get(str(player_id))
+            if profile is not None:
+                text += "\n\n" + format_atmosphere_profile(profile)
+        return text + "\n\n" + super()._step_content()
+
+    def build_buttons(self):
+        super().build_buttons()
+        player_id = getattr(self._service, "story_player_id", None)
+        has_profile = bool(player_id) and atmosphere_profiles.get(
+            str(player_id)
+        ) is not None
+        if self._current_step == 5 and has_profile and not self._atmosphere_locked:
+            self.add_item(_LockAtmosphereButton(self))
