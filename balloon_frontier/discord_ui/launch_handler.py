@@ -29,7 +29,6 @@ logger = logging.getLogger(__name__)
 _missions_loaded = False
 
 
-
 def _ensure_missions_loaded():
     global _missions_loaded
     if _missions_loaded:
@@ -45,7 +44,6 @@ def _ensure_missions_loaded():
         load_mission_directory(mission_dir)
     except Exception:
         logger.exception("Failed to load mission directory")
-
 
 
 def run_simulation(
@@ -168,7 +166,6 @@ def run_simulation(
     return telemetry, summary
 
 
-
 def _tutorial_continue_view(configurator, interaction, result):
     context = getattr(configurator, "_game_entry_context", None)
     if not context:
@@ -185,14 +182,6 @@ def _tutorial_continue_view(configurator, interaction, result):
     if not completed:
         return None
 
-    # Mark ownership before construction so the launch-button compatibility
-    # fallback cannot duplicate continuation work after a partial failure.
-    setattr(
-        interaction,
-        "_balloon_frontier_tutorial_continuation_handled",
-        True,
-    )
-
     from balloon_frontier.discord_ui.game_menu import ContinueToStoryView
 
     kwargs = {
@@ -206,12 +195,11 @@ def _tutorial_continue_view(configurator, interaction, result):
         kwargs["on_view_changed"] = on_view_changed
 
     view = ContinueToStoryView(**kwargs)
+    setattr(configurator, "_tutorial_continuation_handled", True)
     if on_view_changed is not None:
         try:
             on_view_changed(view)
         except Exception:
-            # Registry bookkeeping is important, but it must not suppress a
-            # usable continuation button or turn a completed flight into an error.
             logger.exception("Failed to register tutorial continuation view")
     return view
 
@@ -247,7 +235,6 @@ async def _attach_tutorial_continue_view(interaction, continue_view) -> bool:
             exc_info=True,
         )
         return False
-    setattr(interaction, "_balloon_frontier_tutorial_view_attached", True)
     return True
 
 
@@ -270,6 +257,16 @@ async def _edit_results_with_optional_view(
             exc_info=True,
         )
         await interaction.edit_original_response(content=content, view=None)
+
+
+def _limit_result_content(configurator, content: str, limit: int = 2000) -> str:
+    """Keep legacy single-message limits unless a split delivery owns the result."""
+    text = str(content)
+    if len(text) <= limit:
+        return text
+    if getattr(configurator, "_balloon_frontier_split_result_delivery", False):
+        return text
+    return text[: limit - 3] + "..."
 
 
 async def run_launch(
@@ -398,8 +395,7 @@ async def run_launch(
                 if chart_str
                 else result_content + mission_text
             )
-        if len(result_content) > 2000:
-            result_content = result_content[:1997] + "..."
+        result_content = _limit_result_content(configurator, result_content)
 
         try:
             continue_view = _tutorial_continue_view(
@@ -408,11 +404,6 @@ async def run_launch(
                 result,
             )
         except Exception:
-            setattr(
-                interaction,
-                "_balloon_frontier_tutorial_continuation_handled",
-                True,
-            )
             logger.exception("Failed to build tutorial continuation controls")
             continue_view = None
 
