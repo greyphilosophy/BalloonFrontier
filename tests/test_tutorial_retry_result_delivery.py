@@ -117,9 +117,13 @@ def test_tutorial_continue_view_registers_the_exact_created_view(monkeypatch):
     constructor = Mock(return_value=created_view)
     remembered = []
 
-    from balloon_frontier.discord_ui import game_menu
+    from balloon_frontier import tutorial_result_delivery
 
-    monkeypatch.setattr(game_menu, "ContinueToStoryView", constructor)
+    monkeypatch.setattr(
+        tutorial_result_delivery,
+        "TutorialNextActionView",
+        constructor,
+    )
     configurator = SimpleNamespace(
         _game_entry_context={
             "mode": GameMode.TUTORIAL,
@@ -155,11 +159,11 @@ def test_tutorial_continue_view_registers_the_exact_created_view(monkeypatch):
 
 
 def test_failed_continue_view_construction_leaves_fallback_available(monkeypatch):
-    from balloon_frontier.discord_ui import game_menu
+    from balloon_frontier import tutorial_result_delivery
 
     monkeypatch.setattr(
-        game_menu,
-        "ContinueToStoryView",
+        tutorial_result_delivery,
+        "TutorialNextActionView",
         Mock(side_effect=RuntimeError("constructor failed")),
     )
     configurator = SimpleNamespace(
@@ -191,9 +195,13 @@ def test_registry_failure_does_not_discard_created_continue_view(monkeypatch):
     created_view = object()
     constructor = Mock(return_value=created_view)
 
-    from balloon_frontier.discord_ui import game_menu
+    from balloon_frontier import tutorial_result_delivery
 
-    monkeypatch.setattr(game_menu, "ContinueToStoryView", constructor)
+    monkeypatch.setattr(
+        tutorial_result_delivery,
+        "TutorialNextActionView",
+        constructor,
+    )
 
     def reject_registration(view):
         raise RuntimeError("registry unavailable")
