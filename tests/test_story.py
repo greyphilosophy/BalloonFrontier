@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from balloon_frontier.flight_service import FlightOutcome
 from balloon_frontier.game_modes import GameMode
 from balloon_frontier.launch_result import MissionResult
+from balloon_frontier.progression import PlayerRegistry, PlayerState
 from balloon_frontier.session_controller import assign_missions_for_mode, get_mode_policy
 from balloon_frontier.story import add_story_bonus_results, story_intro
 
@@ -25,25 +26,40 @@ def _outcome(telemetry):
     )
 
 
-def test_story_mode_assigns_edge_of_space_when_camera_is_selected():
+def test_story_mode_assigns_first_flight_to_new_player():
     missions = assign_missions_for_mode(
         GameMode.STORY,
         {"payloads": ("camera",), "site": "field"},
     )
-    assert missions == ("edge_of_space",)
+    assert missions == ("first_flight",)
     assert get_mode_policy(GameMode.STORY).mission_count == 1
 
 
-def test_story_mode_keeps_edge_of_space_for_invalid_configuration():
+def test_story_mode_keeps_current_chapter_for_invalid_configuration():
     missions = assign_missions_for_mode(
         GameMode.STORY,
         {"payloads": ("gps",), "site": "mountain"},
     )
-    assert missions == ("edge_of_space",)
+    assert missions == ("first_flight",)
 
 
-def test_story_intro_separates_tracked_and_future_challenges():
+def test_first_story_intro_is_the_first_flight():
     intro = story_intro()
+    assert "Your First Flight" in intro
+    assert "same simulation" in intro
+    assert "Tutorial" not in intro
+
+
+def test_later_story_intro_separates_tracked_and_future_challenges(monkeypatch):
+    player = PlayerState("player")
+    player.missions_completed.append("first_flight")
+    monkeypatch.setattr(
+        PlayerRegistry,
+        "get_or_create",
+        classmethod(lambda cls, player_id: player),
+    )
+
+    intro = story_intro("player")
     assert "Stable footage" in intro
     assert "Controlled recovery" in intro
     assert "Earth and the Moon" in intro

@@ -8,11 +8,8 @@ import logging
 
 import discord
 from balloon_frontier.discord_ui import launch_handler
-from balloon_frontier.game_modes import GameMode
 
 logger = logging.getLogger(__name__)
-
-# Forward reference: BalloonConfigurator is defined in configurator.py.
 
 
 class _ManualGasMassButton(discord.ui.Button):
@@ -32,12 +29,9 @@ class _ManualGasMassButton(discord.ui.Button):
 
 
 class _ManualGasMassModal(discord.ui.Modal):
-    """Modal to set the manual gas mass (kg)."""
-
     def __init__(self, parent: "BalloonConfigurator"):  # type: ignore[name-defined]
         super().__init__(title="Manual Gas Mass")
         self._parent = parent
-
         current = parent.state.get("manual_gas_mass")
         default_str = "" if current is None else str(current)
         self.mass_input = discord.ui.TextInput(
@@ -91,7 +85,7 @@ class _LaunchButton(discord.ui.Button):
         )
 
         context = getattr(self._parent, "_game_entry_context", None)
-        if not context or context.get("mode") is not GameMode.TUTORIAL:
+        if not context or not context.get("first_flight"):
             return
         if outcome is None:
             return
@@ -103,15 +97,11 @@ class _LaunchButton(discord.ui.Button):
         if not completed_this_launch:
             return
 
-        # Current handlers own construction, attachment, and registration.
-        # Store that marker on the application-owned configurator rather than
-        # mutating discord.Interaction, which may reject unknown attributes.
+        # The result-delivery handler normally owns construction, attachment and
+        # registration. Keep this compatibility fallback for partial UI failures.
         if getattr(self._parent, "_tutorial_continuation_handled", False):
             return
 
-        # Older handlers may already have attached the view and recorded that on
-        # the interaction. Reading that legacy marker is safe; only writing new
-        # arbitrary attributes to discord.Interaction is unsafe.
         continuation_attached = getattr(
             interaction,
             "_balloon_frontier_tutorial_view_attached",
@@ -139,9 +129,9 @@ class _LaunchButton(discord.ui.Button):
             if on_view_changed is not None:
                 on_view_changed(view)
         except Exception:
-            # The flight and report already succeeded. Optional compatibility
-            # controls must not turn that completion into another callback error.
+            # The flight and report already succeeded. Optional navigation must
+            # never turn a completed first flight into another callback error.
             logger.warning(
-                "Could not attach tutorial continuation fallback",
+                "Could not attach first-flight continuation fallback",
                 exc_info=True,
             )

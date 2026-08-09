@@ -1,57 +1,47 @@
-"""Regression tests for the tutorial's buoyancy-assist aircraft."""
+"""First-flight Story onboarding must use ordinary catalog equipment."""
 
-from balloon_frontier.catalog import CATALOG
-from balloon_frontier.discord_ui.configurator import ENVELOPE_OPTIONS, PAYLOAD_OPTIONS
-from balloon_frontier.tutorial import TutorialConfiguratorMixin
-from balloon_frontier.tutorial_catalog import (
-    QUADCOPTER,
-    SCIENTIFIC_FILM_BALLOON_NAME,
-    TUTORIAL_ASSIST_ENVELOPE,
-    TUTORIAL_ENVELOPE_ID,
-    ensure_discord_tutorial_options,
+from balloon_frontier.career_prologue import DiscoveryFirstFlightConfiguratorMixin
+from balloon_frontier.discord_ui.configurator import (
+    ENVELOPE_OPTIONS,
+    GAS_OPTIONS,
+    PAYLOAD_OPTIONS,
+    SITE_OPTIONS,
+    _Step,
 )
 
 
-def test_tutorial_party_balloon_is_realistic_and_does_not_replace_scientific_film_balloon():
-    ensure_discord_tutorial_options()
+def test_first_flight_envelope_is_the_standard_latex_weather_balloon():
+    options = DiscoveryFirstFlightConfiguratorMixin._first_flight_options(
+        type("FirstFlightOptions", (), {"_current_step": _Step.CHOOSE_ENVELOPE})(),
+        _Step.CHOOSE_ENVELOPE,
+    )
 
-    tutorial_envelope = CATALOG.envelope(TUTORIAL_ENVELOPE_ID)
-    shared_mylar = CATALOG.envelope("mylar")
-    tutorial_options = TutorialConfiguratorMixin._tutorial_envelope_options()
-
-    assert TUTORIAL_ENVELOPE_ID == "tutorial_party_balloon"
-    assert tutorial_envelope is TUTORIAL_ASSIST_ENVELOPE
-    assert tutorial_envelope.name == "Foil Party Balloon"
-    assert tutorial_envelope.max_volume_m3 == 0.30
-    assert tutorial_options["mylar"][0] == "Foil Party Balloon"
-    assert tutorial_options["mylar"][1] == 0.30
-    assert ENVELOPE_OPTIONS[TUTORIAL_ENVELOPE_ID][0] == "Foil Party Balloon"
-    assert ENVELOPE_OPTIONS[TUTORIAL_ENVELOPE_ID][1] == 0.30
-
-    approximate_gross_lift_kg = tutorial_envelope.max_volume_m3 * 1.05
-    assert 0.25 <= approximate_gross_lift_kg <= 0.35
-
-    assert shared_mylar is not tutorial_envelope
-    assert shared_mylar.name == SCIENTIFIC_FILM_BALLOON_NAME
-    assert shared_mylar.max_volume_m3 == 200.0
-    assert ENVELOPE_OPTIONS["mylar"][0] == SCIENTIFIC_FILM_BALLOON_NAME
-    assert ENVELOPE_OPTIONS["mylar"][1] == 200.0
+    assert tuple(options) == ("latex",)
+    assert options["latex"] is ENVELOPE_OPTIONS["latex"]
+    assert options["latex"][0] == "Latex Weather Balloon"
+    assert "tutorial_party_balloon" not in ENVELOPE_OPTIONS
 
 
-def test_tutorial_quadcopter_is_the_powered_camera_aircraft():
-    ensure_discord_tutorial_options()
+def test_first_flight_uses_standard_camera_payload_not_special_quadcopter():
+    options = DiscoveryFirstFlightConfiguratorMixin._first_flight_options(
+        type("FirstFlightOptions", (), {"_current_step": _Step.CHOOSE_PAYLOADS})(),
+        _Step.CHOOSE_PAYLOADS,
+    )
 
-    payload = CATALOG.payload("quadcopter")
-    assert payload is QUADCOPTER
-    assert payload.mass_kg == 0.25
-    assert payload.has_valve is False
-    assert "powered_flight" in payload.capabilities
-    assert "radio_control" in payload.capabilities
-    assert "camera" in payload.capabilities
-    assert PAYLOAD_OPTIONS["quadcopter"][3] is False
+    assert tuple(options) == ("camera", "parachute", "none")
+    assert options["camera"] is PAYLOAD_OPTIONS["camera"]
+    assert "quadcopter" not in options
 
-    valve = CATALOG.payload("valve")
-    assert valve.name == "Pressure Valve"
-    assert valve.mass_kg == 0.3
-    assert valve.cost == 250
-    assert valve.has_valve is True
+
+def test_first_flight_gases_and_site_are_normal_configurator_entries():
+    holder = type("FirstFlightOptions", (), {"_current_step": _Step.CHOOSE_GAS})()
+    gases = DiscoveryFirstFlightConfiguratorMixin._first_flight_options(
+        holder, _Step.CHOOSE_GAS
+    )
+    sites = DiscoveryFirstFlightConfiguratorMixin._first_flight_options(
+        holder, _Step.CHOOSE_SITE
+    )
+
+    assert gases["helium"] is GAS_OPTIONS["helium"]
+    assert gases["hot_air"] is GAS_OPTIONS["hot_air"]
+    assert sites["field"] is SITE_OPTIONS["field"]

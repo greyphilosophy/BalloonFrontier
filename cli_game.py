@@ -11,6 +11,7 @@ from balloon_frontier.catalog import CATALOG
 from balloon_frontier.cli_ui.animator import TerminalFlightAnimator
 from balloon_frontier.flight_service import FlightOutcome, flight_service
 from balloon_frontier.game_modes import list_game_modes
+from balloon_frontier.how_to_play import how_to_play_text
 from balloon_frontier.launch_result import FillMode, LaunchRequest
 from balloon_frontier.presentation import build_flight_moments
 from balloon_frontier.session_adapters import SessionAwareFlightService
@@ -34,12 +35,25 @@ def get_choice(max_val, prompt):
             print("  Invalid input. Try again.")
 
 
+def show_how_to_play():
+    print("\n" + how_to_play_text().replace("**", ""))
+
+
 def show_game_mode_menu():
-    print("\n  Game mode:\n  " + "─" * 45)
+    """Choose a playable mode, with How to Play as a non-mode menu action."""
     modes = list_game_modes()
-    for i, mode in enumerate(modes, 1): print(f"  {i}. {mode.label}: {mode.description}")
-    idx = get_choice(len(modes), f"Game mode (1-{len(modes)})")
-    return modes[idx] if idx is not None else None
+    while True:
+        print("\n  Choose an option:\n  " + "─" * 45)
+        for i, mode in enumerate(modes, 1):
+            print(f"  {i}. {mode.label}: {mode.description}")
+        print(f"  {len(modes) + 1}. How to Play")
+        idx = get_choice(len(modes) + 1, f"Option (1-{len(modes) + 1})")
+        if idx is None:
+            return None
+        if idx == len(modes):
+            show_how_to_play()
+            continue
+        return modes[idx]
 
 
 def get_balloon_choice(balloons):

@@ -1,4 +1,4 @@
-"""Payload toggles visibly confirm the current hidden-prologue loadout."""
+"""Payload toggles visibly confirm the current first-flight Story loadout."""
 
 from balloon_frontier.career_prologue import DiscoveryFirstFlightConfiguratorMixin
 from balloon_frontier.discord_ui import game_menu
@@ -35,10 +35,10 @@ def test_payload_step_confirms_none_is_equipped(monkeypatch):
     assert "**Currently equipped:** None" in content
 
 
-def test_payload_step_confirms_quadcopter_is_equipped(monkeypatch):
+def test_payload_step_confirms_camera_is_equipped(monkeypatch):
     configurator = _configurator(monkeypatch)
-    configurator.state["payloads"] = ["quadcopter"]
+    configurator.state["payloads"] = ["camera"]
 
     content = configurator._step_content()
 
-    assert "**Currently equipped:** Small Quadcopter" in content
+    assert "**Currently equipped:** Camera" in content

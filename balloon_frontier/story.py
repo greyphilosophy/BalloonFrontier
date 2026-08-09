@@ -15,6 +15,7 @@ from balloon_frontier.launch_result import MissionResult
 from balloon_frontier.progression import PlayerRegistry
 from balloon_frontier.sounding_profile import record_sounding_profile
 
+FIRST_FLIGHT_MISSION_ID = "first_flight"
 EDGE_OF_SPACE_MISSION_ID = "edge_of_space"
 ATMOSPHERIC_RIVER_MISSION_ID = "atmospheric_river_sounding"
 
@@ -38,12 +39,30 @@ class StoryChapter:
     future_challenges: tuple[str, ...] = ()
 
 
+FIRST_FLIGHT_CHAPTER = StoryChapter(
+    id="first_flight",
+    title="Your First Flight",
+    season="The beginning",
+    introduction=(
+        "You have a balloon, a camera, and an open field. Start with a small set "
+        "of choices, make a real launch, and learn from what the same simulation "
+        "used everywhere else says happened. There is no hidden training physics "
+        "and no prescribed winning configuration."
+    ),
+    mission_id=FIRST_FLIGHT_MISSION_ID,
+    primary_objective=(
+        "Launch a camera payload from the field and recover it without crashing."
+    ),
+    bonus_challenges=("Compare a different gas or fill on a later flight",),
+)
+
 SUMMER_HOBBYIST_CHAPTER = StoryChapter(
     id="summer_hobbyist",
     title="Summer Project: Edge of Space",
     season="Summer after senior year",
     introduction=(
-        "Your last balloon video finally got some views and earned a little revenue. "
+        "Your first flight worked well enough to make the project feel real. Your "
+        "last balloon video is starting to get views and earn a little revenue. "
         "With your first term at the University of Washington beginning in the fall, "
         "this is your chance to finish the summer with a serious engineering project. "
         "Now everyone is waiting for the maiden flight of your newest design. "
@@ -83,8 +102,10 @@ COLLEGE_METEOROLOGY_CHAPTER = StoryChapter(
 
 def current_story_chapter(player_id: str | None = None) -> StoryChapter:
     if not player_id:
-        return SUMMER_HOBBYIST_CHAPTER
+        return FIRST_FLIGHT_CHAPTER
     player = PlayerRegistry.get_or_create(str(player_id))
+    if FIRST_FLIGHT_MISSION_ID not in player.missions_completed:
+        return FIRST_FLIGHT_CHAPTER
     if EDGE_OF_SPACE_MISSION_ID in player.missions_completed:
         return COLLEGE_METEOROLOGY_CHAPTER
     return SUMMER_HOBBYIST_CHAPTER
@@ -155,10 +176,10 @@ def story_intro(
         f"*{chapter.season}*\n\n"
         f"{chapter.introduction}\n\n"
         "**Primary objective**\n"
-        f"{chapter.primary_objective}\n\n"
-        "**Bonus challenges**\n"
-        f"{bonuses}"
+        f"{chapter.primary_objective}"
     )
+    if bonuses:
+        text += f"\n\n**Bonus challenges**\n{bonuses}"
     if chapter.future_challenges:
         future = "\n".join(f"• {item}" for item in chapter.future_challenges)
         text += f"\n\n**Future cinematic challenges**\n{future}"
@@ -169,7 +190,7 @@ def story_intro(
         )
     elif player_id and atmosphere_profiles.get(str(player_id)) is not None:
         text += "\n\n📡 A recorded atmosphere profile is available below."
-    if include_disclaimer:
+    if include_disclaimer and chapter is not FIRST_FLIGHT_CHAPTER:
         text += f"\n\n*{STORY_DISCLAIMER}*"
     return text
 

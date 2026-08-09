@@ -9,6 +9,15 @@ class PayloadFeedbackConfiguratorMixin:
     def _payload_feedback_options(self):
         from balloon_frontier.discord_ui.configurator import PAYLOAD_OPTIONS, _Step
 
+        # Story chapters may intentionally expose a smaller/different payload menu.
+        first_flight_options = getattr(self, "_first_flight_options", None)
+        if callable(first_flight_options):
+            try:
+                return first_flight_options(_Step.CHOOSE_PAYLOADS)
+            except (KeyError, TypeError, ValueError):
+                pass
+
+        # Legacy compatibility for the removed guided tutorial mixin.
         tutorial_options = getattr(self, "_tutorial_options", None)
         if callable(tutorial_options):
             try:

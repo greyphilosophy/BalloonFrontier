@@ -10,27 +10,6 @@ from .flight_service import FlightService
 from .game_modes import GameMode
 from .game_session import SessionState
 from .session_controller import SessionPlan, SessionRegistry, plan_session
-from .weather_event import WeatherEvent, weather_impact_on_flight
-
-
-TUTORIAL_WEATHER = WeatherEvent(
-    wind_gust_factor=0.7,
-    temp_anomaly_k=0.0,
-    cloud_density=0.0,
-    pressure_offset_pa=0.0,
-    storm_risk=0.0,
-    name="Calm Tutorial Conditions",
-    description=(
-        "Clear skies and a gentle breeze provide predictable conditions "
-        "for the first flight."
-    ),
-    flight_modifier="calm winds",
-)
-
-
-class _NoOpRewardService:
-    def apply(self, *, player_id: str, mission_results: tuple) -> tuple:
-        return mission_results
 
 
 def configuration_from_launch_request(request: Any) -> dict[str, Any]:
@@ -61,17 +40,14 @@ class _PlannedFlightService(FlightService):
         source: FlightService,
         plan: SessionPlan,
         *,
-        apply_rewards: bool = True,
-        weather_override=None,
         atmosphere_provider: AtmosphereProvider | None = None,
+        weather_override=None,
     ) -> None:
         super().__init__(
             default_sim_time=source.default_sim_time,
             mission_sim_time=source.mission_sim_time,
             mission_step_interval=source.mission_step_interval,
-            reward_service=(
-                source.reward_service if apply_rewards else _NoOpRewardService()
-            ),
+            reward_service=source.reward_service,
             mission_evaluator=source.mission_evaluator,
             atmosphere_provider=atmosphere_provider,
         )
@@ -80,19 +56,7 @@ class _PlannedFlightService(FlightService):
         self._weather_override = weather_override
 
     def prepare(self, launch_request: Any) -> Any:
-        source_request = launch_request
-        if (
-            self._plan.session.mode is GameMode.TUTORIAL
-            and launch_request.envelope_id == "mylar"
-        ):
-            from .tutorial_catalog import TUTORIAL_ENVELOPE_ID
-
-            source_request = replace(
-                launch_request,
-                envelope_id=TUTORIAL_ENVELOPE_ID,
-            )
-
-        preparation = self._source.prepare(source_request)
+        preparation = self._source.prepare(launch_request)
         assignment = {
             "mission_ids": list(self._plan.missions),
             "missions": list(self._plan.missions),
@@ -101,6 +65,8 @@ class _PlannedFlightService(FlightService):
         }
         changes = {"mission_assignment": assignment}
         if self._weather_override is not None:
+            from .weather_event import weather_impact_on_flight
+
             changes["weather"] = self._weather_override
             changes["weather_impacts"] = weather_impact_on_flight(
                 self._weather_override
@@ -135,8 +101,9 @@ class SessionAwareFlightService:
         locked_profile = None
         atmosphere_provider = None
         try:
-            is_tutorial = plan.session.mode is GameMode.TUTORIAL
-            if player_id and not is_tutorial:
+            # A recorded atmosphere is a normal flight input, not a Story- or
+            # tutorial-specific physics path. Any mode may replay a locked profile.
+            if player_id:
                 from .atmosphere_profile import (
                     RecordedAtmosphereProvider,
                     atmosphere_profiles,
@@ -156,29 +123,16 @@ class SessionAwareFlightService:
                     )
 
             weather_override = (
-                TUTORIAL_WEATHER
-                if is_tutorial
-                else locked_profile.weather if locked_profile is not None else None
+                locked_profile.weather if locked_profile is not None else None
             )
 
             outcome = _PlannedFlightService(
                 self.service,
                 plan,
-                apply_rewards=not is_tutorial,
                 weather_override=weather_override,
                 atmosphere_provider=atmosphere_provider,
             ).run(request)
-            if is_tutorial:
-                from .tutorial import evaluate_tutorial_outcome
-
-                outcome = evaluate_tutorial_outcome(request, outcome)
-                if player_id:
-                    final_results = self.service.reward_service.apply(
-                        player_id=str(player_id),
-                        mission_results=outcome.mission_results,
-                    )
-                    outcome = replace(outcome, mission_results=final_results)
-            elif plan.session.mode is GameMode.STORY:
+            if plan.session.mode is GameMode.STORY:
                 from .story import add_story_results
 
                 outcome = add_story_results(

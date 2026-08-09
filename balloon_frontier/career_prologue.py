@@ -1,93 +1,175 @@
-"""Discovery-oriented first-flight prologue for Story mode."""
+"""First-flight Story onboarding with a deliberately small configuration menu."""
 
 from __future__ import annotations
 
-from dataclasses import replace
 
-import discord
-
-from balloon_frontier.progression import PlayerRegistry
-from balloon_frontier.tutorial import TutorialConfiguratorMixin, tutorial_guidance
-
-FIRST_FLIGHT_MISSION_ID = "first_flight"
-
-PROLOGUE_BRIEFING = (
-    "📖 **Your First Flight**\n"
-    "*The beginning of your balloon career*\n\n"
-    "You have a few parts, an open field, and an idea that might work. Build a "
-    "balloon-assisted aircraft, launch it, and see what the atmosphere teaches you.\n\n"
-    "**Objective**\n"
-    "Complete a controlled endurance flight and bring the aircraft back safely.\n\n"
-    "There is no prescribed design. Experiment, observe the result, and improve it."
-)
-
-_DISCOVERY_DEBRIEF_REPLACEMENTS = {
-    "The recommended gas, assist envelope, fill, and active control worked together.": (
-        "Your gas, envelope, fill, and active-control choices worked together."
-    ),
-    "Follow the green recommended choices and launch again.": (
-        "Try a different combination of gas, envelope, fill, and control, then launch again."
-    ),
+FIRST_FLIGHT_OPTION_KEYS = {
+    0: ("helium", "hot_air"),
+    1: ("latex",),
+    2: ("auto", "light", "normal"),
+    3: ("camera", "parachute", "none"),
+    4: ("field",),
 }
 
 
 def needs_first_flight(player_id: str | int | None) -> bool:
     if player_id is None:
         return False
+    from balloon_frontier.progression import PlayerRegistry
+
     player = PlayerRegistry.get_or_create(str(player_id))
-    return FIRST_FLIGHT_MISSION_ID not in player.missions_completed
+    return "first_flight" not in player.missions_completed
 
 
-def discovery_first_flight_outcome(outcome):
-    """Rewrite guided tutorial wording without changing evaluation or rewards."""
-    rewritten = []
-    changed = False
-    for result in outcome.mission_results:
-        if result.mission_id != FIRST_FLIGHT_MISSION_ID:
-            rewritten.append(result)
-            continue
-        explanation = result.explanation
-        for guided, discovery in _DISCOVERY_DEBRIEF_REPLACEMENTS.items():
-            explanation = explanation.replace(guided, discovery)
-        rewritten.append(replace(result, explanation=explanation))
-        changed = changed or explanation != result.explanation
-    if not changed:
-        return outcome
-    return replace(outcome, mission_results=tuple(rewritten))
+class DiscoveryFirstFlightConfiguratorMixin:
+    """Expose a small Story menu while using the ordinary configurator physics.
 
+    The first flight intentionally changes only *which choices are shown*. Gas
+    mass, atmosphere, envelope behavior, simulation, evaluation, and rewards all
+    remain on the same shared paths used by later Story flights.
+    """
 
-class DiscoveryFirstFlightService:
-    """Keep the tutorial evaluator while presenting a discovery-oriented debrief."""
+    def _first_flight_options(self, step=None):
+        from balloon_frontier.discord_ui.configurator import (
+            ENVELOPE_OPTIONS,
+            FILL_MODES,
+            GAS_OPTIONS,
+            PAYLOAD_OPTIONS,
+            SITE_OPTIONS,
+            _Step,
+        )
 
-    def __init__(self, service) -> None:
-        self.service = service
-
-    def __getattr__(self, name):
-        return getattr(self.service, name)
-
-    def run(self, request):
-        return discovery_first_flight_outcome(self.service.run(request))
-
-
-class DiscoveryFirstFlightConfiguratorMixin(TutorialConfiguratorMixin):
-    """Use tutorial physics and equipment without presenting tutorial guidance."""
+        current_step = self._current_step if step is None else step
+        catalogs = {
+            _Step.CHOOSE_GAS: GAS_OPTIONS,
+            _Step.CHOOSE_ENVELOPE: ENVELOPE_OPTIONS,
+            _Step.CHOOSE_FILL: FILL_MODES,
+            _Step.CHOOSE_PAYLOADS: PAYLOAD_OPTIONS,
+            _Step.CHOOSE_SITE: SITE_OPTIONS,
+        }
+        catalog = catalogs[current_step]
+        return {
+            key: catalog[key]
+            for key in FIRST_FLIGHT_OPTION_KEYS[current_step]
+            if key in catalog
+        }
 
     def _step_content(self) -> str:
-        content = super()._step_content()
-        guidance = tutorial_guidance(self._current_step) + "\n\n"
-        if content.startswith(guidance):
-            content = content[len(guidance):]
-        return PROLOGUE_BRIEFING + "\n\n" + content
+        from balloon_frontier.discord_ui.configurator import _Step
+        from balloon_frontier.story import story_intro
+
+        if self._current_step == _Step.REVIEW_LAUNCH:
+            configuration = self._build_config_text()
+        else:
+            player = self._get_player_state()
+            options = self._first_flight_options()
+            lines = [
+                "🔧 **Balloon Configuration**\n",
+                f"**Step {self._current_step + 1}/{len(self.STEPS)}:** "
+                f"{self.STEP_LABELS[self._current_step]}\n",
+            ]
+            if self._current_step == _Step.CHOOSE_GAS:
+                for index, gas in enumerate(options.values(), 1):
+                    lines.append(
+                        f"{index}  {gas[0]}  (ρ={gas[1]} kg/m³, ${gas[2]}/kg)"
+                    )
+            elif self._current_step == _Step.CHOOSE_ENVELOPE:
+                for index, envelope in enumerate(options.values(), 1):
+                    lines.append(f"{index}  {envelope[0]}  ({envelope[1]}m³)")
+            elif self._current_step == _Step.CHOOSE_FILL:
+                for index, fill in enumerate(options.values(), 1):
+                    lines.append(f"{index}  {fill['label']}")
+                    lines.append(f"     {fill['description']}")
+            elif self._current_step == _Step.CHOOSE_PAYLOADS:
+                for index, payload in enumerate(options.values(), 1):
+                    lines.append(
+                        f"{index}  {payload[0]}  ({payload[1]}kg, ${payload[2]})"
+                    )
+            elif self._current_step == _Step.CHOOSE_SITE:
+                for index, site in enumerate(options.values(), 1):
+                    lines.append(f"{index}  {site.name}")
+                    if site.description:
+                        lines.append(f"     {site.description}")
+            lines.extend(["", "Click a button to select. Use < Back to go earlier."])
+            if player:
+                lines.append(
+                    f"⚡ You have {player.reputation} reputation and ${player.budget} budget."
+                )
+            configuration = "\n".join(lines)
+
+        player_id = getattr(self._service, "story_player_id", None)
+        return story_intro(
+            str(player_id) if player_id is not None else None,
+            include_disclaimer=False,
+        ) + "\n\n" + configuration
+
+    async def _select_single_option(self, interaction, index: int, state_key: str):
+        key = self._option_by_index(index, self._first_flight_options())
+        if key is None:
+            await interaction.response.send_message(
+                "That option isn't available right now.", ephemeral=True
+            )
+            return
+        self.state[state_key] = key
+        self.state["gas_mass"] = self._compute_gas_mass()
+        await self._advance(interaction)
+
+    async def _on_gas(self, interaction, index: int):
+        await self._select_single_option(interaction, index, "gas")
+
+    async def _on_envelope(self, interaction, index: int):
+        await self._select_single_option(interaction, index, "envelope")
+
+    async def _on_fill(self, interaction, index: int):
+        await self._select_single_option(interaction, index, "fill_mode")
+
+    async def _on_payload(self, interaction, index: int):
+        key = self._option_by_index(index, self._first_flight_options(), multi=True)
+        if key is None:
+            await interaction.response.send_message(
+                "That option isn't available right now.", ephemeral=True
+            )
+            return
+        self.state["gas_mass"] = self._compute_gas_mass()
+        self.build_buttons()
+        await self._send_step(interaction)
+
+    async def _on_site(self, interaction, index: int):
+        await self._select_single_option(interaction, index, "site")
 
     def build_buttons(self):
         super().build_buttons()
+
+        from balloon_frontier.balloon_cluster import _BalloonCountButton
+        from balloon_frontier.discord_ui.configurator import _Step
+        from balloon_frontier.discord_ui.modals import _ManualGasMassButton
         from balloon_frontier.discord_ui.views import _OptionButton
 
-        # Discovery mode keeps every option visually neutral. The same introductory
-        # catalog and evaluator are used, but nothing reveals a recommended route.
-        for item in self.children:
-            if (
-                isinstance(item, _OptionButton)
-                and item.style == discord.ButtonStyle.success
-            ):
-                item.style = discord.ButtonStyle.primary
+        if self._current_step not in FIRST_FLIGHT_OPTION_KEYS:
+            return
+
+        # Quantity and manual-mass controls are later-game choices. The first
+        # Story flight uses exactly one balloon and the listed fill presets.
+        self.state["balloon_count"] = 1
+        if hasattr(self, "_sync_balloon_count"):
+            self._sync_balloon_count()
+        for item in list(self.children):
+            if isinstance(item, (_OptionButton, _ManualGasMassButton, _BalloonCountButton)):
+                self.remove_item(item)
+
+        callback = {
+            _Step.CHOOSE_GAS: self._on_gas,
+            _Step.CHOOSE_ENVELOPE: self._on_envelope,
+            _Step.CHOOSE_FILL: self._on_fill,
+            _Step.CHOOSE_PAYLOADS: self._on_payload,
+            _Step.CHOOSE_SITE: self._on_site,
+        }[self._current_step]
+        label = {
+            _Step.CHOOSE_GAS: "Choose gas",
+            _Step.CHOOSE_ENVELOPE: "Choose envelope",
+            _Step.CHOOSE_FILL: "Choose fill",
+            _Step.CHOOSE_PAYLOADS: "Toggle payload",
+            _Step.CHOOSE_SITE: "Choose site",
+        }[self._current_step]
+        for index in range(1, len(self._first_flight_options()) + 1):
+            self.add_item(_OptionButton(index, f"{label} {index}", callback))

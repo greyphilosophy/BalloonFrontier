@@ -27,8 +27,9 @@ def _configurator(monkeypatch, mode=GameMode.STORY):
         on_finished=None,
     )
     assert isinstance(configurator, PayloadFeedbackConfiguratorMixin)
-    if mode is GameMode.STORY:
+    if mode in (GameMode.STORY, GameMode.TUTORIAL):
         assert isinstance(configurator, DiscoveryFirstFlightConfiguratorMixin)
+        assert configurator._game_entry_context["mode"] is GameMode.STORY
     configurator._current_step = _Step.CHOOSE_PAYLOADS
     configurator.state["payloads"] = ["none"]
     configurator.build_buttons()
@@ -45,40 +46,41 @@ def _interaction():
     )
 
 
-def test_adding_payload_edits_message_with_direct_feedback(monkeypatch):
+def test_adding_first_flight_payload_edits_message_with_direct_feedback(monkeypatch):
     configurator = _configurator(monkeypatch)
     interaction = _interaction()
 
     asyncio.run(configurator._on_payload(interaction, 1))
 
-    assert configurator.state["payloads"] == ["quadcopter"]
+    assert configurator.state["payloads"] == ["camera"]
     content = interaction.response.edit_message.await_args.kwargs["content"]
-    assert "✅ **Added:** Small Quadcopter" in content
-    assert "**Currently equipped:** Small Quadcopter" in content
+    assert "✅ **Added:** Camera" in content
+    assert "**Currently equipped:** Camera" in content
 
 
 def test_removing_last_payload_edits_message_with_empty_loadout(monkeypatch):
     configurator = _configurator(monkeypatch)
-    configurator.state["payloads"] = ["quadcopter"]
+    configurator.state["payloads"] = ["camera"]
     interaction = _interaction()
 
     asyncio.run(configurator._on_payload(interaction, 1))
 
     assert configurator.state["payloads"] == ["none"]
     content = interaction.response.edit_message.await_args.kwargs["content"]
-    assert "➖ **Removed:** Small Quadcopter" in content
+    assert "➖ **Removed:** Camera" in content
     assert "**Currently equipped:** None" in content
 
 
-def test_explicit_tutorial_receives_the_same_toggle_feedback(monkeypatch):
+def test_legacy_tutorial_alias_receives_story_first_flight_feedback(monkeypatch):
     configurator = _configurator(monkeypatch, GameMode.TUTORIAL)
     interaction = _interaction()
 
-    asyncio.run(configurator._on_payload(interaction, 1))
+    asyncio.run(configurator._on_payload(interaction, 2))
 
     content = interaction.response.edit_message.await_args.kwargs["content"]
-    assert "✅ **Added:** Small Quadcopter" in content
-    assert "**Currently equipped:** Small Quadcopter" in content
+    assert configurator.state["payloads"] == ["parachute"]
+    assert "✅ **Added:** Parachute" in content
+    assert "**Currently equipped:** Parachute" in content
 
 
 def test_free_play_payload_toggle_receives_direct_feedback(monkeypatch):
@@ -96,12 +98,12 @@ def test_toggle_action_feedback_does_not_reappear_after_navigation(monkeypatch):
     configurator = _configurator(monkeypatch)
     interaction = _interaction()
     asyncio.run(configurator._on_payload(interaction, 1))
-    assert "✅ **Added:** Small Quadcopter" in configurator._step_content()
+    assert "✅ **Added:** Camera" in configurator._step_content()
 
     asyncio.run(configurator._advance(interaction))
     assert configurator._current_step == _Step.CHOOSE_SITE
     configurator._prev_step()
 
     content = configurator._step_content()
-    assert "✅ **Added:** Small Quadcopter" not in content
-    assert "**Currently equipped:** Small Quadcopter" in content
+    assert "✅ **Added:** Camera" not in content
+    assert "**Currently equipped:** Camera" in content

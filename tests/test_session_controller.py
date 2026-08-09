@@ -13,14 +13,15 @@ class StubMission:
     launch_site: str | None = None
 
 
-def test_every_mode_has_explicit_distinct_policy():
-    policies = {mode: controller.get_mode_policy(mode) for mode in GameMode}
-    assert policies[GameMode.TUTORIAL].mission_count == 1
-    assert policies[GameMode.STORY].uses_progression
-    assert policies[GameMode.STORY].mission_count == 1
-    assert policies[GameMode.SCENARIO].mission_count == 3
-    assert policies[GameMode.FREE_PLAY].sandbox
-    assert not policies[GameMode.FREE_PLAY].requires_missions
+def test_playable_modes_have_explicit_policies_and_tutorial_is_story_alias():
+    assert controller.get_mode_policy(GameMode.TUTORIAL) == controller.get_mode_policy(
+        GameMode.STORY
+    )
+    assert controller.get_mode_policy(GameMode.STORY).uses_progression
+    assert controller.get_mode_policy(GameMode.STORY).mission_count == 1
+    assert controller.get_mode_policy(GameMode.SCENARIO).mission_count == 3
+    assert controller.get_mode_policy(GameMode.FREE_PLAY).sandbox
+    assert not controller.get_mode_policy(GameMode.FREE_PLAY).requires_missions
 
 
 def test_free_play_assigns_no_missions(monkeypatch):
@@ -31,7 +32,7 @@ def test_free_play_assigns_no_missions(monkeypatch):
     ) == ()
 
 
-def test_tutorial_prefers_compatible_first_flight(monkeypatch):
+def test_legacy_tutorial_alias_uses_story_first_flight(monkeypatch):
     monkeypatch.setattr(controller, "ensure_missions_loaded", lambda mission_dir=None: None)
     monkeypatch.setitem(controller.MISSIONS, "first_flight", StubMission())
     missions = controller.assign_missions_for_mode(
@@ -43,7 +44,7 @@ def test_tutorial_prefers_compatible_first_flight(monkeypatch):
 
 def test_story_uses_chapter_and_scenario_remains_deterministic(monkeypatch):
     monkeypatch.setattr(controller, "ensure_missions_loaded", lambda mission_dir=None: None)
-    monkeypatch.setitem(controller.MISSIONS, "edge_of_space", StubMission())
+    monkeypatch.setitem(controller.MISSIONS, "first_flight", StubMission())
     seen = []
 
     def fake_select_missions(**kwargs):
@@ -55,10 +56,14 @@ def test_story_uses_chapter_and_scenario_remains_deterministic(monkeypatch):
 
     first = controller.assign_missions_for_mode("story", configuration)
     second = controller.assign_missions_for_mode("story", configuration)
-    scenario_one = controller.assign_missions_for_mode("scenario", configuration, context={"chapter": 2})
-    scenario_two = controller.assign_missions_for_mode("scenario", configuration, context={"chapter": 2})
+    scenario_one = controller.assign_missions_for_mode(
+        "scenario", configuration, context={"chapter": 2}
+    )
+    scenario_two = controller.assign_missions_for_mode(
+        "scenario", configuration, context={"chapter": 2}
+    )
 
-    assert first == second == ("edge_of_space",)
+    assert first == second == ("first_flight",)
     assert scenario_one == scenario_two
     assert seen[0]["seed"] == seen[1]["seed"]
     assert len(scenario_one) == 3
@@ -66,7 +71,6 @@ def test_story_uses_chapter_and_scenario_remains_deterministic(monkeypatch):
 
 
 def test_scenario_keeps_empty_assignment_when_no_missions_are_compatible(monkeypatch):
-    """An impossible configuration must not receive an unrelated fallback mission."""
     monkeypatch.setattr(controller, "ensure_missions_loaded", lambda mission_dir=None: None)
     seen = []
 
@@ -94,7 +98,6 @@ def test_scenario_keeps_empty_assignment_when_no_missions_are_compatible(monkeyp
 
 
 def test_scenario_strips_none_payload_before_compatibility_filtering(monkeypatch):
-    """The UI sentinel must never masquerade as actual mission equipment."""
     monkeypatch.setattr(controller, "ensure_missions_loaded", lambda mission_dir=None: None)
     captured = {}
 
@@ -156,8 +159,12 @@ def test_scenario_forwards_custom_mission_directory(monkeypatch):
     assert selected[0]["mission_dir"] == "tests/fixtures/no-compatible-scenarios"
 
 
-def test_plan_session_is_ready_and_ui_agnostic(monkeypatch):
-    monkeypatch.setattr(controller, "assign_missions_for_mode", lambda *args, **kwargs: ("m1",))
+def test_plan_session_is_ready_and_legacy_tutorial_normalizes_to_story(monkeypatch):
+    monkeypatch.setattr(
+        controller,
+        "assign_missions_for_mode",
+        lambda *args, **kwargs: ("m1",),
+    )
     plan = controller.plan_session(
         "tutorial",
         {"gas": "helium", "payloads": ["camera"], "site": "field"},
@@ -165,6 +172,7 @@ def test_plan_session_is_ready_and_ui_agnostic(monkeypatch):
         context={"source": "cli"},
     )
     assert plan.session.state is SessionState.READY
+    assert plan.session.mode is GameMode.STORY
     assert plan.session.player_id == "player-1"
     assert plan.missions == ("m1",)
     assert plan.context["source"] == "cli"
@@ -188,10 +196,18 @@ def test_registry_isolates_players_and_cancels_interrupted_sessions(monkeypatch)
 
 
 def test_cli_and_discord_contexts_share_core_outcome(monkeypatch):
-    monkeypatch.setattr(controller, "assign_missions_for_mode", lambda *args, **kwargs: ("shared",))
+    monkeypatch.setattr(
+        controller,
+        "assign_missions_for_mode",
+        lambda *args, **kwargs: ("shared",),
+    )
     configuration = {"gas": "helium", "payloads": ["camera"], "site": "field"}
-    cli = controller.plan_session("scenario", configuration, player_id="p", context={"ui": "cli"})
-    discord = controller.plan_session("scenario", configuration, player_id="p", context={"ui": "discord"})
+    cli = controller.plan_session(
+        "scenario", configuration, player_id="p", context={"ui": "cli"}
+    )
+    discord = controller.plan_session(
+        "scenario", configuration, player_id="p", context={"ui": "discord"}
+    )
     assert cli.session.mode is discord.session.mode
     assert cli.session.configuration == discord.session.configuration
     assert cli.policy == discord.policy

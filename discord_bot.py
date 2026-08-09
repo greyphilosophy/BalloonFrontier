@@ -31,6 +31,7 @@ from balloon_frontier.discord_ui.modals import (
 from balloon_frontier.discord_ui.launch_handler import run_simulation
 from balloon_frontier.discord_ui.result_renderer import format_score_breakdown, make_result_embed
 from balloon_frontier.discord_ui.game_menu import GameModeView, game_mode_prompt
+from balloon_frontier.how_to_play import how_to_play_text
 from balloon_frontier.narrative_result import format_discord_results
 
 logger = logging.getLogger(__name__)
@@ -39,8 +40,6 @@ intents = discord.Intents(message_content=True, guilds=True, dm_messages=True)
 bot = commands.Bot(command_prefix="/", intents=intents)
 bot.remove_command("help")
 
-# ``_engaged_players`` remains for compatibility with existing callers/tests.
-# ``_active_views`` is the source of truth for resumable Discord UI state.
 _engaged_players: set[str] = set()
 _active_views: dict[str, discord.ui.View] = {}
 
@@ -50,7 +49,6 @@ def _channel_kind(channel) -> str:
 
 
 def _remember_active_view(player_id: str | int, view: discord.ui.View) -> None:
-    """Record the live view whose mutable state represents a player's session."""
     key = str(player_id)
     previous = _active_views.get(key)
     if previous is not None and previous is not view:
@@ -62,14 +60,12 @@ def _remember_active_view(player_id: str | int, view: discord.ui.View) -> None:
 
 
 def _finish_session(player_id: str | int) -> None:
-    """Forget a completed/resettable session."""
     key = str(player_id)
     _engaged_players.discard(key)
     _active_views.pop(key, None)
 
 
 def _resume_content(view: discord.ui.View) -> str:
-    """Render the current content for a remembered view."""
     content = getattr(view, "_resume_content", None)
     if callable(content):
         return str(content())
@@ -87,7 +83,6 @@ def _resume_content(view: discord.ui.View) -> str:
 
 
 async def resume_game(destination, *, player_id: str | int):
-    """Send a fresh message containing the player's current live view."""
     key = str(player_id)
     view = _active_views.get(key)
     if view is None:
@@ -100,7 +95,6 @@ async def resume_game(destination, *, player_id: str | int):
 
 
 async def send_game_menu(destination, *, player_id: str | int, channel_kind: str, reset: bool = False):
-    """Start a new game menu or resume the player's current Discord view."""
     from balloon_frontier.flight_service import flight_service
 
     key = str(player_id)
@@ -134,7 +128,6 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
-    """Start idle players and resume active players from any ordinary message."""
     if getattr(message.author, "bot", False):
         return
 
@@ -180,12 +173,19 @@ async def cmd_physics(ctx):
     await ctx.send(content)
 
 
+@bot.command(name="howtoplay")
+async def cmd_how_to_play(ctx):
+    """Show the same instructions as the menu's How to Play button."""
+    await ctx.send(how_to_play_text())
+
+
 @bot.command(name="help")
 async def cmd_help(ctx):
     content = (
         "🎈 **Balloon Frontier**\n\n"
         "Send any message to begin or resume your current game.\n\n"
         "• `/play` — Restart from the game-mode menu\n"
+        "• `/howtoplay` — Learn the game without starting a flight\n"
         "• `/physics` — View the physics equations\n"
         "• `/profile` — View progression\n"
         "• `/help` — This message"
@@ -195,7 +195,6 @@ async def cmd_help(ctx):
 
 @bot.command(name="profile")
 async def cmd_profile(ctx):
-    """Show player status and equipment unlock progress."""
     from balloon_frontier.progression import (
         ENVELOPES as PROGRESSION_ENVELOPES,
         PAYLOAD_UNLOCKS,

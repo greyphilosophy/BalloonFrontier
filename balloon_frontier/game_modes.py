@@ -1,12 +1,8 @@
-"""Balloon Frontier — Game mode selection.
+"""Balloon Frontier — playable game mode selection.
 
-This module is the shared, UI-agnostic controller layer for deciding:
-- which high-level game mode a player is in (Tutorial / Story / Scenario / Free Play)
-- how to parse/normalize that selection across Discord + CLI
-
-It intentionally does *not* embed mission planning or simulation-duration
-policy. Those belong in later scenario/story/tutorial/free-play controllers
-once mode-specific context exists.
+How-to-play guidance is presentation, not a simulation mode. Story owns the
+first-flight onboarding experience and uses the same physics path as every
+other Story flight.
 """
 
 from __future__ import annotations
@@ -16,7 +12,12 @@ from typing import List, Sequence
 
 
 class GameMode(str, Enum):
-    """High-level game mode selection."""
+    """High-level simulation modes.
+
+    ``TUTORIAL`` remains as a compatibility value for older callers and saved
+    references. New UI must not present it; session planning normalizes it to
+    Story so there is no separate tutorial simulation path.
+    """
 
     TUTORIAL = "tutorial"
     STORY = "story"
@@ -26,7 +27,7 @@ class GameMode(str, Enum):
     @property
     def label(self) -> str:
         return {
-            GameMode.TUTORIAL: "Tutorial",
+            GameMode.TUTORIAL: "Story",
             GameMode.STORY: "Story",
             GameMode.SCENARIO: "Scenario",
             GameMode.FREE_PLAY: "Free Play",
@@ -35,15 +36,14 @@ class GameMode(str, Enum):
     @property
     def description(self) -> str:
         return {
-            GameMode.TUTORIAL: "A short, low-stakes first flight.",
-            GameMode.STORY: "A narrative run with mission objectives.",
+            GameMode.TUTORIAL: "Legacy alias for Story onboarding.",
+            GameMode.STORY: "A narrative campaign whose available choices grow with the story.",
             GameMode.SCENARIO: "A mission run with a themed objective set.",
             GameMode.FREE_PLAY: "Sandbox flight — no mission commitments.",
         }[self]
 
 
 _GAME_MODE_ORDER: Sequence[GameMode] = (
-    GameMode.TUTORIAL,
     GameMode.STORY,
     GameMode.SCENARIO,
     GameMode.FREE_PLAY,
@@ -51,21 +51,16 @@ _GAME_MODE_ORDER: Sequence[GameMode] = (
 
 
 def list_game_modes() -> List[GameMode]:
-    """Return modes in the canonical display order."""
+    """Return player-selectable simulation modes in display order."""
 
     return list(_GAME_MODE_ORDER)
 
 
 def select_game_mode(value: str | int) -> GameMode:
-    """Coerce a CLI/Discord selection into a :class:`GameMode`.
+    """Coerce a CLI/Discord selection into a playable game mode.
 
-    Accepted inputs:
-    - integer indices 1..4 (Tutorial..Free Play)
-    - case-insensitive strings: tutorial/story/scenario/free_play
-    - case-insensitive strings: "free play" / "free-play"
-
-    Raises:
-        ValueError: if the input can't be mapped.
+    Integer selections address only the visible modes. The old ``tutorial``
+    string is accepted as a compatibility alias for Story.
     """
 
     if isinstance(value, int):
@@ -77,9 +72,7 @@ def select_game_mode(value: str | int) -> GameMode:
     s = str(value).strip().lower()
     s = s.replace("-", "_").replace(" ", "_")
 
-    if s in {"tutorial"}:
-        return GameMode.TUTORIAL
-    if s in {"story"}:
+    if s in {"tutorial", "story"}:
         return GameMode.STORY
     if s in {"scenario"}:
         return GameMode.SCENARIO

@@ -1,111 +1,103 @@
-"""Tutorial reports must distinguish observed facts from unmodeled causes."""
+"""First-flight reports use observed simulation facts and standard mission rules."""
 
 from types import SimpleNamespace
 
 from balloon_frontier.discord_ui import launch_handler
-from balloon_frontier.flight_service import FlightOutcome
-from balloon_frontier.tutorial import evaluate_tutorial_outcome
+from balloon_frontier.launch_result import (
+    FillMode,
+    LaunchRequest,
+    MissionAssignment,
+    TelemetryPoint,
+)
+from balloon_frontier.mission_evaluator import MissionEvaluator
 from balloon_frontier.tutorial_report_guard import _safe_discord_content
 
 
-def _request(*, gas="helium", envelope="latex", fill="heavy"):
-    return SimpleNamespace(
-        gas_id=gas,
-        envelope_id=envelope,
-        fill_mode=SimpleNamespace(value=fill),
-        payload_ids=("quadcopter",),
-        launch_site_id="field",
-        balloon_count=1,
-    )
-
-
-def _outcome(
-    *,
-    burst=False,
-    landed=False,
-    crashed=False,
-    final_velocity=-2.0,
-):
-    return FlightOutcome(
-        result=SimpleNamespace(
-            peak_altitude_m=5548.0,
-            duration_s=4704.0,
-            burst=burst,
-            landed=landed,
-            crashed=crashed,
-            telemetry=(
-                SimpleNamespace(altitude_m=0.0, velocity_mps=3.0),
-                SimpleNamespace(altitude_m=5548.0, velocity_mps=0.0),
-                SimpleNamespace(altitude_m=4300.0, velocity_mps=final_velocity),
+def _mission_catalog():
+    return {
+        "first_flight": SimpleNamespace(
+            title="Your First Flight",
+            required_payloads=("camera",),
+            launch_site="field",
+            budget=500,
+            objectives=(
+                SimpleNamespace(type="recover_data", params={}),
             ),
         )
+    }
+
+
+def _request(*, gas="helium", payloads=("camera",)):
+    return LaunchRequest(
+        gas_id=gas,
+        envelope_id="latex",
+        fill_mode=FillMode.AUTO,
+        payload_ids=payloads,
+        launch_site_id="field",
     )
 
 
-def test_unresolved_quadcopter_flight_does_not_invent_a_control_failure():
-    mission = evaluate_tutorial_outcome(_request(), _outcome()).mission_results[0]
+def _point(*, landed=False, crashed=False):
+    return TelemetryPoint(
+        time_s=120.0,
+        altitude_m=0.0 if landed else 4300.0,
+        velocity_mps=-0.2 if landed else -2.0,
+        gas_volume_m3=1.0,
+        ambient_pressure_pa=101325.0,
+        ambient_temperature_k=288.15,
+        net_lift_N=0.0,
+        buoyancy_N=10.0,
+        weight_N=10.0,
+        drag_N=0.0,
+        gas_mass_kg=1.0,
+        total_mass_kg=2.0,
+        landed=landed,
+        crashed=crashed,
+    )
+
+
+def _evaluate(request, points):
+    return MissionEvaluator(_mission_catalog()).evaluate(
+        request,
+        tuple(points),
+        MissionAssignment(("first_flight",), seed=1),
+    )[0]
+
+
+def test_first_flight_requires_confirmed_recovery():
+    mission = _evaluate(_request(), (_point(),))
 
     assert not mission.completed
     assert mission.reward == 0
-    assert "still airborne" in mission.explanation
-    assert "does not yet simulate quadcopter battery endurance" in mission.explanation
-    assert "cannot identify a specific control failure" in mission.explanation
-    assert "telemetry does not prove which one prevented recovery" in mission.explanation
-    assert "Possible contributing tradeoffs" in mission.explanation
-    assert "Latex is flexible" in mission.explanation
-    assert "Heavy fill" in mission.explanation
 
 
-def test_recommended_configuration_cannot_pass_without_confirmed_recovery():
-    mission = evaluate_tutorial_outcome(
-        _request(envelope="mylar", fill="auto"),
-        _outcome(),
-    ).mission_results[0]
-
-    assert not mission.completed
-    assert mission.reward == 0
-    assert "did not complete a confirmed recovery" in mission.explanation
-    assert "completed the endurance course under control" not in mission.explanation
-    assert "worked together" not in mission.explanation
-    assert "Try one different choice" not in mission.explanation
-    assert "confirm a landing" in mission.explanation
-
-
-def test_confirmed_recovery_can_still_complete_recommended_route():
-    mission = evaluate_tutorial_outcome(
-        _request(envelope="mylar", fill="auto"),
-        _outcome(landed=True),
-    ).mission_results[0]
+def test_confirmed_recovery_completes_first_flight():
+    mission = _evaluate(_request(), (_point(landed=True),))
 
     assert mission.completed
     assert mission.reward == 500
-    assert "landed successfully" in mission.explanation
 
 
-def test_recommended_design_cannot_pass_after_burst_even_if_it_lands():
-    mission = evaluate_tutorial_outcome(
-        _request(envelope="mylar", fill="auto"),
-        _outcome(burst=True, landed=True),
-    ).mission_results[0]
+def test_crash_does_not_pass_even_if_landing_flag_is_present():
+    mission = _evaluate(_request(), (_point(landed=True, crashed=True),))
 
     assert not mission.completed
     assert mission.reward == 0
-    assert "The balloon burst" in mission.explanation
-    assert "The aircraft landed successfully" in mission.explanation
 
 
-def test_safe_hot_air_flight_reports_tradeoff_without_inventing_events():
-    mission = evaluate_tutorial_outcome(
-        _request(gas="hot_air", envelope="mylar", fill="auto"),
-        _outcome(landed=True),
-    ).mission_results[0]
+def test_first_flight_does_not_prescribe_a_special_lifting_gas():
+    mission = _evaluate(_request(gas="hot_air"), (_point(landed=True),))
+
+    assert mission.completed
+    assert mission.reward == 500
+
+
+def test_missing_camera_fails_standard_required_payload_check():
+    mission = _evaluate(_request(payloads=("none",)), (_point(landed=True),))
 
     assert not mission.completed
     assert mission.reward == 0
-    assert "The aircraft landed successfully" in mission.explanation
-    assert "Hot air offers less lift and endurance" in mission.explanation
-    assert "crashed" not in mission.explanation.lower()
-    assert "burst" not in mission.explanation.lower()
+    assert "missing required payloads" in mission.explanation
 
 
 def test_discord_trajectory_chart_is_wrapped_in_text_code_fence():
@@ -145,7 +137,7 @@ def test_descending_unresolved_flight_is_not_described_as_still_climbing():
         gas_name="Helium",
         gas_mass=2.031,
         env_name="Latex Weather Balloon",
-        payload_names="Small Quadcopter",
+        payload_names="Camera",
         site_name="Open Field",
     )
 

@@ -1,17 +1,21 @@
-"""Catalog additions used by the introductory balloon-assisted flight."""
+"""Deprecated compatibility definitions from the removed Tutorial mode.
+
+These names remain importable temporarily for older callers, but importing this
+module no longer mutates the central catalog or Discord configuration options.
+Story onboarding uses only ordinary catalog equipment.
+"""
 
 from __future__ import annotations
 
-from dataclasses import replace
-from types import MethodType
-
-from balloon_frontier.catalog import CATALOG, EnvelopeDefinition, PayloadDefinition
+from balloon_frontier.catalog import EnvelopeDefinition, PayloadDefinition
 
 
 QUADCOPTER_ID = "quadcopter"
 TUTORIAL_ENVELOPE_ID = "tutorial_party_balloon"
 SCIENTIFIC_FILM_BALLOON_NAME = "Scientific Film Balloon"
 
+# Legacy objects are retained only so older imports fail softly. They are not
+# registered in CATALOG and are not selectable by the current game.
 TUTORIAL_ASSIST_ENVELOPE = EnvelopeDefinition(
     id=TUTORIAL_ENVELOPE_ID,
     name="Foil Party Balloon",
@@ -24,8 +28,6 @@ TUTORIAL_ASSIST_ENVELOPE = EnvelopeDefinition(
     safe_fill_fraction=0.55,
 )
 
-# The quadcopter is the aircraft. Balloon lift reduces rotor load; it is not
-# required to make the complete vehicle lighter than air.
 QUADCOPTER = PayloadDefinition(
     id=QUADCOPTER_ID,
     name="Small Quadcopter",
@@ -37,64 +39,10 @@ QUADCOPTER = PayloadDefinition(
 
 
 def ensure_tutorial_catalog() -> None:
-    """Register tutorial-only components and clarify the shared film envelope."""
-    if getattr(CATALOG, "_tutorial_components_installed", False):
-        return
-
-    shared_mylar = CATALOG._envelopes.get("mylar")
-    if shared_mylar is not None and shared_mylar.name != SCIENTIFIC_FILM_BALLOON_NAME:
-        CATALOG._envelopes["mylar"] = replace(
-            shared_mylar,
-            name=SCIENTIFIC_FILM_BALLOON_NAME,
-        )
-
-    original_payload = CATALOG.payload
-    original_envelope = CATALOG.envelope
-
-    def payload_with_tutorial_component(self, id_or_name: str):
-        if id_or_name == QUADCOPTER_ID or id_or_name.lower() == QUADCOPTER.name.lower():
-            return QUADCOPTER
-        return original_payload(id_or_name)
-
-    def envelope_with_tutorial_component(self, id_or_name: str):
-        if (
-            id_or_name == TUTORIAL_ENVELOPE_ID
-            or id_or_name.lower() == TUTORIAL_ASSIST_ENVELOPE.name.lower()
-        ):
-            return TUTORIAL_ASSIST_ENVELOPE
-        return original_envelope(id_or_name)
-
-    CATALOG.payload = MethodType(payload_with_tutorial_component, CATALOG)
-    CATALOG.envelope = MethodType(envelope_with_tutorial_component, CATALOG)
-    CATALOG._tutorial_components_installed = True
+    """Deprecated no-op retained for source compatibility."""
+    return None
 
 
 def ensure_discord_tutorial_options() -> None:
-    """Expose tutorial equipment and keep the shared envelope label unambiguous."""
-    ensure_tutorial_catalog()
-    from balloon_frontier.discord_ui.configurator import ENVELOPE_OPTIONS, PAYLOAD_OPTIONS
-
-    shared = ENVELOPE_OPTIONS.get("mylar")
-    if shared is not None:
-        ENVELOPE_OPTIONS["mylar"] = (SCIENTIFIC_FILM_BALLOON_NAME, *shared[1:])
-
-    ENVELOPE_OPTIONS[TUTORIAL_ENVELOPE_ID] = (
-        TUTORIAL_ASSIST_ENVELOPE.name,
-        TUTORIAL_ASSIST_ENVELOPE.max_volume_m3,
-        TUTORIAL_ASSIST_ENVELOPE.mass_kg,
-        TUTORIAL_ASSIST_ENVELOPE.drag_coefficient,
-        TUTORIAL_ASSIST_ENVELOPE.burst_stretch_ratio,
-        TUTORIAL_ASSIST_ENVELOPE.cost,
-    )
-
-    PAYLOAD_OPTIONS.setdefault(
-        QUADCOPTER_ID,
-        (QUADCOPTER.name, QUADCOPTER.mass_kg, QUADCOPTER.cost, QUADCOPTER.has_valve),
-    )
-
-    from balloon_frontier import tutorial
-
-    tutorial.TUTORIAL_OPTION_KEYS[3] = (QUADCOPTER_ID, "valve", "none")
-
-
-ensure_tutorial_catalog()
+    """Deprecated no-op retained for source compatibility."""
+    return None
