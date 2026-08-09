@@ -240,6 +240,23 @@ def test_back_from_later_configuration_step_stays_in_configuration(monkeypatch):
     assert interaction.response.edited[1] is configurator
 
 
+def test_back_from_first_free_play_step_returns_to_modes():
+    configurator = game_menu._configurator_for_mode(
+        service=object(),
+        mode=GameMode.FREE_PLAY,
+        player_id="player",
+        channel_kind="dm",
+        on_finished=None,
+    )
+    interaction = FakeInteraction()
+
+    asyncio.run(configurator._on_back(interaction))
+
+    content, view = interaction.response.edited
+    assert isinstance(view, game_menu.GameModeView)
+    assert "Balloon Frontier" in content
+
+
 def test_mission_select_back_returns_to_modes(monkeypatch):
     _player(monkeypatch)
     view = game_menu.StoryMissionSelectView(
