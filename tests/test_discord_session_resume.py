@@ -107,10 +107,11 @@ def test_finish_session_returns_player_to_idle_state():
     assert "player-3" not in discord_bot._active_views
 
 
-def test_completed_tutorial_updates_resumable_view_without_duplicate_edit(monkeypatch):
-    player_id = "tutorial-player"
+def test_completed_first_flight_updates_resumable_view_without_duplicate_edit(monkeypatch):
+    player_id = "first-flight-player"
     context = {
-        "mode": GameMode.TUTORIAL,
+        "mode": GameMode.STORY,
+        "first_flight": True,
         "channel_kind": "dm",
         "service": SimpleNamespace(),
         "on_finished": lambda: None,
