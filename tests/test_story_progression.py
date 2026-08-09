@@ -8,6 +8,7 @@ from balloon_frontier.story import (
     ATMOSPHERIC_RIVER_MISSION_ID,
     COLLEGE_METEOROLOGY_CHAPTER,
     EDGE_OF_SPACE_MISSION_ID,
+    FIRST_FLIGHT_MISSION_ID,
     STORY_DISCLAIMER,
     SUMMER_HOBBYIST_CHAPTER,
     add_story_results,
@@ -20,7 +21,9 @@ from balloon_frontier.weather_event import WeatherEvent
 
 def test_edge_of_space_completion_advances_player_to_college(monkeypatch):
     player = PlayerState("student")
-    player.missions_completed.append(EDGE_OF_SPACE_MISSION_ID)
+    player.missions_completed.extend(
+        [FIRST_FLIGHT_MISSION_ID, EDGE_OF_SPACE_MISSION_ID]
+    )
     monkeypatch.setattr(
         PlayerRegistry,
         "get_or_create",
@@ -31,14 +34,16 @@ def test_edge_of_space_completion_advances_player_to_college(monkeypatch):
     assert story_mission_for_player("student") == ATMOSPHERIC_RIVER_MISSION_ID
 
 
-def test_early_story_establishes_university_of_washington_arc(monkeypatch):
+def test_story_after_first_flight_establishes_university_of_washington_arc(monkeypatch):
     player = PlayerState("student")
+    player.missions_completed.append(FIRST_FLIGHT_MISSION_ID)
     monkeypatch.setattr(
         PlayerRegistry,
         "get_or_create",
         classmethod(lambda cls, player_id: player),
     )
 
+    assert current_story_chapter("student") is SUMMER_HOBBYIST_CHAPTER
     assert "University of Washington" in SUMMER_HOBBYIST_CHAPTER.introduction
 
     player.missions_completed.append(EDGE_OF_SPACE_MISSION_ID)
