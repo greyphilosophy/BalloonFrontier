@@ -2,7 +2,6 @@
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -14,8 +13,8 @@ from balloon_frontier.story import (
     ATMOSPHERIC_RIVER_MISSION_ID,
     EDGE_OF_SPACE_MISSION_ID,
     FIRST_FLIGHT_MISSION_ID,
-    story_mission_choices,
 )
+from balloon_frontier.story_mission_select import story_mission_choices
 
 
 class FakeResponse:
