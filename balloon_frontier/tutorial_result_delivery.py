@@ -4,12 +4,19 @@ from __future__ import annotations
 
 from contextvars import ContextVar
 from functools import wraps
+import logging
 
 import discord
 
 from balloon_frontier.game_modes import GameMode
 
+logger = logging.getLogger(__name__)
+
 _TRAJECTORY_SENTINEL = "[[BALLOON_FRONTIER_TRAJECTORY_MESSAGE]]"
+_NEXT_ACTION_PROMPT = (
+    "🎈 **Yearbook Flight Complete**\n\n"
+    "Would you like to replay the tutorial or continue the story?"
+)
 _split_delivery_active: ContextVar[bool] = ContextVar(
     "balloon_frontier_split_delivery_active",
     default=False,
@@ -17,6 +24,10 @@ _split_delivery_active: ContextVar[bool] = ContextVar(
 _captured_trajectory: ContextVar[str | None] = ContextVar(
     "balloon_frontier_captured_trajectory",
     default=None,
+)
+_split_followup_failed: ContextVar[bool] = ContextVar(
+    "balloon_frontier_split_followup_failed",
+    default=False,
 )
 
 
@@ -69,10 +80,7 @@ class TutorialNextActionView(discord.ui.View):
         self.service = service
         self.on_finished = on_finished
         self.on_view_changed = on_view_changed
-        self._resume_content = (
-            "🎈 **Yearbook Flight Complete**\n\n"
-            "Would you like to replay the tutorial or continue the story?"
-        )
+        self._resume_content = _NEXT_ACTION_PROMPT
         self.add_item(_TutorialActionButton(self, GameMode.TUTORIAL))
         self.add_item(_TutorialActionButton(self, GameMode.STORY))
 
@@ -87,13 +95,27 @@ def _tutorial_launch_scope(original):
         if context.get("mode") is not GameMode.TUTORIAL:
             return await original(configurator, interaction, service)
 
+        marker_name = "_balloon_frontier_split_result_delivery"
+        missing = object()
+        previous_marker = getattr(configurator, marker_name, missing)
+        setattr(configurator, marker_name, True)
+
         active_token = _split_delivery_active.set(True)
         chart_token = _captured_trajectory.set(None)
+        fallback_token = _split_followup_failed.set(False)
         try:
             return await original(configurator, interaction, service)
         finally:
+            _split_followup_failed.reset(fallback_token)
             _captured_trajectory.reset(chart_token)
             _split_delivery_active.reset(active_token)
+            if previous_marker is missing:
+                try:
+                    delattr(configurator, marker_name)
+                except AttributeError:
+                    pass
+            else:
+                setattr(configurator, marker_name, previous_marker)
 
     run._balloon_frontier_split_tutorial_delivery = True
     return run
@@ -162,15 +184,23 @@ def _split_send_results(original):
         if not _split_delivery_active.get():
             return await original(interaction, content)
 
+        report = _without_trajectory_sentinel(content)
         followup = getattr(interaction, "followup", None)
         if followup is None or not hasattr(followup, "send"):
-            return await original(interaction, _without_trajectory_sentinel(content))
+            return await original(interaction, report)
 
-        report = _without_trajectory_sentinel(content)
-        for message in _split_discord_messages(report):
-            await followup.send(content=message)
-        await _send_chart_followup(interaction, _captured_trajectory.get())
-        return True
+        try:
+            for message in _split_discord_messages(report):
+                await followup.send(content=message)
+            await _send_chart_followup(interaction, _captured_trajectory.get())
+            return True
+        except Exception:
+            logger.warning(
+                "Split tutorial follow-up delivery failed; using safe fallback",
+                exc_info=True,
+            )
+            _split_followup_failed.set(True)
+            return await original(interaction, report)
 
     send._balloon_frontier_split_tutorial_messages = True
     return send
@@ -214,37 +244,47 @@ def _build_next_action_view(configurator, interaction, result):
     if not completed:
         return None
 
-    setattr(interaction, "_balloon_frontier_tutorial_continuation_handled", True)
-    view = TutorialNextActionView(
-        player_id=str(interaction.user.id),
-        channel_kind=context["channel_kind"],
-        service=context["service"],
-        on_finished=context.get("on_finished"),
-        on_view_changed=context.get("on_view_changed"),
-    )
+    try:
+        view = TutorialNextActionView(
+            player_id=str(interaction.user.id),
+            channel_kind=context["channel_kind"],
+            service=context["service"],
+            on_finished=context.get("on_finished"),
+            on_view_changed=context.get("on_view_changed"),
+        )
+    except Exception:
+        logger.exception("Failed to build tutorial next-action controls")
+        return None
+
+    # Keep application bookkeeping on the configurator. Real discord.Interaction
+    # instances can reject arbitrary attributes.
+    setattr(configurator, "_tutorial_continuation_handled", True)
+
     callback = context.get("on_view_changed")
     if callback is not None:
         try:
             callback(view)
         except Exception:
-            pass
+            logger.exception("Failed to register tutorial next-action view")
     return view
 
 
 async def _attach_next_action_prompt(interaction, continue_view) -> bool:
     if continue_view is None:
         return False
+
+    kwargs = {"view": continue_view}
+    if _split_delivery_active.get() and not _split_followup_failed.get():
+        kwargs["content"] = _NEXT_ACTION_PROMPT
+
     try:
-        await interaction.edit_original_response(
-            content=(
-                "🎈 **Yearbook Flight Complete**\n\n"
-                "Would you like to replay the tutorial or continue the story?"
-            ),
-            view=continue_view,
-        )
+        await interaction.edit_original_response(**kwargs)
     except Exception:
+        logger.warning(
+            "Tutorial completed, but next-action controls could not be attached",
+            exc_info=True,
+        )
         return False
-    setattr(interaction, "_balloon_frontier_tutorial_view_attached", True)
     return True
 
 
