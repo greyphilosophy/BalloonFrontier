@@ -104,13 +104,14 @@ def assign_missions_for_mode(
     ensure_missions_loaded(mission_dir)
 
     if policy.mode is GameMode.STORY:
-        from .story import story_mission_for_player
+        from .story_mission_select import resolve_story_mission
 
-        mission_id = story_mission_for_player(
-            str(player_id) if player_id is not None else None
+        mission_id = resolve_story_mission(
+            str(player_id) if player_id is not None else None,
+            context.get("story_mission_id"),
         )
         if mission_id in MISSIONS:
-            # Story owns its current mission even when the player's experimental
+            # Story owns its selected mission even when the player's experimental
             # configuration cannot satisfy it. The ordinary evaluator reports why.
             return (mission_id,)
 
