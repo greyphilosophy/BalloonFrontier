@@ -17,14 +17,28 @@ def _fake_plan_session(mode, configuration, *, player_id=None, context=None):
     from balloon_frontier.game_session import GameSession
 
     parsed = mode if isinstance(mode, GameMode) else GameMode(str(mode).replace(" ", "_"))
+    if parsed is GameMode.TUTORIAL:
+        parsed = GameMode.STORY
     session = GameSession(parsed, player_id=player_id)
     session.set_configuration(configuration)
     session.mark_ready()
-    policy = ModePolicy(parsed, parsed is not GameMode.FREE_PLAY, False, parsed is GameMode.FREE_PLAY, 0, "test")
-    return SessionPlan(session, policy, ("mission",) if policy.requires_missions else (), context or {})
+    policy = ModePolicy(
+        parsed,
+        parsed is not GameMode.FREE_PLAY,
+        parsed is GameMode.STORY,
+        parsed is GameMode.FREE_PLAY,
+        0,
+        "test",
+    )
+    return SessionPlan(
+        session,
+        policy,
+        ("mission",) if policy.requires_missions else (),
+        context or {},
+    )
 
 
-def test_cli_adapter_translates_launch_request():
+def test_cli_adapter_translates_legacy_tutorial_to_story():
     request = SimpleNamespace(
         gas_id="helium",
         envelope_id="latex",
@@ -37,14 +51,19 @@ def test_cli_adapter_translates_launch_request():
 
     plan = adapters.prepare_cli_session("tutorial", request, player_id="cli-player")
 
-    assert plan.session.mode is GameMode.TUTORIAL
+    assert plan.session.mode is GameMode.STORY
     assert plan.session.configuration["payloads"] == ("camera",)
     assert plan.context == {"ui": "cli"}
 
 
 def test_discord_adapter_supports_dm_and_isolates_players():
     adapter = adapters.DiscordSessionAdapter.create()
-    state = {"gas": "helium", "envelope": "latex", "payloads": ["camera"], "site": "field"}
+    state = {
+        "gas": "helium",
+        "envelope": "latex",
+        "payloads": ["camera"],
+        "site": "field",
+    }
 
     alice = adapter.start("alice", "story", state, channel_kind="dm")
     bob = adapter.start("bob", "free play", state, channel_kind="guild")
@@ -63,6 +82,7 @@ def test_discord_restart_cancels_previous_session():
     second = adapter.start("player", "scenario", state)
 
     assert first.session.state is SessionState.CANCELLED
+    assert first.session.mode is GameMode.STORY
     assert adapter.registry.get("player") is second
 
 
