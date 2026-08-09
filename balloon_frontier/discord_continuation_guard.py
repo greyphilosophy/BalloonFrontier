@@ -1,4 +1,4 @@
-"""Harden completed tutorial result delivery for real Discord interactions."""
+"""Harden completed first-flight result delivery for real Discord interactions."""
 
 from __future__ import annotations
 
@@ -8,14 +8,9 @@ logger = logging.getLogger(__name__)
 
 
 def _safe_tutorial_continue_view(configurator, interaction, result):
-    """Build continuation controls without mutating ``discord.Interaction``."""
+    """Build first-flight continuation controls without mutating Interaction."""
     context = getattr(configurator, "_game_entry_context", None)
-    if not context:
-        return None
-
-    from balloon_frontier.game_modes import GameMode
-
-    if context.get("mode") is not GameMode.TUTORIAL:
+    if not context or not context.get("first_flight"):
         return None
     completed = any(
         mission.mission_id == "first_flight" and mission.completed
@@ -37,32 +32,28 @@ def _safe_tutorial_continue_view(configurator, interaction, result):
         if on_view_changed is not None:
             kwargs["on_view_changed"] = on_view_changed
         view = ContinueToStoryView(**kwargs)
-
-        # Mark ownership only after construction succeeds. If construction fails,
-        # the launch-button compatibility fallback remains available.
         setattr(configurator, "_tutorial_continuation_handled", True)
 
         if on_view_changed is not None:
             try:
                 on_view_changed(view)
             except Exception:
-                logger.exception("Failed to register tutorial continuation view")
+                logger.exception("Failed to register first-flight continuation view")
         return view
     except Exception:
-        # Optional continuation controls must never suppress a completed report.
-        logger.exception("Failed to build tutorial continuation controls")
+        logger.exception("Failed to build first-flight continuation controls")
         return None
 
 
 async def _safe_attach_tutorial_continue_view(interaction, continue_view) -> bool:
-    """Attach optional controls without storing flags on the interaction."""
+    """Attach optional controls without storing application flags on Interaction."""
     if continue_view is None:
         return False
     try:
         await interaction.edit_original_response(view=continue_view)
     except Exception:
         logger.warning(
-            "Tutorial completed, but continuation controls could not be attached",
+            "First flight completed, but continuation controls could not be attached",
             exc_info=True,
         )
         return False
