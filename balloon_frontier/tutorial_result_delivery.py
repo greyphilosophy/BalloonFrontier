@@ -1,4 +1,8 @@
-"""Deliver tutorial results across Discord messages with explicit next actions."""
+"""Split first-flight Story results and attach the next Story action.
+
+The module name is retained temporarily for import compatibility. There is no
+separate tutorial mode or tutorial-only simulation path.
+"""
 
 from __future__ import annotations
 
@@ -6,16 +10,12 @@ from contextvars import ContextVar
 from functools import wraps
 import logging
 
-import discord
-
-from balloon_frontier.game_modes import GameMode
-
 logger = logging.getLogger(__name__)
 
 _TRAJECTORY_SENTINEL = "[[BALLOON_FRONTIER_TRAJECTORY_MESSAGE]]"
 _NEXT_ACTION_PROMPT = (
-    "🎈 **Yearbook Flight Complete**\n\n"
-    "Would you like to replay the tutorial or continue the story?"
+    "🎈 **First Flight Complete**\n\n"
+    "Your progress is saved. Continue the story when you are ready."
 )
 _split_delivery_active: ContextVar[bool] = ContextVar(
     "balloon_frontier_split_delivery_active",
@@ -31,68 +31,11 @@ _split_followup_failed: ContextVar[bool] = ContextVar(
 )
 
 
-class _TutorialActionButton(discord.ui.Button):
-    def __init__(self, parent: "TutorialNextActionView", mode: GameMode) -> None:
-        label = "Replay Tutorial" if mode is GameMode.TUTORIAL else "Continue Story"
-        style = (
-            discord.ButtonStyle.primary
-            if mode is GameMode.TUTORIAL
-            else discord.ButtonStyle.success
-        )
-        super().__init__(
-            label=label,
-            style=style,
-            custom_id=f"tutorial_next_{mode.value}",
-        )
-        self.parent_view = parent
-        self.mode = mode
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        from balloon_frontier.discord_ui.game_menu import start_mode
-
-        kwargs = {
-            "service": self.parent_view.service,
-            "mode": self.mode,
-            "player_id": self.parent_view.player_id,
-            "channel_kind": self.parent_view.channel_kind,
-            "on_finished": self.parent_view.on_finished,
-        }
-        if self.parent_view.on_view_changed is not None:
-            kwargs["on_view_changed"] = self.parent_view.on_view_changed
-        await start_mode(interaction, **kwargs)
-
-
-class TutorialNextActionView(discord.ui.View):
-    """Offer both replay and story continuation after the tutorial flight."""
-
-    def __init__(
-        self,
-        *,
-        player_id: str | int,
-        channel_kind: str,
-        service,
-        on_finished=None,
-        on_view_changed=None,
-    ) -> None:
-        super().__init__(timeout=None)
-        self.player_id = str(player_id)
-        self.channel_kind = channel_kind
-        self.service = service
-        self.on_finished = on_finished
-        self.on_view_changed = on_view_changed
-        self._resume_content = _NEXT_ACTION_PROMPT
-        self.add_item(_TutorialActionButton(self, GameMode.TUTORIAL))
-        self.add_item(_TutorialActionButton(self, GameMode.STORY))
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        return bool(interaction.user and str(interaction.user.id) == self.player_id)
-
-
-def _tutorial_launch_scope(original):
+def _first_flight_launch_scope(original):
     @wraps(original)
     async def run(configurator, interaction, service):
         context = getattr(configurator, "_game_entry_context", None) or {}
-        if context.get("mode") is not GameMode.TUTORIAL:
+        if not context.get("first_flight"):
             return await original(configurator, interaction, service)
 
         marker_name = "_balloon_frontier_split_result_delivery"
@@ -119,6 +62,10 @@ def _tutorial_launch_scope(original):
 
     run._balloon_frontier_split_tutorial_delivery = True
     return run
+
+
+# Backward-compatible private name used by older focused tests.
+_tutorial_launch_scope = _first_flight_launch_scope
 
 
 def _capture_trajectory(original):
@@ -196,7 +143,7 @@ def _split_send_results(original):
             return True
         except Exception:
             logger.warning(
-                "Split tutorial follow-up delivery failed; using safe fallback",
+                "Split first-flight follow-up delivery failed; using safe fallback",
                 exc_info=True,
             )
             _split_followup_failed.set(True)
@@ -235,7 +182,7 @@ def _split_edit_results(original):
 
 def _build_next_action_view(configurator, interaction, result):
     context = getattr(configurator, "_game_entry_context", None) or {}
-    if context.get("mode") is not GameMode.TUTORIAL:
+    if not context.get("first_flight"):
         return None
     completed = any(
         mission.mission_id == "first_flight" and mission.completed
@@ -245,7 +192,9 @@ def _build_next_action_view(configurator, interaction, result):
         return None
 
     try:
-        view = TutorialNextActionView(
+        from balloon_frontier.discord_ui.game_menu import ContinueToStoryView
+
+        view = ContinueToStoryView(
             player_id=str(interaction.user.id),
             channel_kind=context["channel_kind"],
             service=context["service"],
@@ -253,19 +202,16 @@ def _build_next_action_view(configurator, interaction, result):
             on_view_changed=context.get("on_view_changed"),
         )
     except Exception:
-        logger.exception("Failed to build tutorial next-action controls")
+        logger.exception("Failed to build first-flight continuation controls")
         return None
 
-    # Keep application bookkeeping on the configurator. Real discord.Interaction
-    # instances can reject arbitrary attributes.
     setattr(configurator, "_tutorial_continuation_handled", True)
-
     callback = context.get("on_view_changed")
     if callback is not None:
         try:
             callback(view)
         except Exception:
-            logger.exception("Failed to register tutorial next-action view")
+            logger.exception("Failed to register first-flight continuation view")
     return view
 
 
@@ -281,7 +227,7 @@ async def _attach_next_action_prompt(interaction, continue_view) -> bool:
         await interaction.edit_original_response(**kwargs)
     except Exception:
         logger.warning(
-            "Tutorial completed, but next-action controls could not be attached",
+            "First flight completed, but continuation controls could not be attached",
             exc_info=True,
         )
         return False
@@ -289,7 +235,7 @@ async def _attach_next_action_prompt(interaction, continue_view) -> bool:
 
 
 def install_tutorial_result_delivery() -> None:
-    """Install split tutorial delivery and two-way completion controls."""
+    """Install first-flight split delivery while preserving the old installer name."""
     from balloon_frontier.discord_ui import launch_handler
 
     if not getattr(
@@ -297,7 +243,7 @@ def install_tutorial_result_delivery() -> None:
         "_balloon_frontier_split_tutorial_delivery",
         False,
     ):
-        launch_handler.run_launch = _tutorial_launch_scope(launch_handler.run_launch)
+        launch_handler.run_launch = _first_flight_launch_scope(launch_handler.run_launch)
 
     if not getattr(
         launch_handler.chart_to_string,
