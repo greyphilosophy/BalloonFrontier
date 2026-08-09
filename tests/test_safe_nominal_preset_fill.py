@@ -3,14 +3,11 @@
 import pytest
 
 from balloon_frontier.balloon_cluster import ClusteredLaunchRequest
+from balloon_frontier.career_prologue import FIRST_FLIGHT_OPTION_KEYS
 from balloon_frontier.catalog import CATALOG, FillMode
 from balloon_frontier.launch_result import LaunchRequest
 from balloon_frontier.physics import atmosphere_pressure, gas_density, gas_volume
 from balloon_frontier.simulation import simulation_step
-from balloon_frontier.tutorial_catalog import (
-    QUADCOPTER,
-    ensure_discord_tutorial_options,
-)
 
 
 def _gas_density(request: LaunchRequest) -> float:
@@ -33,7 +30,7 @@ def test_heavy_latex_fill_uses_nominal_volume():
     request = LaunchRequest(
         gas_id="helium",
         envelope_id="latex",
-        payload_ids=("quadcopter",),
+        payload_ids=("camera",),
         launch_site_id="field",
         fill_mode=FillMode.HEAVY,
     )
@@ -56,7 +53,7 @@ def test_manual_fill_is_clamped_below_burst_safe_capacity():
     request = LaunchRequest(
         gas_id="helium",
         envelope_id="latex",
-        payload_ids=("quadcopter",),
+        payload_ids=("camera",),
         launch_site_id="field",
         fill_mode=FillMode.MANUAL,
         manual_gas_mass_kg=100.0,
@@ -83,7 +80,7 @@ def test_manual_cluster_fill_uses_total_cluster_safety_capacity():
     request = ClusteredLaunchRequest(
         gas_id="helium",
         envelope_id="latex",
-        payload_ids=("quadcopter",),
+        payload_ids=("camera",),
         launch_site_id="field",
         fill_mode=FillMode.MANUAL,
         manual_gas_mass_kg=100.0,
@@ -141,27 +138,29 @@ def test_manual_cluster_scales_cli_manufacturer_limit():
     assert request.gas_mass_kg == pytest.approx(expected_total_kg)
 
 
-def test_quadcopter_does_not_include_a_pressure_valve():
+def test_camera_does_not_include_a_pressure_valve():
+    camera = CATALOG.payload("camera")
     request = LaunchRequest(
         gas_id="helium",
         envelope_id="latex",
-        payload_ids=("quadcopter",),
+        payload_ids=("camera",),
         launch_site_id="field",
         fill_mode=FillMode.HEAVY,
     )
     state = request.to_simulation_state()
 
-    assert QUADCOPTER.has_valve is False
+    assert camera.has_valve is False
     assert state.has_pressure_valve is False
-    assert request.total_payload_mass_kg == pytest.approx(QUADCOPTER.mass_kg)
+    assert request.total_payload_mass_kg == pytest.approx(camera.mass_kg)
 
 
 def test_pressure_valve_adds_its_own_mass_and_cost():
+    camera = CATALOG.payload("camera")
     valve = CATALOG.payload("valve")
     request = LaunchRequest(
         gas_id="helium",
         envelope_id="latex",
-        payload_ids=("quadcopter", "valve"),
+        payload_ids=("camera", "valve"),
         launch_site_id="field",
         fill_mode=FillMode.HEAVY,
     )
@@ -172,22 +171,23 @@ def test_pressure_valve_adds_its_own_mass_and_cost():
     assert valve.cost == 250
     assert state.has_pressure_valve is True
     assert request.total_payload_mass_kg == pytest.approx(
-        QUADCOPTER.mass_kg + valve.mass_kg
+        camera.mass_kg + valve.mass_kg
     )
 
 
-def test_tutorial_exposes_valve_as_an_independent_payload():
-    ensure_discord_tutorial_options()
-    from balloon_frontier.tutorial import TUTORIAL_OPTION_KEYS
+def test_first_flight_menu_does_not_expose_special_tutorial_payloads_or_valve():
+    payloads = FIRST_FLIGHT_OPTION_KEYS[3]
 
-    assert TUTORIAL_OPTION_KEYS[3] == ("quadcopter", "valve", "none")
+    assert payloads == ("camera", "parachute", "none")
+    assert "quadcopter" not in payloads
+    assert "valve" not in payloads
 
 
-def test_heavy_latex_quadcopter_lifts_without_automatic_venting():
+def test_heavy_latex_camera_lifts_without_automatic_venting():
     request = LaunchRequest(
         gas_id="helium",
         envelope_id="latex",
-        payload_ids=("quadcopter",),
+        payload_ids=("camera",),
         launch_site_id="field",
         fill_mode=FillMode.HEAVY,
     )
@@ -208,7 +208,7 @@ def test_cluster_multiplies_corrected_per_balloon_fill():
     request = ClusteredLaunchRequest(
         gas_id="helium",
         envelope_id="latex",
-        payload_ids=("quadcopter",),
+        payload_ids=("camera",),
         launch_site_id="field",
         fill_mode=FillMode.HEAVY,
         balloon_count=3,
