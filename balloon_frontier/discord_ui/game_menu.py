@@ -10,7 +10,8 @@ from balloon_frontier.balloon_cluster import (
     BalloonClusterConfiguratorMixin,
     BalloonClusterFlightService,
 )
-from balloon_frontier.game_modes import GameMode
+from balloon_frontier.game_modes import GameMode, list_game_modes
+from balloon_frontier.how_to_play import how_to_play_text
 from balloon_frontier.progression import PlayerRegistry
 from balloon_frontier.session_adapters import SessionAwareFlightService
 from balloon_frontier.discord_ui.configurator import BalloonConfigurator
@@ -20,20 +21,9 @@ from balloon_frontier.discord_ui.payload_feedback import (
 
 
 class _ModeButton(discord.ui.Button):
-    def __init__(
-        self,
-        mode: GameMode,
-        parent: "GameModeView",
-        *,
-        tutorial_complete: bool,
-    ) -> None:
-        label = mode.label
-        if mode is GameMode.TUTORIAL and tutorial_complete:
-            label = "Replay Tutorial"
-        elif mode is GameMode.STORY and tutorial_complete:
-            label = "Continue Story"
+    def __init__(self, mode: GameMode, parent: "GameModeView") -> None:
         super().__init__(
-            label=label,
+            label=mode.label,
             style=discord.ButtonStyle.primary,
             custom_id=f"game_mode_{mode.value}",
         )
@@ -42,6 +32,66 @@ class _ModeButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction) -> None:
         await self.parent_view.select_mode(interaction, self.mode)
+
+
+class _HowToPlayButton(discord.ui.Button):
+    def __init__(self, parent: "GameModeView") -> None:
+        super().__init__(
+            label="How to Play",
+            style=discord.ButtonStyle.secondary,
+            custom_id="how_to_play",
+        )
+        self.parent_view = parent
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.parent_view.show_how_to_play(interaction)
+
+
+class _BackToModesButton(discord.ui.Button):
+    def __init__(self, parent: "HowToPlayView") -> None:
+        super().__init__(
+            label="Back to Modes",
+            style=discord.ButtonStyle.secondary,
+            custom_id="how_to_play_back",
+        )
+        self.parent_view = parent
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = GameModeView(
+            player_id=self.parent_view.player_id,
+            channel_kind=self.parent_view.channel_kind,
+            service=self.parent_view.service,
+            on_finished=self.parent_view.on_finished,
+            on_view_changed=self.parent_view.on_view_changed,
+        )
+        await interaction.response.edit_message(content=game_mode_prompt(), view=view)
+        if self.parent_view.on_view_changed is not None:
+            self.parent_view.on_view_changed(view)
+
+
+class HowToPlayView(discord.ui.View):
+    """Static instructions that do not create a simulation session."""
+
+    def __init__(
+        self,
+        *,
+        player_id: str | int,
+        channel_kind: str,
+        service,
+        on_finished: Callable[[], None] | None = None,
+        on_view_changed: Callable[[discord.ui.View], None] | None = None,
+    ) -> None:
+        super().__init__(timeout=None)
+        self.player_id = str(player_id)
+        self.channel_kind = channel_kind
+        self.service = service
+        self.on_finished = on_finished
+        self.on_view_changed = on_view_changed
+        self._resume_content = how_to_play_text()
+        self.add_item(_BackToModesButton(self))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return bool(interaction.user and str(interaction.user.id) == self.player_id)
 
 
 async def _configurator_interaction_check(
@@ -76,6 +126,11 @@ def _configurator_for_mode(
     on_finished: Callable[[], None] | None,
     on_view_changed: Callable[[discord.ui.View], None] | None = None,
 ):
+    # Old callers may still pass the removed Tutorial mode. Treat it as Story;
+    # there is no separate tutorial session or simulation path anymore.
+    if mode is GameMode.TUTORIAL:
+        mode = GameMode.STORY
+
     session_service = SessionAwareFlightService(
         service,
         mode=mode,
@@ -95,31 +150,21 @@ def _configurator_for_mode(
         if supports_wizard_mixins
         else []
     )
-    hidden_story_prologue = False
-    if mode is GameMode.TUTORIAL:
-        from balloon_frontier.tutorial import TutorialConfiguratorMixin
-        from balloon_frontier.tutorial_catalog import ensure_discord_tutorial_options
 
-        ensure_discord_tutorial_options()
-        if supports_wizard_mixins:
-            configurator_mixins.insert(1, TutorialConfiguratorMixin)
-    elif mode is GameMode.STORY and supports_wizard_mixins:
+    first_flight = False
+    if mode is GameMode.STORY and supports_wizard_mixins:
         from balloon_frontier.career_prologue import (
             DiscoveryFirstFlightConfiguratorMixin,
-            DiscoveryFirstFlightService,
             needs_first_flight,
         )
+        from balloon_frontier.story import StoryConfiguratorMixin
 
-        hidden_story_prologue = needs_first_flight(player_id)
-        if hidden_story_prologue:
-            from balloon_frontier.tutorial_catalog import ensure_discord_tutorial_options
-
-            ensure_discord_tutorial_options()
-            wrapped.service = DiscoveryFirstFlightService(wrapped.service)
+        first_flight = needs_first_flight(player_id)
+        if first_flight:
+            # Limit the menu only. The service, weather, evaluator, and physics are
+            # the same Story path used after onboarding.
             configurator_mixins.insert(1, DiscoveryFirstFlightConfiguratorMixin)
         else:
-            from balloon_frontier.story import StoryConfiguratorMixin
-
             configurator_mixins.insert(1, StoryConfiguratorMixin)
 
     configurator_type = type(
@@ -135,13 +180,12 @@ def _configurator_for_mode(
     configurator.timeout = None
     configurator._game_entry_context = {
         "service": service,
-        "mode": GameMode.TUTORIAL if hidden_story_prologue else mode,
-        "requested_mode": mode,
-        "hidden_story_prologue": hidden_story_prologue,
+        "mode": mode,
         "player_id": player_id,
         "channel_kind": channel_kind,
         "on_finished": on_finished,
         "on_view_changed": on_view_changed,
+        "first_flight": first_flight,
     }
     return configurator
 
@@ -213,19 +257,24 @@ class GameModeView(discord.ui.View):
         self.on_view_changed = on_view_changed
         self._msg = None
 
-        player = PlayerRegistry.get_or_create(self.player_id)
-        tutorial_complete = "first_flight" in player.missions_completed
-        for mode in GameMode:
-            self.add_item(
-                _ModeButton(
-                    mode,
-                    self,
-                    tutorial_complete=tutorial_complete,
-                )
-            )
+        self.add_item(_HowToPlayButton(self))
+        for mode in list_game_modes():
+            self.add_item(_ModeButton(mode, self))
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         return bool(interaction.user and str(interaction.user.id) == self.player_id)
+
+    async def show_how_to_play(self, interaction: discord.Interaction) -> None:
+        view = HowToPlayView(
+            player_id=self.player_id,
+            channel_kind=self.channel_kind,
+            service=self.service,
+            on_finished=self.on_finished,
+            on_view_changed=self.on_view_changed,
+        )
+        await interaction.response.edit_message(content=how_to_play_text(), view=view)
+        if self.on_view_changed is not None:
+            self.on_view_changed(view)
 
     async def select_mode(self, interaction: discord.Interaction, mode: GameMode) -> None:
         await start_mode(
@@ -244,7 +293,7 @@ class GameModeView(discord.ui.View):
 class _ContinueToStoryButton(discord.ui.Button):
     def __init__(self, parent: "ContinueToStoryView") -> None:
         super().__init__(
-            label="Continue Career",
+            label="Continue Story",
             style=discord.ButtonStyle.success,
             custom_id="continue_to_story",
         )
@@ -265,7 +314,7 @@ class _ContinueToStoryButton(discord.ui.Button):
 
 
 class ContinueToStoryView(discord.ui.View):
-    """One-click handoff from the completed first flight into the career."""
+    """Advance from the completed first flight to the next Story chapter."""
 
     def __init__(
         self,
@@ -284,7 +333,7 @@ class ContinueToStoryView(discord.ui.View):
         self.on_view_changed = on_view_changed
         self._resume_content = (
             "🎈 **First Flight Complete**\n\n"
-            "Your progress is saved. Continue your balloon career when you are ready."
+            "Your progress is saved. Continue the story when you are ready."
         )
         self.add_item(_ContinueToStoryButton(self))
 
@@ -295,5 +344,5 @@ class ContinueToStoryView(discord.ui.View):
 def game_mode_prompt() -> str:
     return (
         "🎈 **Balloon Frontier**\n\n"
-        "Choose how you want to play. After this, the game is controlled through menus and buttons."
+        "Choose **How to Play** for instructions, or start Story, Scenario, or Free Play."
     )
