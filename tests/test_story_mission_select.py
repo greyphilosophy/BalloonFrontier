@@ -145,6 +145,23 @@ def test_replaying_first_flight_uses_first_flight_menu_even_after_completion(mon
     assert configurator._service.service.story_mission_id == FIRST_FLIGHT_MISSION_ID
 
 
+def test_replaying_completed_edge_of_space_shows_edge_of_space_briefing(monkeypatch):
+    _player(monkeypatch, completed=(FIRST_FLIGHT_MISSION_ID, EDGE_OF_SPACE_MISSION_ID))
+
+    configurator = game_menu._configurator_for_mode(
+        service=object(),
+        mode=GameMode.STORY,
+        player_id="player",
+        channel_kind="dm",
+        on_finished=None,
+        story_mission_id=EDGE_OF_SPACE_MISSION_ID,
+    )
+
+    content = configurator._step_content()
+    assert "Summer Project: Edge of Space" in content
+    assert "Atmospheric River" not in content
+
+
 def test_selected_story_mission_overrides_progression_default(monkeypatch):
     _player(monkeypatch, completed=(FIRST_FLIGHT_MISSION_ID,))
     configuration = {
