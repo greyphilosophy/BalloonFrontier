@@ -1,16 +1,11 @@
-"""Regression tests for deterministic, surprise-free tutorial weather."""
+"""First-flight Story onboarding must not inject training-only weather."""
 
 from types import SimpleNamespace
 
 from balloon_frontier.flight_service import FlightOutcome
 from balloon_frontier.game_modes import GameMode
 from balloon_frontier.launch_result import FillMode, LaunchRequest
-from balloon_frontier.session_adapters import (
-    SessionAwareFlightService,
-    TUTORIAL_WEATHER,
-    _PlannedFlightService,
-)
-from balloon_frontier.weather_event import weather_impact_on_flight
+from balloon_frontier.session_adapters import SessionAwareFlightService, _PlannedFlightService
 
 
 class _RewardService:
@@ -29,53 +24,64 @@ class _SourceService:
 def _request():
     return LaunchRequest(
         gas_id="helium",
-        envelope_id="mylar",
-        payload_ids=("quadcopter",),
+        envelope_id="latex",
+        payload_ids=("camera",),
         launch_site_id="field",
         fill_mode=FillMode.AUTO,
-        player_id="tutorial-weather-player",
+        player_id=None,
     )
 
 
-def test_tutorial_weather_is_calm_and_has_no_storm_risk():
-    assert TUTORIAL_WEATHER.name == "Calm Tutorial Conditions"
-    assert TUTORIAL_WEATHER.wind_gust_factor == 0.7
-    assert TUTORIAL_WEATHER.temp_anomaly_k == 0.0
-    assert TUTORIAL_WEATHER.cloud_density == 0.0
-    assert TUTORIAL_WEATHER.pressure_offset_pa == 0.0
-    assert TUTORIAL_WEATHER.storm_risk == 0.0
-
-    impacts = weather_impact_on_flight(TUTORIAL_WEATHER)
-    assert impacts["burst_risk"] == 1.0
-    assert impacts["thermal_efficiency"] == 1.0
-    assert impacts["pressure_modifier"] == 1.0
-
-
-def test_tutorial_session_always_injects_fixed_weather(monkeypatch):
+def _capture_planned_run(monkeypatch):
     captured = {}
 
     def run_planned(self, request):
-        captured["weather"] = self._weather_override
-        captured["impacts"] = weather_impact_on_flight(self._weather_override)
+        captured["weather_override"] = self._weather_override
+        captured["atmosphere_provider"] = self.atmosphere_provider
         return FlightOutcome(
             result=SimpleNamespace(
+                telemetry=(),
                 peak_altitude_m=10.0,
                 duration_s=10.0,
                 burst=False,
                 landed=True,
                 crashed=False,
-            )
+            ),
+            mission_results=(),
         )
 
     monkeypatch.setattr(_PlannedFlightService, "run", run_planned)
+    return captured
 
+
+def test_first_flight_story_does_not_inject_fixed_weather(monkeypatch):
+    captured = _capture_planned_run(monkeypatch)
+    service = SessionAwareFlightService(
+        _SourceService(),
+        mode=GameMode.STORY,
+        ui="discord",
+    )
+
+    service.run(_request())
+
+    assert service.last_plan is not None
+    assert service.last_plan.session.mode is GameMode.STORY
+    assert service.last_plan.missions == ("first_flight",)
+    assert captured["weather_override"] is None
+    assert captured["atmosphere_provider"] is None
+
+
+def test_legacy_tutorial_alias_uses_the_same_story_weather_path(monkeypatch):
+    captured = _capture_planned_run(monkeypatch)
     service = SessionAwareFlightService(
         _SourceService(),
         mode=GameMode.TUTORIAL,
         ui="discord",
     )
+
     service.run(_request())
 
-    assert captured["weather"] is TUTORIAL_WEATHER
-    assert captured["impacts"]["burst_risk"] == 1.0
-    assert captured["impacts"]["pressure_modifier"] == 1.0
+    assert service.last_plan is not None
+    assert service.last_plan.session.mode is GameMode.STORY
+    assert captured["weather_override"] is None
+    assert captured["atmosphere_provider"] is None
