@@ -4,14 +4,18 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+from balloon_frontier.discord_ui import launch_handler
 from balloon_frontier.game_modes import GameMode
 from balloon_frontier.tutorial_result_delivery import (
     TutorialNextActionView,
+    _NEXT_ACTION_PROMPT,
     _TRAJECTORY_SENTINEL,
+    _attach_next_action_prompt,
     _capture_trajectory,
     _captured_trajectory,
     _split_delivery_active,
     _split_discord_messages,
+    _split_followup_failed,
     _split_send_results,
 )
 
@@ -28,6 +32,7 @@ def test_tutorial_report_and_trajectory_are_sent_as_separate_messages():
 
     active_token = _split_delivery_active.set(True)
     chart_token = _captured_trajectory.set(None)
+    fallback_token = _split_followup_failed.set(False)
     try:
         sentinel = wrapped_chart()
         assert sentinel == _TRAJECTORY_SENTINEL
@@ -39,6 +44,7 @@ def test_tutorial_report_and_trajectory_are_sent_as_separate_messages():
             )
         )
     finally:
+        _split_followup_failed.reset(fallback_token)
         _captured_trajectory.reset(chart_token)
         _split_delivery_active.reset(active_token)
 
@@ -50,6 +56,67 @@ def test_tutorial_report_and_trajectory_are_sent_as_separate_messages():
     }
 
 
+def test_split_followup_failure_delegates_to_safe_sender():
+    original_send = AsyncMock(return_value=True)
+    interaction = SimpleNamespace(
+        followup=SimpleNamespace(
+            send=AsyncMock(side_effect=RuntimeError("webhook expired")),
+        ),
+    )
+    wrapped_send = _split_send_results(original_send)
+
+    active_token = _split_delivery_active.set(True)
+    fallback_token = _split_followup_failed.set(False)
+    try:
+        delivered = asyncio.run(
+            wrapped_send(
+                interaction,
+                f"Launch report\n{_TRAJECTORY_SENTINEL}",
+            )
+        )
+    finally:
+        _split_followup_failed.reset(fallback_token)
+        _split_delivery_active.reset(active_token)
+
+    assert delivered is True
+    original_send.assert_awaited_once_with(interaction, "Launch report")
+
+
+def test_next_action_prompt_replaces_animation_after_split_delivery():
+    interaction = SimpleNamespace(edit_original_response=AsyncMock())
+    view = object()
+
+    active_token = _split_delivery_active.set(True)
+    fallback_token = _split_followup_failed.set(False)
+    try:
+        attached = asyncio.run(_attach_next_action_prompt(interaction, view))
+    finally:
+        _split_followup_failed.reset(fallback_token)
+        _split_delivery_active.reset(active_token)
+
+    assert attached is True
+    interaction.edit_original_response.assert_awaited_once_with(
+        content=_NEXT_ACTION_PROMPT,
+        view=view,
+    )
+
+
+def test_fallback_report_is_not_overwritten_by_next_action_prompt():
+    interaction = SimpleNamespace(edit_original_response=AsyncMock())
+    view = object()
+
+    active_token = _split_delivery_active.set(True)
+    fallback_token = _split_followup_failed.set(True)
+    try:
+        attached = asyncio.run(_attach_next_action_prompt(interaction, view))
+    finally:
+        _split_followup_failed.reset(fallback_token)
+        _split_delivery_active.reset(active_token)
+
+    assert attached is True
+    interaction.edit_original_response.assert_awaited_once_with(view=view)
+
+
 def test_oversized_report_is_split_without_dropping_text():
     content = "\n".join(["A" * 900, "B" * 900, "C" * 900])
     messages = _split_discord_messages(content)
@@ -57,6 +124,22 @@ def test_oversized_report_is_split_without_dropping_text():
     assert len(messages) == 2
     assert all(len(message) <= 2000 for message in messages)
     assert "\n".join(messages) == content
+
+
+def test_split_tutorial_report_is_not_truncated_before_message_split():
+    configurator = SimpleNamespace(_balloon_frontier_split_result_delivery=True)
+    content = "x" * 2500
+
+    assert launch_handler._limit_result_content(configurator, content) == content
+
+
+def test_non_split_report_keeps_legacy_discord_limit():
+    content = "x" * 2500
+
+    limited = launch_handler._limit_result_content(SimpleNamespace(), content)
+
+    assert len(limited) == 2000
+    assert limited.endswith("...")
 
 
 def test_non_tutorial_chart_rendering_is_unchanged():
