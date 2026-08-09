@@ -1,15 +1,15 @@
 {
   "id": "first_flight",
   "title": "Your First Flight",
-  "description": "Build a simple balloon-assisted quadcopter from readily available components and complete a radio-control endurance flight.",
+  "description": "Launch a simple camera payload from the field and recover it safely using the same simulation rules as every other flight.",
   "launch_site": "field",
-  "budget": 0,
-  "required_payloads": ["quadcopter"],
+  "budget": 500,
+  "required_payloads": ["camera"],
   "objectives": [
     {
-      "type": "tutorial_controlled_endurance",
+      "type": "recover_data",
       "params": {},
-      "description": "Remain controllable and within communications range."
+      "description": "Recover the camera payload without crashing."
     }
   ],
   "difficulty": 1
