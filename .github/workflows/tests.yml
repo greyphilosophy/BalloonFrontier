@@ -94,7 +94,7 @@ jobs:
           python -m pytest tests/test_session_adapters.py -q
           python -m pytest tests/test_discord_game_entry.py -q
       - name: Test legacy CLI suite
-        run: python -m pytest tests/test_cli*.py -q
+        run: timeout 60s python -m pytest tests/test_cli*.py -vv
       - name: Test atmosphere provider
         run: python -m pytest tests/test_atmosphere_provider.py -q
       - name: Test atmosphere profiles
