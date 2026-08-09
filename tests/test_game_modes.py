@@ -3,10 +3,8 @@ import pytest
 from balloon_frontier.game_modes import GameMode, list_game_modes, select_game_mode
 
 
-def test_list_game_modes_order():
-    modes = list_game_modes()
-    assert modes == [
-        GameMode.TUTORIAL,
+def test_list_game_modes_excludes_legacy_tutorial():
+    assert list_game_modes() == [
         GameMode.STORY,
         GameMode.SCENARIO,
         GameMode.FREE_PLAY,
@@ -16,11 +14,10 @@ def test_list_game_modes_order():
 @pytest.mark.parametrize(
     "value,expected",
     [
-        (1, GameMode.TUTORIAL),
-        (2, GameMode.STORY),
-        (3, GameMode.SCENARIO),
-        (4, GameMode.FREE_PLAY),
-        ("tutorial", GameMode.TUTORIAL),
+        (1, GameMode.STORY),
+        (2, GameMode.SCENARIO),
+        (3, GameMode.FREE_PLAY),
+        ("tutorial", GameMode.STORY),
         ("Story", GameMode.STORY),
         ("scenario", GameMode.SCENARIO),
         ("free play", GameMode.FREE_PLAY),
@@ -36,12 +33,14 @@ def test_select_game_mode_rejects_unknown():
         select_game_mode("nope")
 
 
-def test_game_mode_labels_and_descriptions_are_defined():
-    assert GameMode.TUTORIAL.label == "Tutorial"
+def test_visible_game_mode_labels_and_descriptions_are_defined():
     assert GameMode.STORY.label == "Story"
     assert GameMode.SCENARIO.label == "Scenario"
     assert GameMode.FREE_PLAY.label == "Free Play"
-
-    # Smoke-test that descriptions exist (non-empty) for UX.
     for mode in list_game_modes():
         assert mode.description
+
+
+def test_legacy_tutorial_enum_is_not_player_facing():
+    assert GameMode.TUTORIAL not in list_game_modes()
+    assert GameMode.TUTORIAL.description == "Legacy alias for Story onboarding."
