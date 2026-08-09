@@ -101,10 +101,9 @@ class SessionAwareFlightService:
         locked_profile = None
         atmosphere_provider = None
         try:
-            # Story onboarding and later Story chapters use this exact same path.
-            # A previously recorded atmosphere is the only Story-specific physical
-            # input, and only when the player explicitly locks it for the next flight.
-            if player_id and plan.session.mode is GameMode.STORY:
+            # A recorded atmosphere is a normal flight input, not a Story- or
+            # tutorial-specific physics path. Any mode may replay a locked profile.
+            if player_id:
                 from .atmosphere_profile import (
                     RecordedAtmosphereProvider,
                     atmosphere_profiles,
