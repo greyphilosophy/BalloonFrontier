@@ -1,13 +1,12 @@
-"""Regression coverage for split tutorial results and next-step controls."""
+"""Regression coverage for split first-flight results and Story continuation."""
 
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from balloon_frontier.discord_ui import launch_handler
-from balloon_frontier.game_modes import GameMode
+from balloon_frontier.discord_ui.game_menu import ContinueToStoryView
 from balloon_frontier.tutorial_result_delivery import (
-    TutorialNextActionView,
     _NEXT_ACTION_PROMPT,
     _TRAJECTORY_SENTINEL,
     _attach_next_action_prompt,
@@ -20,9 +19,9 @@ from balloon_frontier.tutorial_result_delivery import (
 )
 
 
-def test_tutorial_report_and_trajectory_are_sent_as_separate_messages():
+def test_first_flight_report_and_trajectory_are_sent_as_separate_messages():
     async def original_send(interaction, content):
-        raise AssertionError("Tutorial follow-ups should bypass the truncating sender")
+        raise AssertionError("First-flight follow-ups should bypass truncating sender")
 
     interaction = SimpleNamespace(
         followup=SimpleNamespace(send=AsyncMock()),
@@ -36,7 +35,6 @@ def test_tutorial_report_and_trajectory_are_sent_as_separate_messages():
     try:
         sentinel = wrapped_chart()
         assert sentinel == _TRAJECTORY_SENTINEL
-
         asyncio.run(
             wrapped_send(
                 interaction,
@@ -69,10 +67,7 @@ def test_split_followup_failure_delegates_to_safe_sender():
     fallback_token = _split_followup_failed.set(False)
     try:
         delivered = asyncio.run(
-            wrapped_send(
-                interaction,
-                f"Launch report\n{_TRAJECTORY_SENTINEL}",
-            )
+            wrapped_send(interaction, f"Launch report\n{_TRAJECTORY_SENTINEL}")
         )
     finally:
         _split_followup_failed.reset(fallback_token)
@@ -82,9 +77,13 @@ def test_split_followup_failure_delegates_to_safe_sender():
     original_send.assert_awaited_once_with(interaction, "Launch report")
 
 
-def test_next_action_prompt_replaces_animation_after_split_delivery():
+def test_next_action_prompt_is_story_only():
     interaction = SimpleNamespace(edit_original_response=AsyncMock())
-    view = object()
+    view = ContinueToStoryView(
+        player_id="player",
+        channel_kind="dm",
+        service=object(),
+    )
 
     active_token = _split_delivery_active.set(True)
     fallback_token = _split_followup_failed.set(False)
@@ -99,6 +98,9 @@ def test_next_action_prompt_replaces_animation_after_split_delivery():
         content=_NEXT_ACTION_PROMPT,
         view=view,
     )
+    assert "Tutorial" not in _NEXT_ACTION_PROMPT
+    assert "Replay" not in _NEXT_ACTION_PROMPT
+    assert view.children[0].label == "Continue Story"
 
 
 def test_fallback_report_is_not_overwritten_by_next_action_prompt():
@@ -126,7 +128,7 @@ def test_oversized_report_is_split_without_dropping_text():
     assert "\n".join(messages) == content
 
 
-def test_split_tutorial_report_is_not_truncated_before_message_split():
+def test_split_first_flight_report_is_not_truncated_before_message_split():
     configurator = SimpleNamespace(_balloon_frontier_split_result_delivery=True)
     content = "x" * 2500
 
@@ -142,39 +144,6 @@ def test_non_split_report_keeps_legacy_discord_limit():
     assert limited.endswith("...")
 
 
-def test_non_tutorial_chart_rendering_is_unchanged():
+def test_non_first_flight_chart_rendering_is_unchanged():
     wrapped = _capture_trajectory(lambda: "ordinary chart")
     assert wrapped() == "ordinary chart"
-
-
-def test_completion_view_offers_replay_and_continue_story():
-    view = TutorialNextActionView(
-        player_id="42",
-        channel_kind="dm",
-        service=SimpleNamespace(),
-    )
-
-    assert [item.label for item in view.children] == [
-        "Replay Tutorial",
-        "Continue Story",
-    ]
-    assert [item.mode for item in view.children] == [
-        GameMode.TUTORIAL,
-        GameMode.STORY,
-    ]
-
-    owner = SimpleNamespace(user=SimpleNamespace(id=42))
-    stranger = SimpleNamespace(user=SimpleNamespace(id=99))
-    assert asyncio.run(view.interaction_check(owner))
-    assert not asyncio.run(view.interaction_check(stranger))
-
-
-def test_completion_prompt_asks_the_player_what_to_do_next():
-    view = TutorialNextActionView(
-        player_id="42",
-        channel_kind="dm",
-        service=SimpleNamespace(),
-    )
-
-    assert "replay the tutorial" in view._resume_content.lower()
-    assert "continue the story" in view._resume_content.lower()
