@@ -40,19 +40,20 @@ def show_how_to_play():
 
 
 def show_game_mode_menu():
+    """Choose a playable mode, with How to Play as a non-mode menu action."""
     modes = list_game_modes()
     while True:
         print("\n  Choose an option:\n  " + "─" * 45)
-        print("  1. How to Play")
-        for i, mode in enumerate(modes, 2):
+        for i, mode in enumerate(modes, 1):
             print(f"  {i}. {mode.label}: {mode.description}")
+        print(f"  {len(modes) + 1}. How to Play")
         idx = get_choice(len(modes) + 1, f"Option (1-{len(modes) + 1})")
         if idx is None:
             return None
-        if idx == 0:
+        if idx == len(modes):
             show_how_to_play()
             continue
-        return modes[idx - 1]
+        return modes[idx]
 
 
 def get_balloon_choice(balloons):
