@@ -25,7 +25,7 @@ def test_story_declares_the_canonical_chapter_order():
     assert story_mission_select.STORY_CHAPTERS is story.STORY_CHAPTERS
 
 
-def test_progression_and_mission_select_follow_the_same_runtime_order(monkeypatch):
+def test_progression_mission_select_and_compatibility_surface_follow_runtime_order(monkeypatch):
     _player(monkeypatch)
     reordered = (
         story.COLLEGE_METEOROLOGY_CHAPTER,
@@ -35,6 +35,7 @@ def test_progression_and_mission_select_follow_the_same_runtime_order(monkeypatc
     monkeypatch.setattr(story, "STORY_CHAPTERS", reordered)
 
     assert story.current_story_chapter("player") is reordered[0]
+    assert story_mission_select.STORY_CHAPTERS is reordered
     choices = story_mission_select.story_mission_choices("player")
     assert [choice.chapter for choice in choices] == [reordered[0]]
     assert choices[0].is_next
