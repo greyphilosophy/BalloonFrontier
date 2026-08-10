@@ -22,6 +22,7 @@ def test_story_declares_the_canonical_chapter_order():
         story.EDGE_OF_SPACE_MISSION_ID,
         story.ATMOSPHERIC_RIVER_MISSION_ID,
     ]
+    assert story_mission_select.STORY_CHAPTERS is story.STORY_CHAPTERS
 
 
 def test_progression_and_mission_select_follow_the_same_runtime_order(monkeypatch):
