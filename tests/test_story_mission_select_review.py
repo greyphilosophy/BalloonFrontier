@@ -12,6 +12,7 @@ from balloon_frontier.discord_ui.game_menu import ContinueToStoryView
 from balloon_frontier.game_modes import GameMode
 from balloon_frontier.progression import PlayerRegistry, PlayerState
 from balloon_frontier.story import EDGE_OF_SPACE_MISSION_ID, FIRST_FLIGHT_MISSION_ID
+from balloon_frontier.story_mission_select import story_mission_choices
 
 
 def _player(monkeypatch, completed=()):
@@ -53,6 +54,19 @@ def _outcome(mission_id, *, completed):
             SimpleNamespace(mission_id=mission_id, completed=completed),
         )
     )
+
+
+def test_out_of_order_completed_mission_stays_visible_for_replay(monkeypatch):
+    _player(monkeypatch, completed=(EDGE_OF_SPACE_MISSION_ID,))
+
+    choices = story_mission_choices("player")
+
+    assert [choice.mission_id for choice in choices] == [
+        FIRST_FLIGHT_MISSION_ID,
+        EDGE_OF_SPACE_MISSION_ID,
+    ]
+    assert choices[0].is_next and not choices[0].completed
+    assert choices[1].completed and not choices[1].is_next
 
 
 def test_completed_later_story_mission_gets_mission_select_continuation(monkeypatch):
