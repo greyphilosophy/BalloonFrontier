@@ -56,8 +56,7 @@ class DiscoveryFirstFlightConfiguratorMixin:
 
     def _step_content(self) -> str:
         from balloon_frontier.discord_ui.configurator import _Step
-        from balloon_frontier.story import FIRST_FLIGHT_CHAPTER
-        from balloon_frontier.story_mission_select import selected_story_intro
+        from balloon_frontier.story import FIRST_FLIGHT_CHAPTER, story_chapter_intro
 
         if self._current_step == _Step.REVIEW_LAUNCH:
             configuration = self._build_config_text()
@@ -99,7 +98,7 @@ class DiscoveryFirstFlightConfiguratorMixin:
             configuration = "\n".join(lines)
 
         player_id = getattr(self._service, "story_player_id", None)
-        return selected_story_intro(
+        return story_chapter_intro(
             FIRST_FLIGHT_CHAPTER,
             player_id=str(player_id) if player_id is not None else None,
             include_disclaimer=False,
