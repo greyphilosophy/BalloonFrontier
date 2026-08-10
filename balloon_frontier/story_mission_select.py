@@ -8,8 +8,6 @@ import balloon_frontier.story as story_definition
 from balloon_frontier.atmosphere_profile import atmosphere_profiles
 from balloon_frontier.progression import PlayerRegistry
 from balloon_frontier.story import (
-    FIRST_FLIGHT_CHAPTER,
-    STORY_DISCLAIMER,
     StoryChapter,
     _LockAtmosphereButton,
     format_atmosphere_profile,
@@ -99,8 +97,6 @@ def resolve_story_mission(
     if choices:
         return choices[-1].mission_id
 
-    # STORY_CHAPTERS always contains the first flight, but keep the fallback
-    # explicit so this helper remains total if the chapter list is refactored.
     return story_definition.STORY_CHAPTERS[0].mission_id
 
 
@@ -111,31 +107,14 @@ def selected_story_intro(
     atmosphere_locked: bool = False,
     include_disclaimer: bool = True,
 ) -> str:
-    """Render a briefing for the selected chapter rather than progression's next one."""
+    """Compatibility wrapper for explicit-chapter Story briefing rendering."""
 
-    bonuses = "\n".join(f"• {item}" for item in chapter.bonus_challenges)
-    text = (
-        f"📖 **{chapter.title}**\n"
-        f"*{chapter.season}*\n\n"
-        f"{chapter.introduction}\n\n"
-        "**Primary objective**\n"
-        f"{chapter.primary_objective}"
+    return story_definition.story_chapter_intro(
+        chapter,
+        player_id=player_id,
+        atmosphere_locked=atmosphere_locked,
+        include_disclaimer=include_disclaimer,
     )
-    if bonuses:
-        text += f"\n\n**Bonus challenges**\n{bonuses}"
-    if chapter.future_challenges:
-        future = "\n".join(f"• {item}" for item in chapter.future_challenges)
-        text += f"\n\n**Future cinematic challenges**\n{future}"
-    if atmosphere_locked:
-        text += (
-            "\n\n🔒 **Measured conditions selected.** "
-            "This recorded atmosphere will drive the next launch."
-        )
-    elif player_id and atmosphere_profiles.get(str(player_id)) is not None:
-        text += "\n\n📡 A recorded atmosphere profile is available below."
-    if include_disclaimer and chapter is not FIRST_FLIGHT_CHAPTER:
-        text += f"\n\n*{STORY_DISCLAIMER}*"
-    return text
 
 
 class SelectedStoryConfiguratorMixin:
