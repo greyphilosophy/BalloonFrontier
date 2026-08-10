@@ -99,20 +99,24 @@ class _LaunchButton(discord.ui.Button):
         if not mission_id:
             return
 
-        completed_this_launch = any(
-            result.mission_id == mission_id and result.completed
-            for result in outcome.mission_results
+        mission_result = next(
+            (
+                result
+                for result in outcome.mission_results
+                if result.mission_id == mission_id
+            ),
+            None,
         )
-        if not completed_this_launch:
+        if mission_result is None:
             return
 
-        # First-flight split delivery normally owns construction, attachment, and
-        # registration. Preserve its hardened path and use this callback for its
-        # compatibility fallback only when that handler did not take ownership.
-        if context.get("first_flight") and getattr(
-            self._parent,
-            "_tutorial_continuation_handled",
-            False,
+        # A successful first flight is already handled by the specialized split
+        # result-delivery path. Failed first flights and all later Story attempts
+        # still need a stable route back to Mission Select.
+        if (
+            context.get("first_flight")
+            and mission_result.completed
+            and getattr(self._parent, "_tutorial_continuation_handled", False)
         ):
             return
 
@@ -138,10 +142,18 @@ class _LaunchButton(discord.ui.Button):
                 kwargs["on_view_changed"] = on_view_changed
             view = ContinueToStoryView(**kwargs)
             chapter = story_chapter_for_mission(str(mission_id))
-            view._resume_content = (
-                f"🎈 **{chapter.title} Complete**\n\n"
-                "Your progress is saved. Return to Story Mission Select when you are ready."
-            )
+            if mission_result.completed:
+                view._resume_content = (
+                    f"🎈 **{chapter.title} Complete**\n\n"
+                    "Your progress is saved. Return to Story Mission Select when you are ready."
+                )
+            else:
+                view._resume_content = (
+                    f"🎈 **{chapter.title} — Attempt Finished**\n\n"
+                    "Return to Story Mission Select to retry this mission or replay another available mission."
+                )
+            if view.children:
+                view.children[0].label = "Mission Select"
 
             if not continuation_attached:
                 await interaction.edit_original_response(view=view)
@@ -150,7 +162,7 @@ class _LaunchButton(discord.ui.Button):
                 on_view_changed(view)
         except Exception:
             # The flight and report already succeeded. Optional navigation must
-            # never turn a completed mission into another callback error.
+            # never turn a completed attempt into another callback error.
             logger.warning(
                 "Could not attach Story mission continuation fallback",
                 exc_info=True,
