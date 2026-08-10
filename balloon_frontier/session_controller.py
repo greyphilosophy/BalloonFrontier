@@ -110,10 +110,13 @@ def assign_missions_for_mode(
             str(player_id) if player_id is not None else None,
             context.get("story_mission_id"),
         )
-        if mission_id in MISSIONS:
-            # Story owns its selected mission even when the player's experimental
-            # configuration cannot satisfy it. The ordinary evaluator reports why.
-            return (mission_id,)
+        if mission_id not in MISSIONS:
+            raise LookupError(
+                f"Story mission definition {mission_id!r} is not loaded"
+            )
+        # Story owns its selected mission even when the player's experimental
+        # configuration cannot satisfy it. The ordinary evaluator reports why.
+        return (mission_id,)
 
     seed = _stable_seed(policy.mode, configuration, context)
     return tuple(
