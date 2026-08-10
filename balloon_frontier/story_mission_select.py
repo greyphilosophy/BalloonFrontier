@@ -16,6 +16,11 @@ from balloon_frontier.story import (
 )
 
 
+# Compatibility alias for callers that imported this name after Mission Select was
+# introduced. The definition and all internal ordering logic live in story.py.
+STORY_CHAPTERS = story_definition.STORY_CHAPTERS
+
+
 @dataclass(frozen=True, slots=True)
 class StoryMissionChoice:
     """One mission visible on Story Mission Select."""
