@@ -56,7 +56,7 @@ class DiscoveryFirstFlightConfiguratorMixin:
 
     def _step_content(self) -> str:
         from balloon_frontier.discord_ui.configurator import _Step
-        from balloon_frontier.story import story_intro
+        from balloon_frontier.story import FIRST_FLIGHT_CHAPTER, story_chapter_intro
 
         if self._current_step == _Step.REVIEW_LAUNCH:
             configuration = self._build_config_text()
@@ -97,9 +97,11 @@ class DiscoveryFirstFlightConfiguratorMixin:
                 )
             configuration = "\n".join(lines)
 
-        player_id = getattr(self._service, "story_player_id", None)
-        return story_intro(
-            str(player_id) if player_id is not None else None,
+        # The reduced First Flight view does not expose recorded-atmosphere
+        # controls, so render only the chapter text rather than advertising a
+        # profile the player cannot select here.
+        return story_chapter_intro(
+            FIRST_FLIGHT_CHAPTER,
             include_disclaimer=False,
         ) + "\n\n" + configuration
 

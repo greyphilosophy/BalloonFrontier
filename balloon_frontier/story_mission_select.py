@@ -4,24 +4,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import balloon_frontier.story as story_definition
 from balloon_frontier.atmosphere_profile import atmosphere_profiles
 from balloon_frontier.progression import PlayerRegistry
 from balloon_frontier.story import (
-    COLLEGE_METEOROLOGY_CHAPTER,
-    FIRST_FLIGHT_CHAPTER,
-    STORY_DISCLAIMER,
-    SUMMER_HOBBYIST_CHAPTER,
     StoryChapter,
     _LockAtmosphereButton,
     format_atmosphere_profile,
 )
 
 
-STORY_CHAPTERS: tuple[StoryChapter, ...] = (
-    FIRST_FLIGHT_CHAPTER,
-    SUMMER_HOBBYIST_CHAPTER,
-    COLLEGE_METEOROLOGY_CHAPTER,
-)
+def __getattr__(name: str):
+    """Preserve the old chapter-order export without storing a second copy."""
+
+    if name == "STORY_CHAPTERS":
+        return story_definition.STORY_CHAPTERS
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,17 +48,13 @@ def story_mission_choices(player_id: str | int | None = None) -> tuple[StoryMiss
         player = PlayerRegistry.get_or_create(str(player_id))
         completed = set(player.missions_completed)
 
-    next_incomplete_id = next(
-        (
-            chapter.mission_id
-            for chapter in STORY_CHAPTERS
-            if chapter.mission_id not in completed
-        ),
-        None,
+    next_incomplete = story_definition.next_incomplete_story_chapter(completed)
+    next_incomplete_id = (
+        next_incomplete.mission_id if next_incomplete is not None else None
     )
 
     choices: list[StoryMissionChoice] = []
-    for chapter in STORY_CHAPTERS:
+    for chapter in story_definition.STORY_CHAPTERS:
         is_completed = chapter.mission_id in completed
         is_next = chapter.mission_id == next_incomplete_id
         if not is_completed and not is_next:
@@ -77,10 +71,7 @@ def story_mission_choices(player_id: str | int | None = None) -> tuple[StoryMiss
 
 
 def story_chapter_for_mission(mission_id: str) -> StoryChapter:
-    for chapter in STORY_CHAPTERS:
-        if chapter.mission_id == mission_id:
-            return chapter
-    raise ValueError(f"Unknown Story mission: {mission_id!r}")
+    return story_definition.story_chapter_for_mission(mission_id)
 
 
 def resolve_story_mission(
@@ -106,9 +97,7 @@ def resolve_story_mission(
     if choices:
         return choices[-1].mission_id
 
-    # STORY_CHAPTERS always contains the first flight, but keep the fallback
-    # explicit so this helper remains total if the chapter list is refactored.
-    return FIRST_FLIGHT_CHAPTER.mission_id
+    return story_definition.STORY_CHAPTERS[0].mission_id
 
 
 def selected_story_intro(
@@ -118,31 +107,14 @@ def selected_story_intro(
     atmosphere_locked: bool = False,
     include_disclaimer: bool = True,
 ) -> str:
-    """Render a briefing for the selected chapter rather than progression's next one."""
+    """Compatibility wrapper for explicit-chapter Story briefing rendering."""
 
-    bonuses = "\n".join(f"• {item}" for item in chapter.bonus_challenges)
-    text = (
-        f"📖 **{chapter.title}**\n"
-        f"*{chapter.season}*\n\n"
-        f"{chapter.introduction}\n\n"
-        "**Primary objective**\n"
-        f"{chapter.primary_objective}"
+    return story_definition.story_chapter_intro(
+        chapter,
+        player_id=player_id,
+        atmosphere_locked=atmosphere_locked,
+        include_disclaimer=include_disclaimer,
     )
-    if bonuses:
-        text += f"\n\n**Bonus challenges**\n{bonuses}"
-    if chapter.future_challenges:
-        future = "\n".join(f"• {item}" for item in chapter.future_challenges)
-        text += f"\n\n**Future cinematic challenges**\n{future}"
-    if atmosphere_locked:
-        text += (
-            "\n\n🔒 **Measured conditions selected.** "
-            "This recorded atmosphere will drive the next launch."
-        )
-    elif player_id and atmosphere_profiles.get(str(player_id)) is not None:
-        text += "\n\n📡 A recorded atmosphere profile is available below."
-    if include_disclaimer and chapter is not FIRST_FLIGHT_CHAPTER:
-        text += f"\n\n*{STORY_DISCLAIMER}*"
-    return text
 
 
 class SelectedStoryConfiguratorMixin:
