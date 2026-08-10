@@ -100,15 +100,49 @@ COLLEGE_METEOROLOGY_CHAPTER = StoryChapter(
 )
 
 
+# Canonical Story progression order. Add or reorder chapters here; progression,
+# Mission Select, replay lookup, and default Story mission resolution all consume
+# this same sequence.
+STORY_CHAPTERS: tuple[StoryChapter, ...] = (
+    FIRST_FLIGHT_CHAPTER,
+    SUMMER_HOBBYIST_CHAPTER,
+    COLLEGE_METEOROLOGY_CHAPTER,
+)
+
+
+def next_incomplete_story_chapter(
+    completed_mission_ids,
+) -> StoryChapter | None:
+    """Return the earliest canonical chapter whose mission is not completed."""
+
+    completed = set(completed_mission_ids or ())
+    return next(
+        (
+            chapter
+            for chapter in STORY_CHAPTERS
+            if chapter.mission_id not in completed
+        ),
+        None,
+    )
+
+
+def story_chapter_for_mission(mission_id: str) -> StoryChapter:
+    """Look up a Story chapter by mission ID using the canonical chapter list."""
+
+    for chapter in STORY_CHAPTERS:
+        if chapter.mission_id == mission_id:
+            return chapter
+    raise ValueError(f"Unknown Story mission: {mission_id!r}")
+
+
 def current_story_chapter(player_id: str | None = None) -> StoryChapter:
     if not player_id:
-        return FIRST_FLIGHT_CHAPTER
+        return STORY_CHAPTERS[0]
     player = PlayerRegistry.get_or_create(str(player_id))
-    if FIRST_FLIGHT_MISSION_ID not in player.missions_completed:
-        return FIRST_FLIGHT_CHAPTER
-    if EDGE_OF_SPACE_MISSION_ID in player.missions_completed:
-        return COLLEGE_METEOROLOGY_CHAPTER
-    return SUMMER_HOBBYIST_CHAPTER
+    return (
+        next_incomplete_story_chapter(player.missions_completed)
+        or STORY_CHAPTERS[-1]
+    )
 
 
 def _wind_label(x_mps: float, y_mps: float) -> str:
