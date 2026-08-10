@@ -85,21 +85,35 @@ class _LaunchButton(discord.ui.Button):
         )
 
         context = getattr(self._parent, "_game_entry_context", None)
-        if not context or not context.get("first_flight"):
+        if not context or outcome is None:
             return
-        if outcome is None:
+
+        from balloon_frontier.game_modes import GameMode
+
+        if context.get("mode") is not GameMode.STORY:
+            return
+
+        mission_id = context.get("story_mission_id")
+        if not mission_id and context.get("first_flight"):
+            mission_id = "first_flight"
+        if not mission_id:
             return
 
         completed_this_launch = any(
-            result.mission_id == "first_flight" and result.completed
+            result.mission_id == mission_id and result.completed
             for result in outcome.mission_results
         )
         if not completed_this_launch:
             return
 
-        # The result-delivery handler normally owns construction, attachment and
-        # registration. Keep this compatibility fallback for partial UI failures.
-        if getattr(self._parent, "_tutorial_continuation_handled", False):
+        # First-flight split delivery normally owns construction, attachment, and
+        # registration. Preserve its hardened path and use this callback for its
+        # compatibility fallback only when that handler did not take ownership.
+        if context.get("first_flight") and getattr(
+            self._parent,
+            "_tutorial_continuation_handled",
+            False,
+        ):
             return
 
         continuation_attached = getattr(
@@ -111,6 +125,7 @@ class _LaunchButton(discord.ui.Button):
         try:
             player_id = str(interaction.user.id)
             from balloon_frontier.discord_ui.game_menu import ContinueToStoryView
+            from balloon_frontier.story_mission_select import story_chapter_for_mission
 
             kwargs = {
                 "player_id": player_id,
@@ -122,6 +137,11 @@ class _LaunchButton(discord.ui.Button):
             if on_view_changed is not None:
                 kwargs["on_view_changed"] = on_view_changed
             view = ContinueToStoryView(**kwargs)
+            chapter = story_chapter_for_mission(str(mission_id))
+            view._resume_content = (
+                f"🎈 **{chapter.title} Complete**\n\n"
+                "Your progress is saved. Return to Story Mission Select when you are ready."
+            )
 
             if not continuation_attached:
                 await interaction.edit_original_response(view=view)
@@ -130,8 +150,8 @@ class _LaunchButton(discord.ui.Button):
                 on_view_changed(view)
         except Exception:
             # The flight and report already succeeded. Optional navigation must
-            # never turn a completed first flight into another callback error.
+            # never turn a completed mission into another callback error.
             logger.warning(
-                "Could not attach first-flight continuation fallback",
+                "Could not attach Story mission continuation fallback",
                 exc_info=True,
             )
