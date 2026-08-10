@@ -1,15 +1,17 @@
 """Review regressions for Story mission completion and assignment safety."""
 
+import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
 from balloon_frontier import session_controller as controller
+from balloon_frontier.discord_ui import launch_handler, modals
 from balloon_frontier.discord_ui.game_menu import ContinueToStoryView
 from balloon_frontier.game_modes import GameMode
 from balloon_frontier.progression import PlayerRegistry, PlayerState
 from balloon_frontier.story import EDGE_OF_SPACE_MISSION_ID, FIRST_FLIGHT_MISSION_ID
-from balloon_frontier.tutorial_result_delivery import _build_next_action_view
 
 
 def _player(monkeypatch, completed=()):
@@ -23,23 +25,33 @@ def _player(monkeypatch, completed=()):
     return player
 
 
-def test_completed_later_story_mission_gets_mission_select_continuation(monkeypatch):
-    _player(monkeypatch, completed=(FIRST_FLIGHT_MISSION_ID,))
-    remembered = []
-    configurator = SimpleNamespace(
+def _story_parent(*, mission_id=EDGE_OF_SPACE_MISSION_ID):
+    return SimpleNamespace(
         _game_entry_context={
             "mode": GameMode.STORY,
-            "story_mission_id": EDGE_OF_SPACE_MISSION_ID,
-            "first_flight": False,
+            "story_mission_id": mission_id,
+            "first_flight": mission_id == FIRST_FLIGHT_MISSION_ID,
             "player_id": "player",
             "channel_kind": "dm",
             "service": object(),
             "on_finished": None,
-            "on_view_changed": remembered.append,
+            "on_view_changed": None,
         }
     )
-    interaction = SimpleNamespace(user=SimpleNamespace(id="player"))
-    result = SimpleNamespace(
+
+
+def _interaction():
+    return SimpleNamespace(
+        user=SimpleNamespace(id="player"),
+        edit_original_response=AsyncMock(),
+    )
+
+
+def test_completed_later_story_mission_gets_mission_select_continuation(monkeypatch):
+    _player(monkeypatch, completed=(FIRST_FLIGHT_MISSION_ID,))
+    parent = _story_parent()
+    interaction = _interaction()
+    outcome = SimpleNamespace(
         mission_results=(
             SimpleNamespace(
                 mission_id=EDGE_OF_SPACE_MISSION_ID,
@@ -47,29 +59,22 @@ def test_completed_later_story_mission_gets_mission_select_continuation(monkeypa
             ),
         )
     )
+    monkeypatch.setattr(launch_handler, "run_launch", AsyncMock(return_value=outcome))
 
-    view = _build_next_action_view(configurator, interaction, result)
+    button = modals._LaunchButton(parent, service=object())
+    asyncio.run(button.callback(interaction))
 
+    interaction.edit_original_response.assert_awaited_once()
+    view = interaction.edit_original_response.await_args.kwargs["view"]
     assert isinstance(view, ContinueToStoryView)
     assert "Edge of Space" in view._resume_content
-    assert remembered == [view]
 
 
 def test_incomplete_story_mission_does_not_get_completion_continuation(monkeypatch):
     _player(monkeypatch, completed=(FIRST_FLIGHT_MISSION_ID,))
-    configurator = SimpleNamespace(
-        _game_entry_context={
-            "mode": GameMode.STORY,
-            "story_mission_id": EDGE_OF_SPACE_MISSION_ID,
-            "first_flight": False,
-            "player_id": "player",
-            "channel_kind": "dm",
-            "service": object(),
-            "on_finished": None,
-        }
-    )
-    interaction = SimpleNamespace(user=SimpleNamespace(id="player"))
-    result = SimpleNamespace(
+    parent = _story_parent()
+    interaction = _interaction()
+    outcome = SimpleNamespace(
         mission_results=(
             SimpleNamespace(
                 mission_id=EDGE_OF_SPACE_MISSION_ID,
@@ -77,8 +82,12 @@ def test_incomplete_story_mission_does_not_get_completion_continuation(monkeypat
             ),
         )
     )
+    monkeypatch.setattr(launch_handler, "run_launch", AsyncMock(return_value=outcome))
 
-    assert _build_next_action_view(configurator, interaction, result) is None
+    button = modals._LaunchButton(parent, service=object())
+    asyncio.run(button.callback(interaction))
+
+    interaction.edit_original_response.assert_not_awaited()
 
 
 def test_missing_selected_story_mission_definition_never_falls_back(monkeypatch):
