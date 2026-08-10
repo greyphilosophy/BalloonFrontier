@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 from balloon_frontier.discord_ui import game_menu, modals
 from balloon_frontier.game_modes import GameMode
 from balloon_frontier.launch_result import MissionResult
+from balloon_frontier.story import EDGE_OF_SPACE_MISSION_ID, FIRST_FLIGHT_MISSION_ID
 
 
 class _Interaction:
@@ -16,31 +17,32 @@ class _Interaction:
 
 
 class _Parent:
-    def __init__(self, *, first_flight=True):
+    def __init__(self, *, mission_id=FIRST_FLIGHT_MISSION_ID):
         self._game_entry_context = {
             "service": object(),
             "mode": GameMode.STORY,
-            "first_flight": first_flight,
+            "first_flight": mission_id == FIRST_FLIGHT_MISSION_ID,
+            "story_mission_id": mission_id,
             "player_id": "player",
             "channel_kind": "dm",
             "on_finished": None,
         }
 
 
-def _outcome(*, completed: bool):
+def _outcome(*, mission_id=FIRST_FLIGHT_MISSION_ID, completed: bool):
     return SimpleNamespace(
         mission_results=(
             MissionResult(
-                mission_id="first_flight",
+                mission_id=mission_id,
                 completed=completed,
                 reward=500 if completed else 0,
-                explanation="first-flight result",
+                explanation="mission result",
             ),
         )
     )
 
 
-def test_completed_first_flight_adds_continue_story_view(monkeypatch):
+def test_completed_first_flight_fallback_adds_continue_story_view(monkeypatch):
     monkeypatch.setattr(
         modals.launch_handler,
         "run_launch",
@@ -59,7 +61,7 @@ def test_completed_first_flight_adds_continue_story_view(monkeypatch):
     assert view.children[0].label == "Continue Story"
 
 
-def test_failed_first_flight_does_not_offer_handoff(monkeypatch):
+def test_failed_first_flight_offers_mission_select_retry(monkeypatch):
     monkeypatch.setattr(
         modals.launch_handler,
         "run_launch",
@@ -70,21 +72,35 @@ def test_failed_first_flight_does_not_offer_handoff(monkeypatch):
     button = modals._LaunchButton(_Parent(), service=object())
     asyncio.run(button.callback(interaction))
 
-    interaction.edit_original_response.assert_not_awaited()
+    interaction.edit_original_response.assert_awaited_once()
+    view = interaction.edit_original_response.await_args.kwargs["view"]
+    assert isinstance(view, game_menu.ContinueToStoryView)
+    assert view.children[0].label == "Mission Select"
 
 
-def test_ordinary_story_launch_does_not_use_first_flight_handoff(monkeypatch):
+def test_ordinary_story_launch_returns_to_mission_select(monkeypatch):
     monkeypatch.setattr(
         modals.launch_handler,
         "run_launch",
-        AsyncMock(return_value=_outcome(completed=True)),
+        AsyncMock(
+            return_value=_outcome(
+                mission_id=EDGE_OF_SPACE_MISSION_ID,
+                completed=True,
+            )
+        ),
     )
 
     interaction = _Interaction()
-    button = modals._LaunchButton(_Parent(first_flight=False), service=object())
+    button = modals._LaunchButton(
+        _Parent(mission_id=EDGE_OF_SPACE_MISSION_ID),
+        service=object(),
+    )
     asyncio.run(button.callback(interaction))
 
-    interaction.edit_original_response.assert_not_awaited()
+    interaction.edit_original_response.assert_awaited_once()
+    view = interaction.edit_original_response.await_args.kwargs["view"]
+    assert isinstance(view, game_menu.ContinueToStoryView)
+    assert view.children[0].label == "Mission Select"
 
 
 def test_continue_button_opens_story_mission_select(monkeypatch):
