@@ -97,10 +97,11 @@ class DiscoveryFirstFlightConfiguratorMixin:
                 )
             configuration = "\n".join(lines)
 
-        player_id = getattr(self._service, "story_player_id", None)
+        # The reduced First Flight view does not expose recorded-atmosphere
+        # controls, so render only the chapter text rather than advertising a
+        # profile the player cannot select here.
         return story_chapter_intro(
             FIRST_FLIGHT_CHAPTER,
-            player_id=str(player_id) if player_id is not None else None,
             include_disclaimer=False,
         ) + "\n\n" + configuration
 
