@@ -152,7 +152,9 @@ class _LaunchButton(discord.ui.Button):
                     f"🎈 **{chapter.title} — Attempt Finished**\n\n"
                     "Return to Story Mission Select to retry this mission or replay another available mission."
                 )
-            if view.children:
+            if view.children and (
+                not context.get("first_flight") or not mission_result.completed
+            ):
                 view.children[0].label = "Mission Select"
 
             if not continuation_attached:
