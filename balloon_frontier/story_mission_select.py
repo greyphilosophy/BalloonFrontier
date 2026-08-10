@@ -38,10 +38,11 @@ class StoryMissionChoice:
 
 
 def story_mission_choices(player_id: str | int | None = None) -> tuple[StoryMissionChoice, ...]:
-    """Return completed missions plus exactly the next incomplete mission.
+    """Return every completed mission plus exactly the next incomplete mission.
 
-    Completed missions stay visible for replay. Story missions after the first
-    incomplete chapter remain hidden until progression reaches them.
+    Completed missions stay visible for replay even if legacy or repaired save data
+    contains them out of Story order. Only one incomplete mission is exposed: the
+    earliest Story chapter the player has not completed.
     """
 
     completed: set[str] = set()
@@ -49,18 +50,28 @@ def story_mission_choices(player_id: str | int | None = None) -> tuple[StoryMiss
         player = PlayerRegistry.get_or_create(str(player_id))
         completed = set(player.missions_completed)
 
+    next_incomplete_id = next(
+        (
+            chapter.mission_id
+            for chapter in STORY_CHAPTERS
+            if chapter.mission_id not in completed
+        ),
+        None,
+    )
+
     choices: list[StoryMissionChoice] = []
     for chapter in STORY_CHAPTERS:
-        if chapter.mission_id in completed:
-            choices.append(
-                StoryMissionChoice(chapter=chapter, completed=True, is_next=False)
-            )
+        is_completed = chapter.mission_id in completed
+        is_next = chapter.mission_id == next_incomplete_id
+        if not is_completed and not is_next:
             continue
-
         choices.append(
-            StoryMissionChoice(chapter=chapter, completed=False, is_next=True)
+            StoryMissionChoice(
+                chapter=chapter,
+                completed=is_completed,
+                is_next=is_next,
+            )
         )
-        break
 
     return tuple(choices)
 
