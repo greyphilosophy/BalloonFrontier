@@ -4,23 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import balloon_frontier.story as story_definition
 from balloon_frontier.atmosphere_profile import atmosphere_profiles
 from balloon_frontier.progression import PlayerRegistry
 from balloon_frontier.story import (
-    COLLEGE_METEOROLOGY_CHAPTER,
     FIRST_FLIGHT_CHAPTER,
     STORY_DISCLAIMER,
-    SUMMER_HOBBYIST_CHAPTER,
     StoryChapter,
     _LockAtmosphereButton,
     format_atmosphere_profile,
-)
-
-
-STORY_CHAPTERS: tuple[StoryChapter, ...] = (
-    FIRST_FLIGHT_CHAPTER,
-    SUMMER_HOBBYIST_CHAPTER,
-    COLLEGE_METEOROLOGY_CHAPTER,
 )
 
 
@@ -50,17 +42,13 @@ def story_mission_choices(player_id: str | int | None = None) -> tuple[StoryMiss
         player = PlayerRegistry.get_or_create(str(player_id))
         completed = set(player.missions_completed)
 
-    next_incomplete_id = next(
-        (
-            chapter.mission_id
-            for chapter in STORY_CHAPTERS
-            if chapter.mission_id not in completed
-        ),
-        None,
+    next_incomplete = story_definition.next_incomplete_story_chapter(completed)
+    next_incomplete_id = (
+        next_incomplete.mission_id if next_incomplete is not None else None
     )
 
     choices: list[StoryMissionChoice] = []
-    for chapter in STORY_CHAPTERS:
+    for chapter in story_definition.STORY_CHAPTERS:
         is_completed = chapter.mission_id in completed
         is_next = chapter.mission_id == next_incomplete_id
         if not is_completed and not is_next:
@@ -77,10 +65,7 @@ def story_mission_choices(player_id: str | int | None = None) -> tuple[StoryMiss
 
 
 def story_chapter_for_mission(mission_id: str) -> StoryChapter:
-    for chapter in STORY_CHAPTERS:
-        if chapter.mission_id == mission_id:
-            return chapter
-    raise ValueError(f"Unknown Story mission: {mission_id!r}")
+    return story_definition.story_chapter_for_mission(mission_id)
 
 
 def resolve_story_mission(
@@ -108,7 +93,7 @@ def resolve_story_mission(
 
     # STORY_CHAPTERS always contains the first flight, but keep the fallback
     # explicit so this helper remains total if the chapter list is refactored.
-    return FIRST_FLIGHT_CHAPTER.mission_id
+    return story_definition.STORY_CHAPTERS[0].mission_id
 
 
 def selected_story_intro(
