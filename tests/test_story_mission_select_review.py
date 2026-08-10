@@ -47,19 +47,23 @@ def _interaction():
     )
 
 
+def _outcome(mission_id, *, completed):
+    return SimpleNamespace(
+        mission_results=(
+            SimpleNamespace(mission_id=mission_id, completed=completed),
+        )
+    )
+
+
 def test_completed_later_story_mission_gets_mission_select_continuation(monkeypatch):
     _player(monkeypatch, completed=(FIRST_FLIGHT_MISSION_ID,))
     parent = _story_parent()
     interaction = _interaction()
-    outcome = SimpleNamespace(
-        mission_results=(
-            SimpleNamespace(
-                mission_id=EDGE_OF_SPACE_MISSION_ID,
-                completed=True,
-            ),
-        )
+    monkeypatch.setattr(
+        launch_handler,
+        "run_launch",
+        AsyncMock(return_value=_outcome(EDGE_OF_SPACE_MISSION_ID, completed=True)),
     )
-    monkeypatch.setattr(launch_handler, "run_launch", AsyncMock(return_value=outcome))
 
     button = modals._LaunchButton(parent, service=object())
     asyncio.run(button.callback(interaction))
@@ -68,26 +72,48 @@ def test_completed_later_story_mission_gets_mission_select_continuation(monkeypa
     view = interaction.edit_original_response.await_args.kwargs["view"]
     assert isinstance(view, ContinueToStoryView)
     assert "Edge of Space" in view._resume_content
+    assert "Complete" in view._resume_content
+    assert view.children[0].label == "Mission Select"
 
 
-def test_incomplete_story_mission_does_not_get_completion_continuation(monkeypatch):
+def test_failed_later_story_mission_still_gets_retry_navigation(monkeypatch):
     _player(monkeypatch, completed=(FIRST_FLIGHT_MISSION_ID,))
     parent = _story_parent()
     interaction = _interaction()
-    outcome = SimpleNamespace(
-        mission_results=(
-            SimpleNamespace(
-                mission_id=EDGE_OF_SPACE_MISSION_ID,
-                completed=False,
-            ),
-        )
+    monkeypatch.setattr(
+        launch_handler,
+        "run_launch",
+        AsyncMock(return_value=_outcome(EDGE_OF_SPACE_MISSION_ID, completed=False)),
     )
-    monkeypatch.setattr(launch_handler, "run_launch", AsyncMock(return_value=outcome))
 
     button = modals._LaunchButton(parent, service=object())
     asyncio.run(button.callback(interaction))
 
-    interaction.edit_original_response.assert_not_awaited()
+    interaction.edit_original_response.assert_awaited_once()
+    view = interaction.edit_original_response.await_args.kwargs["view"]
+    assert isinstance(view, ContinueToStoryView)
+    assert "Attempt Finished" in view._resume_content
+    assert view.children[0].label == "Mission Select"
+
+
+def test_failed_first_flight_still_gets_mission_select_retry(monkeypatch):
+    _player(monkeypatch)
+    parent = _story_parent(mission_id=FIRST_FLIGHT_MISSION_ID)
+    interaction = _interaction()
+    monkeypatch.setattr(
+        launch_handler,
+        "run_launch",
+        AsyncMock(return_value=_outcome(FIRST_FLIGHT_MISSION_ID, completed=False)),
+    )
+
+    button = modals._LaunchButton(parent, service=object())
+    asyncio.run(button.callback(interaction))
+
+    interaction.edit_original_response.assert_awaited_once()
+    view = interaction.edit_original_response.await_args.kwargs["view"]
+    assert isinstance(view, ContinueToStoryView)
+    assert "Attempt Finished" in view._resume_content
+    assert view.children[0].label == "Mission Select"
 
 
 def test_missing_selected_story_mission_definition_never_falls_back(monkeypatch):
