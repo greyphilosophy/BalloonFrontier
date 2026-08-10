@@ -110,9 +110,7 @@ STORY_CHAPTERS: tuple[StoryChapter, ...] = (
 )
 
 
-def next_incomplete_story_chapter(
-    completed_mission_ids,
-) -> StoryChapter | None:
+def next_incomplete_story_chapter(completed_mission_ids) -> StoryChapter | None:
     """Return the earliest canonical chapter whose mission is not completed."""
 
     completed = set(completed_mission_ids or ())
@@ -139,10 +137,7 @@ def current_story_chapter(player_id: str | None = None) -> StoryChapter:
     if not player_id:
         return STORY_CHAPTERS[0]
     player = PlayerRegistry.get_or_create(str(player_id))
-    return (
-        next_incomplete_story_chapter(player.missions_completed)
-        or STORY_CHAPTERS[-1]
-    )
+    return next_incomplete_story_chapter(player.missions_completed) or STORY_CHAPTERS[-1]
 
 
 def _wind_label(x_mps: float, y_mps: float) -> str:
@@ -197,13 +192,15 @@ def format_atmosphere_profile(
     return "\n".join(lines)
 
 
-def story_intro(
-    player_id: str | None = None,
+def story_chapter_intro(
+    chapter: StoryChapter,
     *,
+    player_id: str | None = None,
     atmosphere_locked: bool = False,
     include_disclaimer: bool = True,
 ) -> str:
-    chapter = current_story_chapter(player_id)
+    """Render Story briefing text for an explicit chapter."""
+
     bonuses = "\n".join(f"• {item}" for item in chapter.bonus_challenges)
     text = (
         f"📖 **{chapter.title}**\n"
@@ -227,6 +224,20 @@ def story_intro(
     if include_disclaimer and chapter is not FIRST_FLIGHT_CHAPTER:
         text += f"\n\n*{STORY_DISCLAIMER}*"
     return text
+
+
+def story_intro(
+    player_id: str | None = None,
+    *,
+    atmosphere_locked: bool = False,
+    include_disclaimer: bool = True,
+) -> str:
+    return story_chapter_intro(
+        current_story_chapter(player_id),
+        player_id=player_id,
+        atmosphere_locked=atmosphere_locked,
+        include_disclaimer=include_disclaimer,
+    )
 
 
 def story_mission_for_player(player_id: str | None = None) -> str:
