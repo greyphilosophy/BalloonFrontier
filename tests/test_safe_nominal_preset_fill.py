@@ -175,12 +175,19 @@ def test_pressure_valve_adds_its_own_mass_and_cost():
     )
 
 
-def test_first_flight_menu_does_not_expose_special_tutorial_payloads_or_valve():
+def test_first_flight_menu_exposes_only_foundational_heat_experiments():
     payloads = FIRST_FLIGHT_OPTION_KEYS[3]
 
-    assert payloads == ("camera", "parachute", "none")
+    assert payloads == (
+        "camera",
+        "parachute",
+        "candle_heater",
+        "electric_heater",
+        "none",
+    )
     assert "quadcopter" not in payloads
     assert "valve" not in payloads
+    assert "heater" not in payloads
 
 
 def test_heavy_latex_camera_lifts_without_automatic_venting():

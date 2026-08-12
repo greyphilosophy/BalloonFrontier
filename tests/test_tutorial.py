@@ -30,10 +30,16 @@ def test_how_to_play_explains_shared_physics_and_progressive_story_choices():
 
 
 def test_first_flight_menu_uses_normal_catalog_keys():
-    assert FIRST_FLIGHT_OPTION_KEYS[0] == ("helium", "hot_air")
-    assert FIRST_FLIGHT_OPTION_KEYS[1] == ("latex",)
+    assert FIRST_FLIGHT_OPTION_KEYS[0] == ("helium", "air")
+    assert FIRST_FLIGHT_OPTION_KEYS[1] == ("latex", "candle_kite")
     assert FIRST_FLIGHT_OPTION_KEYS[2] == ("auto", "light", "normal")
-    assert FIRST_FLIGHT_OPTION_KEYS[3] == ("camera", "parachute", "none")
+    assert FIRST_FLIGHT_OPTION_KEYS[3] == (
+        "camera",
+        "parachute",
+        "candle_heater",
+        "electric_heater",
+        "none",
+    )
     assert FIRST_FLIGHT_OPTION_KEYS[4] == ("field",)
 
 
@@ -46,3 +52,4 @@ def test_first_flight_has_no_guided_recommended_choice():
 
     assert "tutorial_party_balloon" not in flattened
     assert "quadcopter" not in flattened
+    assert "valve" not in flattened

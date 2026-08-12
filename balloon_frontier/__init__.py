@@ -36,6 +36,12 @@ from .fill import (
 from .flight_score import calculate_flight_score
 from .medal_tier import MedalTier, get_medal_tier, medal_tier_to_string
 
+# Foundational aerostat components (ordinary air, lightweight heated envelope,
+# and heater payloads) are registered before any transport builds its menus.
+from .aerostat import register_aerostat_catalog_extensions as _register_aerostat_catalog_extensions
+
+_register_aerostat_catalog_extensions()
+
 from .preset_fill_guard import install_nominal_preset_fill as _install_nominal_preset_fill
 
 _install_nominal_preset_fill()

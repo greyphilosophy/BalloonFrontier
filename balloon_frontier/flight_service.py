@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Optional
 
+from balloon_frontier.aerostat import (
+    configured_simulation_state,
+    safety_notes_for_request,
+)
 from balloon_frontier.atmosphere import (
     AtmosphereProvider,
     current_atmosphere_provider,
@@ -17,7 +21,6 @@ from balloon_frontier.launch_result import (
     LaunchRequest,
     MissionAssignment,
     MissionResult,
-    TelemetryPoint,
     telemetry_list_to_points,
 )
 from balloon_frontier.medal_tier import get_medal_emoji, medal_tier_to_string
@@ -30,7 +33,6 @@ from balloon_frontier.mission_selection import (
 from balloon_frontier.progression import PlayerRegistryRepository
 from balloon_frontier.reward_service import RewardService
 from balloon_frontier.simulation import (
-    EnvelopeConfig,
     SimulationState,
     run_simulation as run_full_simulation,
 )
@@ -55,6 +57,7 @@ class FlightOutcome:
     weather: Optional[WeatherEvent] = None
     mission_assignment: Optional[MissionAssignment] = None
     mission_results: tuple[MissionResult, ...] = ()
+    safety_notes: tuple[str, ...] = ()
     weather_impacts: dict = field(default_factory=dict)
     atmosphere_provider: AtmosphereProvider | None = None
 
@@ -74,6 +77,25 @@ class LaunchPreparation:
 
 class FlightServiceError(Exception):
     """Raised when flight simulation fails."""
+
+
+def _state_with_weather_impacts(
+    state: SimulationState,
+    impacts: dict,
+) -> SimulationState:
+    """Return a weather-adjusted state copy without mutating preparation data."""
+    envelope = replace(
+        state.envelope,
+        weather_burst_risk_modifier=impacts.get("burst_risk", 1.0),
+        weather_solar_modifier=impacts.get("thermal_efficiency", 1.0),
+        weather_pressure_modifier=impacts.get("pressure_modifier", 1.0),
+    )
+    return replace(
+        state,
+        envelope=envelope,
+        weather_ascent_multiplier=impacts.get("ascent_rate", 1.0),
+        weather_drift_multiplier=impacts.get("drift_factor", 1.0),
+    )
 
 
 class FlightService:
@@ -128,7 +150,10 @@ class FlightService:
             or weather_column
         )
         with use_atmosphere(provider):
-            sim_state = req.to_simulation_state()
+            sim_state = configured_simulation_state(
+                req,
+                req.to_simulation_state(),
+            )
 
         payload_count = len(payload_keys) if payload_keys else 0
         mission_count = choose_mission_count(payload_count)
@@ -152,7 +177,6 @@ class FlightService:
 
     def run(self, launch_request: LaunchRequest) -> FlightOutcome:
         """Execute the full flight pipeline under the selected atmosphere."""
-
         try:
             with use_atmosphere(self.atmosphere_provider):
                 return self._run_active(launch_request)
@@ -172,27 +196,20 @@ class FlightService:
         prep: LaunchPreparation,
         provider: AtmosphereProvider | None,
     ) -> FlightOutcome:
-        if prep.weather:
-            impacts = prep.weather_impacts
-            prep.sim_state.envelope.weather_burst_risk_modifier = impacts.get(
-                "burst_risk", 1.0
-            )
-            prep.sim_state.envelope.weather_solar_modifier = impacts.get(
-                "thermal_efficiency", 1.0
-            )
-            prep.sim_state.envelope.weather_pressure_modifier = impacts.get(
-                "pressure_modifier", 1.0
-            )
-            prep.sim_state.weather_ascent_multiplier = impacts.get("ascent_rate", 1.0)
-            prep.sim_state.weather_drift_multiplier = impacts.get("drift_factor", 1.0)
+        sim_state = (
+            _state_with_weather_impacts(prep.sim_state, prep.weather_impacts)
+            if prep.weather
+            else prep.sim_state
+        )
 
+        safety_notes = safety_notes_for_request(launch_request)
         assignment_dict = prep.mission_assignment or {}
         is_mission = bool(assignment_dict.get("mission_ids"))
         max_time = self.mission_sim_time if is_mission else self.default_sim_time
         max_steps = int(max_time / 0.1)
         step_interval = self.mission_step_interval if is_mission else None
         telemetry = run_full_simulation(
-            prep.sim_state,
+            sim_state,
             dt=0.1,
             total_time_s=max_time,
             max_steps=max_steps,
@@ -208,6 +225,7 @@ class FlightService:
                 result=FlightResult(telemetry=(), launch_request=launch_request),
                 weather=prep.weather,
                 mission_assignment=mission_assignment,
+                safety_notes=safety_notes,
                 weather_impacts=prep.weather_impacts,
                 atmosphere_provider=provider,
             )
@@ -246,6 +264,7 @@ class FlightService:
             weather=prep.weather,
             mission_assignment=mission_assignment,
             mission_results=mission_results,
+            safety_notes=safety_notes,
             weather_impacts=prep.weather_impacts,
             atmosphere_provider=provider,
         )
@@ -253,7 +272,6 @@ class FlightService:
 
 def _scenario_for_weather(weather: WeatherEvent) -> str:
     """Keep narrative weather and the hidden vertical column broadly consistent."""
-
     name = weather.name.lower()
     if "jet stream" in name:
         return "jet_stream"

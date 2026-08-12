@@ -103,8 +103,9 @@ class TestSimulationStep:
         assert abs(result["velocity_mps"]) < 100  # Sanity bound
 
     def test_heavy_balloon_accelerates_downward(self):
-        """Very heavy payload causes negative (downward) acceleration."""
+        """A very heavy airborne payload accelerates downward."""
         s = SimulationState(
+            altitude_m=100.0,
             gas_mass_kg=1.0,
             gas_type="helium",
             payload_mass_kg=100.0,
@@ -292,8 +293,7 @@ class TestBurstDetection:
         assert telemetry[-1]["landed"] is True
 
     def test_zero_pressure_balloon_does_not_burst_from_overflow(self):
-        """Zero-pressure balloons vent excess gas, so they don't typically burst
-        from volume expansion alone."""
+        """A burst envelope becomes open, dumps gas, and continues to landing."""
         env = EnvelopeConfig(
             max_volume_m3=10.0,
             burst_stretch_ratio=2.5,
@@ -605,8 +605,7 @@ class TestTemperatureDrivenBuoyancy:
         assert alt_hot > alt_cold
 
     def test_buoyancy_formula_consistency_with_temperature(self):
-        """Verify the buoyancy formula: F_buoy = (rho_air - rho_gas) * g * V
-        where both V and rho_gas depend on gas_temperature_k."""
+        """Telemetry buoyancy is the weight of displaced ambient air."""
         s = SimulationState(
             gas_mass_kg=10.0, gas_type="helium",
             gas_temperature_k=300.0,
@@ -614,17 +613,13 @@ class TestTemperatureDrivenBuoyancy:
             envelope=EnvelopeConfig(max_volume_m3=200.0, mass_kg=2.0),
         )
         r = simulation_step(s)
-        # Recompute buoyancy from the *post-step* state (temp/mass may have changed)
-        from balloon_frontier.physics import (
-            gas_volume, gas_density, atmosphere_density,
-            atmosphere_pressure,
-        )
+        # Recompute Archimedean buoyancy from the post-step state. Gas weight is
+        # already included in total vehicle weight and must not be subtracted here.
+        from balloon_frontier.physics import gas_volume, atmosphere_density, atmosphere_pressure
         P = atmosphere_pressure(max(0.0, s.altitude_m))
         V = gas_volume(s.gas_mass_kg, s.gas_type, s.gas_temperature_k, P)
-        rho_gas = gas_density(s.gas_type, s.gas_temperature_k, P)
         rho_air = atmosphere_density(max(0.0, s.altitude_m))
-        expected_buoyancy = (rho_air - rho_gas) * G * V
-        # The telemetry buoyancy matches the formula with post-step state
+        expected_buoyancy = rho_air * G * V
         assert abs(r["buoyancy_N"] - expected_buoyancy) < 0.01
 
     def test_temperature_delta_k_resolves_gas_temperature_and_lift_sign(self):
