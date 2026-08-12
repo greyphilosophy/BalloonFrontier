@@ -27,13 +27,22 @@ class PayloadFeedbackConfiguratorMixin:
         return PAYLOAD_OPTIONS
 
     def _equipped_payload_summary(self) -> str:
+        """Describe the actual equipped loadout, including non-toggle essentials."""
+        from balloon_frontier.catalog import CATALOG
+
         options = self._payload_feedback_options()
-        selected = set(self.state.get("payloads") or ("none",))
-        names = [
-            payload[0]
-            for key, payload in options.items()
-            if key in selected and key != "none"
-        ]
+        selected = tuple(
+            pid for pid in (self.state.get("payloads") or ("none",)) if pid != "none"
+        )
+        names: list[str] = []
+        for key in selected:
+            if key in options:
+                names.append(options[key][0])
+                continue
+            try:
+                names.append(CATALOG.payload(key).name)
+            except KeyError:
+                names.append(key)
         return ", ".join(names) if names else "None"
 
     async def _on_payload(self, interaction, index: int):
@@ -50,7 +59,7 @@ class PayloadFeedbackConfiguratorMixin:
         selected_name = options[selected_key][0]
         current = set(self.state.get("payloads") or ("none",))
         if selected_key == "none":
-            self._payload_toggle_feedback = "🧹 **Payloads cleared.**"
+            self._payload_toggle_feedback = "🧹 **Optional payloads cleared.**"
         elif selected_key in current:
             self._payload_toggle_feedback = f"➖ **Removed:** {selected_name}"
         else:
@@ -91,7 +100,7 @@ class PayloadFeedbackConfiguratorMixin:
                 continue
             key = keys[index]
             item.label = (
-                "Clear payloads"
+                "Clear optional payloads"
                 if key == "none"
                 else f"Toggle {options[key][0]}"
             )
