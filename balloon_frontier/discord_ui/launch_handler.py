@@ -422,9 +422,12 @@ async def run_launch(
                     envelope_id=state["envelope"],
                     payload_ids=tuple(state.get("payloads") or ()),
                 )
-            except (discord.HTTPException, OSError, ValueError):
+            except Exception:
+                # The flight has already completed successfully. Animation is
+                # presentation-only, so renderer/encoding/upload failures must not
+                # suppress the actual flight report.
                 logger.warning(
-                    "Discord flight GIF rendering interrupted",
+                    "Discord flight GIF rendering or delivery interrupted",
                     exc_info=True,
                 )
             await _send_results(interaction, result_content)
