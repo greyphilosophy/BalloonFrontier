@@ -16,6 +16,18 @@ def _candle_request():
     )
 
 
+def test_safe_configuration_has_no_safety_notes():
+    request = LaunchRequest(
+        gas_id="helium",
+        envelope_id="latex",
+        payload_ids=("camera",),
+        launch_site_id="field",
+        fill_mode=FillMode.NORMAL,
+    )
+    assert risk_tags_for_request(request) == frozenset()
+    assert safety_notes_for_request(request) == ()
+
+
 def test_hydrogen_is_reported_as_flammable_without_being_banned_globally():
     request = LaunchRequest(
         gas_id="hydrogen",
@@ -25,6 +37,28 @@ def test_hydrogen_is_reported_as_flammable_without_being_banned_globally():
         fill_mode=FillMode.NORMAL,
     )
     assert "flammable_lifting_gas" in risk_tags_for_request(request)
+
+
+def test_combined_risk_configuration_reports_each_distinct_risk():
+    request = LaunchRequest(
+        gas_id="hydrogen",
+        envelope_id="candle_kite",
+        payload_ids=("candle_heater", "electric_heater"),
+        launch_site_id="field",
+        fill_mode=FillMode.NORMAL,
+    )
+    tags = risk_tags_for_request(request)
+    assert tags == frozenset(
+        {
+            "flammable_lifting_gas",
+            "heat_sensitive_envelope",
+            "open_flame",
+            "high_temperature_heat_source",
+        }
+    )
+    notes = safety_notes_for_request(request)
+    assert len(notes) == 4
+    assert len(set(notes)) == 4
 
 
 def test_candle_configuration_reports_open_flame_and_envelope_risks():
