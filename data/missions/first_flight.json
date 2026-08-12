@@ -1,7 +1,7 @@
 {
   "id": "first_flight",
   "title": "Your First Flight",
-  "description": "Launch a simple camera payload from the field and recover it safely using the same simulation rules as every other flight.",
+  "description": "Launch a simple camera payload from the field and recover it safely using the same simulation rules as every other flight. Experimental heat sources are allowed here and are reported with their safety factors rather than hidden from the simulator.",
   "launch_site": "field",
   "budget": 500,
   "required_payloads": ["camera"],
@@ -12,5 +12,6 @@
       "description": "Recover the camera payload without crashing."
     }
   ],
-  "difficulty": 1
+  "difficulty": 1,
+  "prohibited_risk_tags": []
 }
