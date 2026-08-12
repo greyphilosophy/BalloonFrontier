@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import discord
 
 from balloon_frontier.ascii_chart import chart_to_string
+from balloon_frontier.catalog import CATALOG
 from balloon_frontier.discord_ui.animator import DiscordFlightAnimator
 from balloon_frontier.flight_score import calculate_flight_score
 from balloon_frontier.flight_service import FlightService
@@ -283,18 +284,16 @@ async def run_launch(
             else "anonymous"
         )
         state = configurator.state
-        from balloon_frontier.discord_ui.configurator import (
-            ENVELOPE_OPTIONS,
-            GAS_OPTIONS,
-            PAYLOAD_OPTIONS,
-            SITE_OPTIONS,
-        )
+        from balloon_frontier.discord_ui.configurator import SITE_OPTIONS
 
-        gas_info = GAS_OPTIONS[state["gas"]]
-        env_info = ENVELOPE_OPTIONS[state["envelope"]]
+        gas_definition = CATALOG.gas(state["gas"])
+        envelope_definition = CATALOG.envelope(state["envelope"])
         site_info = SITE_OPTIONS[state["site"]]
-        payloads = [PAYLOAD_OPTIONS[p] for p in state["payloads"]]
-        payload_names = [p[0] for p in payloads]
+        payload_names = [
+            CATALOG.payload(pid).name
+            for pid in state.get("payloads") or ()
+            if pid != "none"
+        ]
         gas_mass = state.get("gas_mass")
         if gas_mass is None:
             gas_mass = configurator._compute_gas_mass()
@@ -333,11 +332,7 @@ async def run_launch(
             }
             for tp in result_obj.telemetry
         ]
-        payload_display = (
-            "None"
-            if list(state.get("payloads") or []) == ["none"]
-            else ", ".join(payload_names)
-        )
+        payload_display = ", ".join(payload_names) or "None"
         chart_str = chart_to_string(
             [r["time"] for r in tel],
             [r["alt"] for r in tel],
@@ -368,9 +363,9 @@ async def run_launch(
             crashed=result_obj.crashed,
             time_of_flight=result_obj.duration_s,
             telemetry=tel,
-            gas_name=gas_info[0],
+            gas_name=gas_definition.name,
             gas_mass=launch_request.gas_mass_kg,
-            env_name=env_info[0],
+            env_name=envelope_definition.name,
             payload_names=payload_display,
             site_name=site_info.name,
             mission_assignment=assignment_dict,
@@ -423,9 +418,6 @@ async def run_launch(
                     payload_ids=tuple(state.get("payloads") or ()),
                 )
             except Exception:
-                # The flight has already completed successfully. Animation is
-                # presentation-only, so renderer/encoding/upload failures must not
-                # suppress the actual flight report.
                 logger.warning(
                     "Discord flight GIF rendering or delivery interrupted",
                     exc_info=True,
