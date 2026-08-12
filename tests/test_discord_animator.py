@@ -30,7 +30,7 @@ def moments():
     )
 
 
-def test_animator_sends_one_gif_without_explicit_message_edit():
+def test_animator_installs_one_gif_on_deferred_response():
     interaction = FakeInteraction()
     animator = DiscordFlightAnimator(duration_s=10)
 
@@ -47,11 +47,13 @@ def test_animator_sends_one_gif_without_explicit_message_edit():
     # Keep comfortably below Discord's baseline upload allowance even before any
     # account/server-specific file-size increases are considered.
     assert len(gif) < 8 * 1024 * 1024
-    interaction.edit_original_response.assert_not_awaited()
-    interaction.followup.send.assert_awaited_once()
-    sent = interaction.followup.send.await_args.kwargs
-    assert sent["content"] == "🎈 **Flight playback**"
-    assert sent["file"].filename == "balloon-flight.gif"
+    interaction.followup.send.assert_not_awaited()
+    interaction.edit_original_response.assert_awaited_once()
+    edit = interaction.edit_original_response.await_args.kwargs
+    assert edit["content"] == "🎈 **Flight playback**"
+    assert edit["view"] is None
+    assert len(edit["attachments"]) == 1
+    assert edit["attachments"][0].filename == "balloon-flight.gif"
 
     with Image.open(BytesIO(gif)) as image:
         assert image.is_animated
