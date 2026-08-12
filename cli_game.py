@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Balloon Frontier CLI game with compact ANSI launch playback."""
+"""Balloon Frontier CLI game with shared graphical-to-ANSI launch playback."""
 
 import argparse
 import os
@@ -185,8 +185,13 @@ def play(args=None):
     except Exception as exc:
         print(f"\n  Flight simulation failed: {exc}"); return
     TerminalFlightAnimator().play(
-        build_flight_moments(outcome.result.telemetry, max_frames=7),
-        speed=args.animation_speed, no_animation=args.no_animation, no_color=args.no_color)
+        build_flight_moments(outcome.result.telemetry, max_frames=18),
+        speed=args.animation_speed,
+        no_animation=args.no_animation,
+        no_color=args.no_color,
+        envelope_id="latex",
+        payload_ids=tuple(payloads),
+    )
     show_results(outcome, balloon_key, gas_type, gas_mass, payloads)
 
 
