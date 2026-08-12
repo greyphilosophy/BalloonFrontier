@@ -215,7 +215,11 @@ def _update_thermal_state(
         else min(ideal_volume, state.envelope.max_volume_m3)
     )
     inflation_fraction = actual_volume / max(state.envelope.max_volume_m3, 1e-12)
-    area = spherical_area(max(actual_volume, 1e-12))
+
+    # ``spherical_area`` is the frontal/cross-sectional area used by drag.
+    # The surface area of a sphere is 4*pi*r^2, four times that cross-section.
+    # Thermal exchange belongs to the membrane surface, not the drag silhouette.
+    envelope_surface_area_m2 = 4.0 * spherical_area(max(actual_volume, 1e-12))
 
     flows = calculate_balloon_heat_flows(
         altitude_m=max(0.0, state.altitude_m),
@@ -226,7 +230,7 @@ def _update_thermal_state(
             state.envelope.envelope_absorptivity * weather_solar_modifier
         ),
         envelope_emissivity=state.envelope.envelope_emissivity,
-        envelope_area_m2=area,
+        envelope_area_m2=envelope_surface_area_m2,
         envelope_mass_kg=state.envelope.mass_kg,
         heater_power_watts=state.heater_power_watts,
         equipment_heat_watts=state.equipment_heat_watts,
