@@ -146,6 +146,10 @@ def show_results(outcome: FlightOutcome, balloon_key, gas_type, gas_mass, payloa
     print(f"  Result:      {'CRASHED' if result.crashed else 'BURST' if result.burst else 'LANDED' if result.landed else 'COMPLETE'}")
     print(f"  Score:       {outcome.score:.1f}")
     print(f"  Medal:       {outcome.medal_emoji} {outcome.medal_name}")
+    if outcome.safety_notes:
+        print("\n  Safety factors:")
+        for note in outcome.safety_notes:
+            print(f"    ⚠ {note}")
     if outcome.weather: print(f"\n  Weather:     {outcome.weather.name or 'Clear'}")
     if outcome.mission_assignment and outcome.mission_assignment.mission_ids:
         print(f"\n  Missions:    {', '.join(outcome.mission_assignment.mission_ids)}")
