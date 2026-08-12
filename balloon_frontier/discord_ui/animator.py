@@ -17,7 +17,7 @@ from balloon_frontier.presentation import (
 
 
 class DiscordFlightAnimator:
-    """Encode a complete flight montage and deliver it through the interaction webhook."""
+    """Encode a complete flight montage and install it on the deferred response."""
 
     def __init__(self, *, duration_s: float = 10.0, ticks_per_moment: int = 2) -> None:
         self.duration_s = min(15.0, max(8.0, float(duration_s)))
@@ -123,15 +123,13 @@ class DiscordFlightAnimator:
             envelope_id=envelope_id,
             payload_ids=payload_ids,
         )
-        followup = getattr(interaction, "followup", None)
-        if followup is None or not hasattr(followup, "send"):
-            raise RuntimeError("Discord interaction does not support follow-up delivery")
         file = discord.File(io.BytesIO(gif), filename="balloon-flight.gif")
-        # The launch handler defers with thinking=True. discord.py completes that
-        # deferred response when the first follow-up is sent, so there is no need
-        # for an explicit edit_original_response() here.
-        await followup.send(
+        # run_launch defers with thinking=True. Discord documents the historical
+        # first-followup-as-original shortcut as deprecated, so complete the
+        # deferred response through the supported original-response edit instead.
+        await interaction.edit_original_response(
             content="🎈 **Flight playback**",
-            file=file,
+            attachments=[file],
+            view=None,
         )
         return gif
