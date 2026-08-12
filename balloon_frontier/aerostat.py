@@ -4,10 +4,10 @@ This module deliberately separates *what a component is* from the equations that
 fly it. Air, helium, hydrogen, methane, heaters, and envelope materials all feed
 the same thermodynamic simulation; there is no special ``hot air`` vehicle mode.
 
-Thermal, fill, and safety calculations are expressed as pure functions over
-immutable component profiles. Catalog registration remains an initialization
-boundary for the existing catalog API; flight preparation itself does not mutate
-caller-owned configuration objects.
+Thermal, fill, safety, and control capability calculations are expressed as pure
+functions over immutable component profiles. Catalog registration remains an
+initialization boundary for the existing catalog API; flight preparation itself
+does not mutate caller-owned configuration objects.
 """
 
 from __future__ import annotations
@@ -133,6 +133,14 @@ HEAT_SOURCE_PROFILES: dict[str, HeatSourceProfile] = {
 }
 
 
+# Maximum horizontal acceleration a control payload can command while trying to
+# remain over its launch point.  The controller itself lives in simulation.py;
+# this table is only immutable equipment capability data.
+HORIZONTAL_CONTROL_ACCEL_MPS2: dict[str, float] = {
+    "quadcopter": 2.5,
+}
+
+
 GAS_RISK_TAGS: dict[str, tuple[str, ...]] = {
     "hydrogen": ("flammable_lifting_gas",),
     "methane": ("flammable_lifting_gas",),
@@ -172,6 +180,14 @@ def heat_source_power_watts(payload_ids: Iterable[str]) -> float:
         HEAT_SOURCE_PROFILES[pid].coupled_power_watts
         for pid in payload_ids
         if pid in HEAT_SOURCE_PROFILES
+    )
+
+
+def horizontal_control_accel_mps2(payload_ids: Iterable[str]) -> float:
+    """Return the strongest installed horizontal station-keeping authority."""
+    return max(
+        (HORIZONTAL_CONTROL_ACCEL_MPS2.get(pid, 0.0) for pid in payload_ids),
+        default=0.0,
     )
 
 
@@ -272,6 +288,9 @@ def configured_simulation_state(request, state):
         state,
         gas_mass_kg=resolved_gas_mass_kg(request),
         heater_power_watts=heat_source_power_watts(request.payload_ids),
+        horizontal_control_accel_mps2=horizontal_control_accel_mps2(
+            request.payload_ids
+        ),
         envelope=envelope,
     )
 
@@ -316,5 +335,20 @@ def register_aerostat_catalog_extensions() -> None:
                 20,
                 False,
                 capabilities=("heating",),
+            )
+        )
+    if "quadcopter" not in CATALOG._payloads:
+        CATALOG._register(
+            PayloadDefinition(
+                "quadcopter",
+                "Small Quadcopter",
+                0.25,
+                250,
+                False,
+                capabilities=(
+                    "powered_flight",
+                    "horizontal_control",
+                    "camera_stabilization",
+                ),
             )
         )
