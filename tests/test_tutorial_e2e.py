@@ -86,7 +86,7 @@ def test_first_flight_limits_choices_without_tutorial_signposting(monkeypatch):
     configurator._current_step = _Step.CHOOSE_PAYLOADS
     configurator.build_buttons()
     payload_content = configurator._step_content()
-    assert "Essential payloads:" in payload_content
+    assert "Essential payloads (provided):" in payload_content
     assert "Camera" in payload_content
     assert "Small Quadcopter" in payload_content
     assert "Parachute" in payload_content
