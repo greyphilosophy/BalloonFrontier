@@ -2,9 +2,9 @@
 
 Lumped-capacitance thermal model for lighter-than-air vehicles.
 
-Heat sources contribute power in watts.  Gas identity is independent of
-thermal state: ordinary air becomes less dense because its temperature rises,
-not because the simulator changes it into a special ``hot air`` substance.
+Heat sources contribute power in watts. Gas identity is independent of thermal
+state: ordinary air becomes less dense because its temperature rises, not
+because the simulator changes it into a special ``hot air`` substance.
 
 Q_dot = Q_solar + Q_heater + Q_equipment - Q_convection - Q_radiation
         - Q_envelope
@@ -43,17 +43,17 @@ def solar_flux_at_altitude(altitude_m: float) -> float:
 
 
 def solar_absorbed(flux: float, absorptivity: float, area_m2: float) -> float:
-    """Heat gained from solar absorption: Q = α * S * A (Watts)."""
+    """Heat gained from solar absorption: Q = α * S * projected area."""
     return flux * absorptivity * area_m2
 
 
 def ir_radiated(emissivity: float, area_m2: float, temp_K: float, temp_env_K: float) -> float:
-    """Net IR radiation: Q = ε * σ * A * (T^4 - T_env^4) (Watts)."""
+    """Net IR radiation: Q = ε * σ * surface area * (T^4 - T_env^4)."""
     return emissivity * STEFAN_BOLTZMANN * area_m2 * (temp_K ** 4 - temp_env_K ** 4)
 
 
 def convective_heat_transfer(convection_coefficient: float, area_m2: float, temp_K: float, temp_air_K: float) -> float:
-    """Convective heat flow: Q = h * A * (T - T_air) (Watts)."""
+    """Convective heat flow: Q = h * surface area * (T - T_air)."""
     return convection_coefficient * area_m2 * (temp_K - temp_air_K)
 
 
@@ -65,9 +65,9 @@ def effective_thermal_resistance(
 ) -> float:
     """Return effective envelope resistance after inflation/stretch.
 
-    Flexible membranes generally get thinner as they stretch.  The model keeps
+    Flexible membranes generally get thinner as they stretch. The model keeps
     nominal resistance until ``stretch_start_fraction`` and then decreases it as
-    a power law.  An exponent of zero represents a non-stretch-sensitive skin.
+    a power law. An exponent of zero represents a non-stretch-sensitive skin.
     """
     nominal = max(1e-4, float(nominal_resistance_m2_k_w))
     start = max(1e-6, float(stretch_start_fraction))
@@ -117,17 +117,28 @@ def calculate_balloon_heat_flows(
     inflation_fraction: float = 1.0,
     inflation_heat_loss_exponent: float = 0.0,
     stretch_start_fraction: float = 1.0,
+    solar_projected_area_m2: float | None = None,
 ) -> dict:
     """Calculate thermal power flows for one gas/envelope state.
 
+    ``envelope_area_m2`` is the full membrane surface used for convection,
+    radiation, and through-envelope heat transfer. Solar input uses projected
+    area; callers may provide it separately with ``solar_projected_area_m2``.
+    Omitting the projected area preserves compatibility with older direct calls.
+
     ``thermal_resistance_m2_k_w=None`` preserves the legacy membrane model.
-    New material-aware callers provide the envelope resistance and current
-    inflation fraction so stretching can alter heat loss continuously.
+    Material-aware callers provide the envelope resistance and current inflation
+    fraction so stretching can alter heat loss continuously.
     """
     ambient_temp = atmosphere_temperature(altitude_m)
     solar_flux = solar_flux_at_altitude(altitude_m)
+    projected_area = (
+        envelope_area_m2
+        if solar_projected_area_m2 is None
+        else max(0.0, float(solar_projected_area_m2))
+    )
 
-    Q_solar = solar_absorbed(solar_flux, envelope_absorptivity, envelope_area_m2)
+    Q_solar = solar_absorbed(solar_flux, envelope_absorptivity, projected_area)
     Q_radiation = ir_radiated(envelope_emissivity, envelope_area_m2, gas_temp_K, ambient_temp)
     Q_convection = convective_heat_transfer(0.5, envelope_area_m2, gas_temp_K, ambient_temp)
     Q_heater = max(0.0, float(heater_power_watts))
@@ -182,7 +193,7 @@ def gas_temperature_update(
 ) -> float:
     """Update any gas from its energy balance.
 
-    Production simulation uses watt-valued heat flows exclusively.  The
+    Production simulation uses watt-valued heat flows exclusively. The
     ``target_heater_temp_K`` argument remains only as a generic compatibility
     thermostat for older callers; it is intentionally *not* keyed to hot air.
     """
@@ -207,7 +218,7 @@ def _compatibility_thermostat_update(
     """Legacy generic thermostat response retained for old direct callers.
 
     No production flight path uses this controller; real heater components feed
-    watts into the energy ledger.  Keeping it generic prevents ``hot_air`` from
+    watts into the energy ledger. Keeping it generic prevents ``hot_air`` from
     remaining a privileged gas type while preserving source compatibility.
     """
     if gas_temp_K < target_temp_K:
