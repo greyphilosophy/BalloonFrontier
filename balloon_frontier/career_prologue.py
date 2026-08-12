@@ -198,22 +198,6 @@ class DiscoveryFirstFlightConfiguratorMixin:
         from balloon_frontier.discord_ui.configurator import _Step
         from balloon_frontier.story import FIRST_FLIGHT_CHAPTER, story_chapter_intro
 
-        chapter = replace(
-            FIRST_FLIGHT_CHAPTER,
-            introduction=(
-                "You have a balloon, a camera, a small quadcopter, and access to "
-                "your school athletic field. Start with a small set of choices, "
-                "make a real launch, and learn from what the same simulation used "
-                "everywhere else says happened. There is no hidden training physics "
-                "and no prescribed winning configuration."
-            ),
-            primary_objective=(
-                "Use the camera-equipped, balloon-assisted quadcopter to take aerial "
-                "pictures of the school from the athletic field and recover it "
-                "without crashing."
-            ),
-        )
-
         if self._current_step == _Step.REVIEW_LAUNCH:
             configuration = self._build_config_text()
         else:
@@ -241,11 +225,9 @@ class DiscoveryFirstFlightConfiguratorMixin:
                     lines.append(f"     {fill['description']}")
             elif self._current_step == _Step.CHOOSE_PAYLOADS:
                 required = [CATALOG.payload(pid) for pid in FIRST_FLIGHT_REQUIRED_PAYLOADS]
-                lines.append("Essential payloads:")
+                lines.append("Essential payloads (provided):")
                 for payload in required:
-                    lines.append(
-                        f"•  {payload.name}  ({payload.mass_kg}kg, ${payload.cost})"
-                    )
+                    lines.append(f"•  {payload.name}  ({payload.mass_kg}kg)")
                 lines.append("Optional additions:")
                 for index, payload in enumerate(options.values(), 1):
                     lines.append(
@@ -267,7 +249,7 @@ class DiscoveryFirstFlightConfiguratorMixin:
             configuration = "\n".join(lines)
 
         return story_chapter_intro(
-            chapter,
+            FIRST_FLIGHT_CHAPTER,
             include_disclaimer=False,
         ) + "\n\n" + configuration
 
