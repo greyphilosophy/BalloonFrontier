@@ -1,15 +1,20 @@
 {
   "id": "first_flight",
   "title": "Your First Flight",
-  "description": "Launch a simple camera payload from the field and recover it safely using the same simulation rules as every other flight. Experimental heat sources are allowed here and are reported with their safety factors rather than hidden from the simulator.",
+  "description": "Launch a camera-equipped, balloon-assisted quadcopter from the school athletic field and recover it safely using the same simulation rules as every other flight. Experimental heat sources are allowed here and are reported with their safety factors rather than hidden from the simulator.",
   "launch_site": "field",
   "budget": 500,
-  "required_payloads": ["camera"],
+  "required_payloads": ["camera", "quadcopter"],
   "objectives": [
+    {
+      "type": "capture_photo",
+      "params": {"minimum_quality": 0.0002},
+      "description": "Use the stabilized camera payload to capture an aerial view of the school."
+    },
     {
       "type": "recover_data",
       "params": {},
-      "description": "Recover the camera payload without crashing."
+      "description": "Recover the camera and quadcopter without crashing."
     }
   ],
   "difficulty": 1,
