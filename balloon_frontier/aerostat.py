@@ -1,10 +1,10 @@
 """Unified lighter-than-air component properties.
 
 This module deliberately separates *what a component is* from the equations that
-fly it.  Air, helium, hydrogen, methane, heaters, and envelope materials all feed
+fly it. Air, helium, hydrogen, methane, heaters, and envelope materials all feed
 the same thermodynamic simulation; there is no special ``hot air`` vehicle mode.
 
-The catalog extensions here are small Story-facing components.  The thermal and
+The catalog extensions here are small Story-facing components. The thermal and
 risk profiles are kept separately so existing catalog dataclasses remain source
 compatible while the world model grows toward richer material data.
 """
@@ -30,7 +30,7 @@ class EnvelopeThermalProfile:
     """Thermal behavior of an envelope material/system.
 
     ``thermal_resistance_m2_k_w`` is an effective through-envelope + boundary
-    resistance used by the lumped model.  As an elastic envelope stretches its
+    resistance used by the lumped model. As an elastic envelope stretches its
     film gets thinner; ``inflation_heat_loss_exponent`` controls how quickly
     effective resistance falls once ``stretch_start_fraction`` is exceeded.
     """
@@ -41,6 +41,7 @@ class EnvelopeThermalProfile:
     absorptivity: float = 0.5
     emissivity: float = 0.8
     max_temperature_k: float = 450.0
+    permeability_per_s: float | None = None
     risk_tags: tuple[str, ...] = ()
 
     def effective_resistance(self, inflation_fraction: float) -> float:
@@ -107,6 +108,8 @@ ENVELOPE_THERMAL_PROFILES: dict[str, EnvelopeThermalProfile] = {
     ),
     # A very light open-bottom envelope: cheap and thermally leaky, but capable
     # of turning modest heat input into a density deficit if mass stays low.
+    # Bulk exchange through the open mouth is handled by zero-pressure venting;
+    # membrane permeation is therefore not an additional loss term here.
     "candle_kite": EnvelopeThermalProfile(
         thermal_resistance_m2_k_w=0.85,
         inflation_heat_loss_exponent=0.05,
@@ -114,6 +117,7 @@ ENVELOPE_THERMAL_PROFILES: dict[str, EnvelopeThermalProfile] = {
         absorptivity=0.45,
         emissivity=0.72,
         max_temperature_k=430.0,
+        permeability_per_s=0.0,
         risk_tags=("heat_sensitive_envelope",),
     ),
 }
@@ -126,7 +130,7 @@ HEAT_SOURCE_PROFILES: dict[str, HeatSourceProfile] = {
         coupling_efficiency=0.90,
         risk_tags=("high_temperature_heat_source",),
     ),
-    # Approximate small tea-light-scale heat release.  It is intentionally a
+    # Approximate small tea-light-scale heat release. It is intentionally a
     # model input, not a construction recommendation.
     "candle_heater": HeatSourceProfile(
         power_watts=80.0,
@@ -165,7 +169,6 @@ RISK_DESCRIPTIONS: dict[str, str] = {
 
 def envelope_thermal_profile(envelope_id: str) -> EnvelopeThermalProfile:
     """Return material/system thermal properties for an envelope ID."""
-
     return ENVELOPE_THERMAL_PROFILES.get(
         envelope_id,
         EnvelopeThermalProfile(thermal_resistance_m2_k_w=1.0),
@@ -174,7 +177,6 @@ def envelope_thermal_profile(envelope_id: str) -> EnvelopeThermalProfile:
 
 def heat_source_power_watts(payload_ids: Iterable[str]) -> float:
     """Total heat coupled into the gas by selected heater payloads."""
-
     return sum(
         HEAT_SOURCE_PROFILES[pid].coupled_power_watts
         for pid in payload_ids
@@ -184,7 +186,6 @@ def heat_source_power_watts(payload_ids: Iterable[str]) -> float:
 
 def risk_tags_for_request(request) -> frozenset[str]:
     """Collect safety-relevant material/method tags without changing physics."""
-
     tags: set[str] = set(GAS_RISK_TAGS.get(request.gas_id, ()))
     tags.update(envelope_thermal_profile(request.envelope_id).risk_tags)
     for pid in request.payload_ids:
@@ -196,7 +197,6 @@ def risk_tags_for_request(request) -> frozenset[str]:
 
 def safety_notes_for_request(request) -> tuple[str, ...]:
     """Human-readable score/report notes for selected risk-bearing components."""
-
     return tuple(
         RISK_DESCRIPTIONS[tag]
         for tag in sorted(risk_tags_for_request(request))
@@ -207,10 +207,9 @@ def safety_notes_for_request(request) -> tuple[str, ...]:
 def configure_simulation_state(request, state) -> None:
     """Apply request component properties to the shared simulation state.
 
-    The simulation still performs the equations.  This function only supplies
+    The simulation still performs the equations. This function only supplies
     component data: heater watts and material thermal parameters.
     """
-
     profile = envelope_thermal_profile(request.envelope_id)
     state.heater_power_watts = heat_source_power_watts(request.payload_ids)
     state.envelope.thermal_resistance_m2_k_w = profile.thermal_resistance_m2_k_w
@@ -219,6 +218,8 @@ def configure_simulation_state(request, state) -> None:
     state.envelope.envelope_absorptivity = profile.absorptivity
     state.envelope.envelope_emissivity = profile.emissivity
     state.envelope.max_temperature_k = profile.max_temperature_k
+    if profile.permeability_per_s is not None:
+        state.envelope.permeability = profile.permeability_per_s
 
 
 def register_aerostat_catalog_extensions() -> None:
@@ -228,7 +229,6 @@ def register_aerostat_catalog_extensions() -> None:
     using it here avoids duplicating lookup behavior while retaining the current
     catalog dataclass API.
     """
-
     if "air" not in CATALOG._gases:
         CATALOG._register(
             GasDefinition("air", "Air", AIR_MOLAR_MASS_KG_PER_MOL, 0, "neutral")
