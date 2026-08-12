@@ -4,10 +4,10 @@ This module deliberately separates *what a component is* from the equations that
 fly it. Air, helium, hydrogen, methane, heaters, and envelope materials all feed
 the same thermodynamic simulation; there is no special ``hot air`` vehicle mode.
 
-Thermal and safety calculations are expressed as pure functions over immutable
-component profiles. Catalog registration remains an initialization boundary for
-the existing catalog API; flight preparation itself does not mutate caller-owned
-configuration objects.
+Thermal, fill, and safety calculations are expressed as pure functions over
+immutable component profiles. Catalog registration remains an initialization
+boundary for the existing catalog API; flight preparation itself does not mutate
+caller-owned configuration objects.
 """
 
 from __future__ import annotations
@@ -18,9 +18,12 @@ from typing import Iterable
 from balloon_frontier.catalog import (
     CATALOG,
     EnvelopeDefinition,
+    FillMode,
     GasDefinition,
     PayloadDefinition,
 )
+from balloon_frontier.fill import apply_fill_mode
+from balloon_frontier.physics import atmosphere_pressure, atmosphere_temperature
 from balloon_frontier.thermal import effective_thermal_resistance
 
 
@@ -41,7 +44,6 @@ class EnvelopeThermalProfile:
     risk_tags: tuple[str, ...] = ()
 
     def effective_resistance(self, inflation_fraction: float) -> float:
-        """Return resistance after stretch using the shared thermal equation."""
         return effective_thermal_resistance(
             self.thermal_resistance_m2_k_w,
             inflation_fraction,
@@ -60,7 +62,6 @@ class HeatSourceProfile:
 
     @property
     def coupled_power_watts(self) -> float:
-        """Power reaching the gas after clamping efficiency to a physical range."""
         return max(0.0, self.power_watts) * min(
             1.0,
             max(0.0, self.coupling_efficiency),
@@ -100,8 +101,6 @@ ENVELOPE_THERMAL_PROFILES: dict[str, EnvelopeThermalProfile] = {
         emissivity=0.70,
         max_temperature_k=390.0,
     ),
-    # Open-bottom lightweight envelope. Bulk exchange through the mouth is
-    # handled by zero-pressure venting, so membrane permeation is not added too.
     "candle_kite": EnvelopeThermalProfile(
         thermal_resistance_m2_k_w=0.85,
         inflation_heat_loss_exponent=0.05,
@@ -121,8 +120,6 @@ HEAT_SOURCE_PROFILES: dict[str, HeatSourceProfile] = {
         coupling_efficiency=0.90,
         risk_tags=("high_temperature_heat_source",),
     ),
-    # Approximate tea-light-scale heat release. This is a simulation input, not
-    # a construction recommendation or a promise that the vehicle will fly.
     "candle_heater": HeatSourceProfile(
         power_watts=80.0,
         coupling_efficiency=0.72,
@@ -164,7 +161,6 @@ _DEFAULT_ENVELOPE_THERMAL_PROFILE = EnvelopeThermalProfile(
 
 
 def envelope_thermal_profile(envelope_id: str) -> EnvelopeThermalProfile:
-    """Return material/system thermal properties for an envelope ID."""
     return ENVELOPE_THERMAL_PROFILES.get(
         envelope_id,
         _DEFAULT_ENVELOPE_THERMAL_PROFILE,
@@ -172,7 +168,6 @@ def envelope_thermal_profile(envelope_id: str) -> EnvelopeThermalProfile:
 
 
 def heat_source_power_watts(payload_ids: Iterable[str]) -> float:
-    """Total heat coupled into the gas by selected heater payloads."""
     return sum(
         HEAT_SOURCE_PROFILES[pid].coupled_power_watts
         for pid in payload_ids
@@ -180,8 +175,65 @@ def heat_source_power_watts(payload_ids: Iterable[str]) -> float:
     )
 
 
+def fill_mass_for_configuration(
+    *,
+    gas_id: str,
+    envelope_id: str,
+    launch_site_id: str,
+    fill_mode: FillMode,
+    manual_gas_mass_kg: float | None = None,
+    balloon_size: str | None = None,
+    gas_temperature_delta_k: float | None = None,
+) -> float:
+    """Resolve gas mass through the shared fill equations for any UI/service."""
+    envelope = CATALOG.envelope(envelope_id)
+    balloon = CATALOG.balloon(balloon_size) if balloon_size else None
+    site = CATALOG.site(launch_site_id)
+
+    volume_m3 = balloon.max_volume_m3 if balloon else envelope.max_volume_m3
+    burst_ratio = (
+        balloon.burst_stretch_ratio if balloon else envelope.burst_stretch_ratio
+    )
+    launch_pressure = atmosphere_pressure(site.altitude_m)
+    launch_temperature = (
+        site.gas_temperature_k
+        if site.gas_temperature_k is not None
+        else atmosphere_temperature(site.altitude_m) + site.temperature_offset_k
+    )
+    if gas_temperature_delta_k is not None:
+        launch_temperature += gas_temperature_delta_k
+
+    return apply_fill_mode(
+        volume_m3,
+        gas_id,
+        fill_mode,
+        manual_mass_kg=manual_gas_mass_kg,
+        burst_stretch_ratio=burst_ratio,
+        envelope_type=envelope.id,
+        launch_altitude=site.altitude_m,
+        launch_pressure=launch_pressure,
+        gas_temperature=launch_temperature,
+        safe_fill_data={
+            "burst_stretch_ratio": burst_ratio,
+            "safe_fill_fraction": envelope.safe_fill_fraction,
+        },
+    )
+
+
+def resolved_gas_mass_kg(request) -> float:
+    """Pure adapter from an immutable LaunchRequest to the shared fill function."""
+    return fill_mass_for_configuration(
+        gas_id=request.gas_id,
+        envelope_id=request.envelope_id,
+        launch_site_id=request.launch_site_id,
+        fill_mode=request.fill_mode,
+        manual_gas_mass_kg=request.manual_gas_mass_kg,
+        balloon_size=request.balloon_size,
+        gas_temperature_delta_k=request.gas_temperature_delta_k,
+    )
+
+
 def risk_tags_for_request(request) -> frozenset[str]:
-    """Collect safety-relevant material/method tags without changing physics."""
     tags: set[str] = set(GAS_RISK_TAGS.get(request.gas_id, ()))
     tags.update(envelope_thermal_profile(request.envelope_id).risk_tags)
     for pid in request.payload_ids:
@@ -192,7 +244,6 @@ def risk_tags_for_request(request) -> frozenset[str]:
 
 
 def safety_notes_for_request(request) -> tuple[str, ...]:
-    """Human-readable score/report notes for selected risk-bearing components."""
     return tuple(
         RISK_DESCRIPTIONS[tag]
         for tag in sorted(risk_tags_for_request(request))
@@ -201,12 +252,7 @@ def safety_notes_for_request(request) -> tuple[str, ...]:
 
 
 def configured_simulation_state(request, state):
-    """Return a configured simulation-state copy for the selected components.
-
-    This is intentionally a pure transformation. Neither ``state`` nor its
-    nested envelope is modified, which keeps preparation deterministic and
-    prevents configuration from leaking between simulations.
-    """
+    """Return a configured simulation-state copy without mutating the input."""
     profile = envelope_thermal_profile(request.envelope_id)
     envelope = replace(
         state.envelope,
@@ -224,17 +270,14 @@ def configured_simulation_state(request, state):
     )
     return replace(
         state,
+        gas_mass_kg=resolved_gas_mass_kg(request),
         heater_power_watts=heat_source_power_watts(request.payload_ids),
         envelope=envelope,
     )
 
 
 def register_aerostat_catalog_extensions() -> None:
-    """Register foundational air/heater/envelope components once.
-
-    The existing catalog is a process-wide registry, so this function is kept as
-    an explicit initialization boundary. Domain calculations above remain pure.
-    """
+    """Register foundational components at the existing registry boundary."""
     if "air" not in CATALOG._gases:
         CATALOG._register(
             GasDefinition("air", "Air", AIR_MOLAR_MASS_KG_PER_MOL, 0, "neutral")
