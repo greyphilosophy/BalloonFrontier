@@ -150,7 +150,7 @@ class GraphicFlightSceneRenderer:
         moment = frame.moment
         center_x = self.width // 2 + frame.balloon_offset_x * 7
         terminal = moment.phase in {FlightPhase.LANDED, FlightPhase.CRASHED}
-        center_y = 119 if terminal else 82
+        center_y = 86 if terminal else 82
 
         if moment.phase == FlightPhase.BURST:
             self._draw_burst(draw, center_x, center_y)
@@ -198,16 +198,12 @@ class GraphicFlightSceneRenderer:
             if payload_id and payload_id != "none"
         )
         if not visible_payloads and payload_ids:
-            # "none" is an explicit gameplay choice. Leave the suspension lines
-            # empty rather than inventing a generic payload for that selection.
             draw.ellipse(
                 (center_x - 2, payload_top - 1, center_x + 2, payload_top + 3),
                 fill=(55, 57, 63),
             )
             return
         if not visible_payloads:
-            # Callers without loadout context still get a generic payload so the
-            # vehicle silhouette remains useful in isolated presentation tests.
             visible_payloads = ("payload",)
 
         primary = visible_payloads[0]
@@ -318,7 +314,13 @@ class GraphicFlightSceneRenderer:
             outline=(92, 42, 38),
             width=2,
         )
-        draw.arc((x - 13, top + 4, x + 13, top + 23), 180, 360, fill=(250, 224, 181), width=2)
+        draw.arc(
+            (x - 13, top + 4, x + 13, top + 23),
+            180,
+            360,
+            fill=(250, 224, 181),
+            width=2,
+        )
         draw.line((x, top + 13, x, top + 25), fill=(250, 224, 181), width=2)
         draw.line((x - 12, top + 13, x, top + 25), fill=(250, 224, 181), width=1)
         draw.line((x + 12, top + 13, x, top + 25), fill=(250, 224, 181), width=1)
