@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 from collections.abc import Sequence
+from functools import partial
 
 import discord
 from PIL import Image
@@ -91,9 +92,6 @@ class DiscordFlightAnimator:
         total_ms = round(self.duration_s * 1000)
         if frame_count <= 1:
             return [total_ms]
-
-        # Hold the completed flight slightly longer so Discord users can read the
-        # terminal state before the animation loops.
         final_hold_ms = min(1400, max(700, total_ms // 6))
         remaining_ms = max(frame_count - 1, total_ms - final_hold_ms)
         base_ms, remainder = divmod(remaining_ms, frame_count - 1)
@@ -114,19 +112,14 @@ class DiscordFlightAnimator:
     ) -> bytes | None:
         if not moments:
             return None
-
-        # Rendering and GIF encoding are CPU-bound Pillow work. Keep them off the
-        # Discord event loop so one launch cannot stall unrelated bot callbacks.
-        gif = await asyncio.to_thread(
+        render = partial(
             self.render_gif,
             moments,
             envelope_id=envelope_id,
             payload_ids=payload_ids,
         )
+        gif = await asyncio.get_running_loop().run_in_executor(None, render)
         file = discord.File(io.BytesIO(gif), filename="balloon-flight.gif")
-        # run_launch defers with thinking=True. Discord documents the historical
-        # first-followup-as-original shortcut as deprecated, so complete the
-        # deferred response through the supported original-response edit instead.
         await interaction.edit_original_response(
             content="🎈 **Flight playback**",
             attachments=[file],
