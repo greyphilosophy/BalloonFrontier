@@ -216,18 +216,34 @@ def _build_next_action_view(configurator, interaction, result):
 
 
 async def _attach_next_action_prompt(interaction, continue_view) -> bool:
+    """Deliver Story continuation without rewriting a successful flight GIF."""
     if continue_view is None:
         return False
 
-    kwargs = {"view": continue_view}
-    if _split_delivery_active.get() and not _split_followup_failed.get():
-        kwargs["content"] = _NEXT_ACTION_PROMPT
+    split_active = _split_delivery_active.get()
+    followup = getattr(interaction, "followup", None)
+    can_follow_up = followup is not None and hasattr(followup, "send")
+    followup_failed = _split_followup_failed.get()
 
     try:
+        if split_active and can_follow_up and not followup_failed:
+            await followup.send(
+                content=_NEXT_ACTION_PROMPT,
+                view=continue_view,
+            )
+            return True
+
+        # Outside the split First Flight scope, preserve the legacy contract:
+        # attach only the view and never rewrite the existing message content.
+        # Inside the split scope, add the prompt only when no prior follow-up
+        # failure has already forced the report onto the original response.
+        kwargs = {"view": continue_view}
+        if split_active and not followup_failed:
+            kwargs["content"] = _NEXT_ACTION_PROMPT
         await interaction.edit_original_response(**kwargs)
     except Exception:
         logger.warning(
-            "First flight completed, but continuation controls could not be attached",
+            "First flight completed, but continuation controls could not be delivered",
             exc_info=True,
         )
         return False

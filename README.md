@@ -19,7 +19,7 @@ A playable balloon building simulator with realistic physics, CLI game interface
 cd BalloonFrontier
 python3 -m venv venv
 source venv/bin/activate
-pip install pytest discord.py
+pip install -r requirements.txt pytest
 ```
 
 ## CLI Game
@@ -171,7 +171,7 @@ Weather is seeded deterministically from the launch configuration (gas, envelope
 ```bash
 python3 -m venv venv
 source venv/bin/activate
-pip install discord.py
+pip install -r requirements.txt
 python3 start_bot.py
 ```
 

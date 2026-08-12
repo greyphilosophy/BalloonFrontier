@@ -1,4 +1,4 @@
-"""Discord launch execution, ANSI playback, and result delivery."""
+"""Discord launch execution, GIF playback, and result delivery."""
 
 import asyncio
 import logging
@@ -413,16 +413,21 @@ async def run_launch(
         if supports_followup:
             moments = build_flight_moments(
                 result_obj.telemetry,
-                max_frames=7,
+                max_frames=18,
             )
             try:
-                await DiscordFlightAnimator(duration_s=3.5).play(
+                await DiscordFlightAnimator(duration_s=10.0).play(
                     interaction,
                     moments,
+                    envelope_id=state["envelope"],
+                    payload_ids=tuple(state.get("payloads") or ()),
                 )
-            except (discord.HTTPException, ValueError):
+            except Exception:
+                # The flight has already completed successfully. Animation is
+                # presentation-only, so renderer/encoding/upload failures must not
+                # suppress the actual flight report.
                 logger.warning(
-                    "Discord flight animation interrupted",
+                    "Discord flight GIF rendering or delivery interrupted",
                     exc_info=True,
                 )
             await _send_results(interaction, result_content)
