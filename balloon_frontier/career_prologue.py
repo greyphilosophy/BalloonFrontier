@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from balloon_frontier.catalog import CATALOG
-from balloon_frontier.launch_result import FillMode, LaunchRequest
+from balloon_frontier.fill import FillMode, apply_fill_mode
 
 
 FIRST_FLIGHT_OPTION_KEYS = {
@@ -31,13 +31,11 @@ def needs_first_flight(player_id: str | int | None) -> bool:
 
 
 def _gas_option(gas_id: str) -> tuple[str, float, int]:
-    """Return the legacy Discord tuple for a canonical gas definition."""
     gas = CATALOG.gas(gas_id)
     return gas.name, gas.molar_mass, gas.cost_per_kg
 
 
 def _envelope_option(envelope_id: str) -> tuple[str, float, float, float, float, int]:
-    """Return the legacy Discord tuple for a canonical envelope definition."""
     envelope = CATALOG.envelope(envelope_id)
     return (
         envelope.name,
@@ -50,7 +48,6 @@ def _envelope_option(envelope_id: str) -> tuple[str, float, float, float, float,
 
 
 def _payload_option(payload_id: str) -> tuple[str, float, int, bool]:
-    """Return the legacy Discord tuple for a canonical payload definition."""
     if payload_id == "none":
         return "None", 0.0, 0, False
     payload = CATALOG.payload(payload_id)
@@ -71,25 +68,12 @@ def toggle_payload_selection(
     return current + (selected,)
 
 
-def _request_from_state(state: dict) -> LaunchRequest:
-    """Build an immutable launch request from configurator state."""
-    return LaunchRequest(
-        gas_id=state["gas"],
-        envelope_id=state["envelope"],
-        payload_ids=tuple(state.get("payloads") or ()),
-        launch_site_id=state["site"],
-        fill_mode=FillMode(state.get("fill_mode", "auto")),
-        manual_gas_mass_kg=state.get("manual_gas_mass"),
-        balloon_size=None,
-    )
-
-
 class DiscoveryFirstFlightConfiguratorMixin:
     """Expose a small Story menu while using the ordinary simulation physics.
 
     First Flight creates local option views from canonical definitions; it never
-    mutates the process-wide Discord option dictionaries. This keeps one user's
-    onboarding choices from leaking into another user's later Story session.
+    mutates process-wide Discord option dictionaries. The configurator itself is
+    the imperative UI shell, while option/fill transformations are deterministic.
     """
 
     def _first_flight_options(self, step=None):
@@ -114,8 +98,29 @@ class DiscoveryFirstFlightConfiguratorMixin:
         return {}
 
     def _compute_gas_mass(self):
-        """Compute First Flight fill from the immutable canonical request."""
-        return round(_request_from_state(self.state).gas_mass_kg, 3)
+        """Compute fill with the same shared fill equations as the base wizard."""
+        from balloon_frontier.discord_ui.configurator import SITE_OPTIONS
+
+        state = self.state
+        envelope = CATALOG.envelope(state["envelope"])
+        site_conditions = SITE_OPTIONS[state["site"]].derive_conditions()
+        mode = FillMode(state.get("fill_mode", "auto"))
+        mass = apply_fill_mode(
+            envelope.max_volume_m3,
+            state["gas"],
+            mode,
+            manual_mass_kg=state.get("manual_gas_mass"),
+            burst_stretch_ratio=envelope.burst_stretch_ratio,
+            envelope_type=envelope.id,
+            launch_altitude=site_conditions.get("launch_altitude"),
+            launch_pressure=site_conditions.get("launch_pressure"),
+            gas_temperature=site_conditions.get("gas_temperature"),
+            safe_fill_data={
+                "burst_stretch_ratio": envelope.burst_stretch_ratio,
+                "safe_fill_fraction": envelope.safe_fill_fraction,
+            },
+        )
+        return round(mass, 3)
 
     def _build_config_text(self):
         """Build review text without consulting or mutating global UI catalogs."""
@@ -206,8 +211,7 @@ class DiscoveryFirstFlightConfiguratorMixin:
         ) + "\n\n" + configuration
 
     async def _select_single_option(self, interaction, index: int, state_key: str):
-        options = self._first_flight_options()
-        keys = tuple(options)
+        keys = tuple(self._first_flight_options())
         idx = index - 1
         if idx < 0 or idx >= len(keys):
             await interaction.response.send_message(
