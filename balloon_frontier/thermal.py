@@ -1,24 +1,34 @@
 """Balloon Frontier - Thermal Model
 
-Implements lumped-capacitance thermal model for balloon vehicles.
-Reference: GDD Section 6.7 (Thermal Model).
+Lumped-capacitance thermal model for lighter-than-air vehicles.
 
-Tracks gas, envelope, payload, and battery temperatures as thermal nodes
-with heat flows from solar absorption, IR radiation, convection, and
-electrical heating.
+Heat sources contribute power in watts.  Gas identity is independent of
+thermal state: ordinary air becomes less dense because its temperature rises,
+not because the simulator changes it into a special ``hot air`` substance.
 
 Q_dot = Q_solar + Q_heater + Q_equipment - Q_convection - Q_radiation
+        - Q_envelope
 T_next = T + (Q_dot / thermal_capacity) * dt
 """
 
 import math
-from balloon_frontier.physics import atmosphere_temperature, atmosphere_density, G
+from balloon_frontier.physics import atmosphere_temperature
 
-# Stefan-Boltzmann constant (W/m^4*K^4)
+# Stefan-Boltzmann constant (W/m^2*K^4)
 STEFAN_BOLTZMANN = 5.67e-8
 
 # Solar constant at 1 AU (W/m^2)
 SOLAR_CONSTANT = 1361.0
+
+
+SPECIFIC_HEAT_J_KG_K = {
+    "helium": 5193.0,
+    "hydrogen": 14300.0,
+    "air": 1005.0,
+    # Backward-compatible composition alias; no special thermal behavior.
+    "hot_air": 1005.0,
+    "methane": 2214.0,
+}
 
 
 def solar_flux_at_altitude(altitude_m: float) -> float:
@@ -33,18 +43,49 @@ def solar_flux_at_altitude(altitude_m: float) -> float:
 
 
 def solar_absorbed(flux: float, absorptivity: float, area_m2: float) -> float:
-    """Heat gained from solar absorption: Q = α * S * A (Watts)"""
+    """Heat gained from solar absorption: Q = α * S * A (Watts)."""
     return flux * absorptivity * area_m2
 
 
 def ir_radiated(emissivity: float, area_m2: float, temp_K: float, temp_env_K: float) -> float:
-    """Net IR radiation: Q = ε * σ * A * (T^4 - T_env^4) (Watts)"""
+    """Net IR radiation: Q = ε * σ * A * (T^4 - T_env^4) (Watts)."""
     return emissivity * STEFAN_BOLTZMANN * area_m2 * (temp_K ** 4 - temp_env_K ** 4)
 
 
 def convective_heat_transfer(convection_coefficient: float, area_m2: float, temp_K: float, temp_air_K: float) -> float:
-    """Convective heat flow: Q = h * A * (T - T_air) (Watts)"""
+    """Convective heat flow: Q = h * A * (T - T_air) (Watts)."""
     return convection_coefficient * area_m2 * (temp_K - temp_air_K)
+
+
+def effective_thermal_resistance(
+    nominal_resistance_m2_k_w: float,
+    inflation_fraction: float,
+    inflation_heat_loss_exponent: float = 0.0,
+    stretch_start_fraction: float = 1.0,
+) -> float:
+    """Return effective envelope resistance after inflation/stretch.
+
+    Flexible membranes generally get thinner as they stretch.  The model keeps
+    nominal resistance until ``stretch_start_fraction`` and then decreases it as
+    a power law.  An exponent of zero represents a non-stretch-sensitive skin.
+    """
+    nominal = max(1e-4, float(nominal_resistance_m2_k_w))
+    start = max(1e-6, float(stretch_start_fraction))
+    fraction = max(0.0, float(inflation_fraction))
+    stretch = max(1.0, fraction / start)
+    exponent = max(0.0, float(inflation_heat_loss_exponent))
+    return max(1e-4, nominal / (stretch ** exponent))
+
+
+def envelope_heat_transfer(
+    thermal_resistance_m2_k_w: float,
+    area_m2: float,
+    temp_K: float,
+    temp_air_K: float,
+) -> float:
+    """Conductive/effective envelope heat loss: Q = A ΔT / R (Watts)."""
+    resistance = max(1e-4, float(thermal_resistance_m2_k_w))
+    return area_m2 * (temp_K - temp_air_K) / resistance
 
 
 def thermal_node_update(
@@ -54,12 +95,10 @@ def thermal_node_update(
     heat_flow_watts: float,
     dt: float,
 ) -> float:
-    """Update temperature of a thermal node using:
-    T_next = T + (Q_dot / (m * c)) * dt
-    
-    Returns new temperature in Kelvin.
-    """
+    """Update a thermal node using T_next = T + Q_dot/(m*c) * dt."""
     thermal_capacity = mass_kg * specific_heat_j_kg_k
+    if thermal_capacity <= 0.0:
+        return temp_K
     return temp_K + (heat_flow_watts / thermal_capacity) * dt
 
 
@@ -74,11 +113,16 @@ def calculate_balloon_heat_flows(
     envelope_mass_kg: float,
     heater_power_watts: float,
     equipment_heat_watts: float,
+    thermal_resistance_m2_k_w: float | None = None,
+    inflation_fraction: float = 1.0,
+    inflation_heat_loss_exponent: float = 0.0,
+    stretch_start_fraction: float = 1.0,
 ) -> dict:
-    """Calculate all heat flows for a balloon at a given state.
+    """Calculate thermal power flows for one gas/envelope state.
 
-    Returns dict with Q_solar, Q_convection, Q_radiation, Q_heater,
-    Q_equipment, Q_total, and resulting temperature rates of change.
+    ``thermal_resistance_m2_k_w=None`` preserves the legacy membrane model.
+    New material-aware callers provide the envelope resistance and current
+    inflation fraction so stretching can alter heat loss continuously.
     """
     ambient_temp = atmosphere_temperature(altitude_m)
     solar_flux = solar_flux_at_altitude(altitude_m)
@@ -86,18 +130,45 @@ def calculate_balloon_heat_flows(
     Q_solar = solar_absorbed(solar_flux, envelope_absorptivity, envelope_area_m2)
     Q_radiation = ir_radiated(envelope_emissivity, envelope_area_m2, gas_temp_K, ambient_temp)
     Q_convection = convective_heat_transfer(0.5, envelope_area_m2, gas_temp_K, ambient_temp)
-    Q_heater = heater_power_watts
-    Q_equipment = equipment_heat_watts
-    Q_total = Q_solar + Q_heater + Q_equipment - Q_radiation - Q_convection
+    Q_heater = max(0.0, float(heater_power_watts))
+    Q_equipment = float(equipment_heat_watts)
+
+    effective_resistance = None
+    Q_envelope = 0.0
+    if thermal_resistance_m2_k_w is not None:
+        effective_resistance = effective_thermal_resistance(
+            thermal_resistance_m2_k_w,
+            inflation_fraction,
+            inflation_heat_loss_exponent,
+            stretch_start_fraction,
+        )
+        Q_envelope = envelope_heat_transfer(
+            effective_resistance,
+            envelope_area_m2,
+            gas_temp_K,
+            ambient_temp,
+        )
+
+    Q_total = (
+        Q_solar
+        + Q_heater
+        + Q_equipment
+        - Q_radiation
+        - Q_convection
+        - Q_envelope
+    )
 
     return {
         "Q_solar": Q_solar,
         "Q_convection": Q_convection,
         "Q_radiation": Q_radiation,
+        "Q_envelope": Q_envelope,
         "Q_heater": Q_heater,
         "Q_equipment": Q_equipment,
         "Q_total": Q_total,
         "ambient_temperature": ambient_temp,
+        "effective_thermal_resistance_m2_k_w": effective_resistance,
+        "inflation_fraction": inflation_fraction,
     }
 
 
@@ -109,67 +180,44 @@ def gas_temperature_update(
     dt: float,
     target_heater_temp_K: float | None = None,
 ) -> float:
-    """Update gas temperature based on gas type.
+    """Update any gas from its energy balance.
 
-    Gas-type specific thermal behavior:
-      - hot_air: temperature tracks an active heater target (burner).
-        The burner actively heats the gas toward target_heater_temp_K.
-        When no target is set, hot air cools naturally like other gases.
-      - helium/hydrogen/methane: temperature follows natural thermal
-        equilibrium with ambient (convection, radiation, solar, equipment
-        heat). As the balloon rises and falls, gas temperature naturally
-        shifts toward the changing ambient temperature.
-
-    Specific heat of helium ~5193 J/(kg·K), hydrogen ~14300, etc.
+    Production simulation uses watt-valued heat flows exclusively.  The
+    ``target_heater_temp_K`` argument remains only as a generic compatibility
+    thermostat for older callers; it is intentionally *not* keyed to hot air.
     """
-    specific_heats = {
-        "helium": 5193.0,
-        "hydrogen": 14300.0,
-        "hot_air": 1005.0,
-        "methane": 2214.0,
-    }
-    c = specific_heats.get(gas_type, 1005.0)
+    c = SPECIFIC_HEAT_J_KG_K.get(gas_type, 1005.0)
 
-    # ── Hot air with active heater: target tracking ────────────
-    if gas_type == "hot_air" and target_heater_temp_K is not None:
-        return _hot_air_temperature_update(
-            gas_temp_K, target_heater_temp_K, dt,
+    if target_heater_temp_K is not None:
+        return _compatibility_thermostat_update(
+            gas_temp_K,
+            target_heater_temp_K,
+            dt,
         )
 
-    # ── All other gas types (and hot air without heater): natural thermal model ──
-    heat_flow = heat_flows["Q_total"]
+    heat_flow = float(heat_flows.get("Q_total", 0.0))
     return thermal_node_update(gas_temp_K, gas_mass_kg, c, heat_flow, dt)
 
 
-def _hot_air_temperature_update(
+def _compatibility_thermostat_update(
     gas_temp_K: float,
-    target_heater_temp_K: float,
+    target_temp_K: float,
     dt: float,
 ) -> float:
-    """Update hot air balloon temperature toward the heater target.
+    """Legacy generic thermostat response retained for old direct callers.
 
-    Hot air balloons use a burner that actively heats the gas. We model
-    this as a first-order exponential approach toward the target temperature.
-    The burner has a fast response time constant (~30 seconds) to capture
-    the rapid heating characteristic of a propane burner.
-
-    When the gas is below the target, the burner adds heat.
-    When the gas exceeds the target, natural cooling dominates.
+    No production flight path uses this controller; real heater components feed
+    watts into the energy ledger.  Keeping it generic prevents ``hot_air`` from
+    remaining a privileged gas type while preserving source compatibility.
     """
-    # Response rate: ~30-second time constant for a typical burner
-    burner_response_per_s = 1.0 / 30.0
-
-    if gas_temp_K < target_heater_temp_K:
-        # Heating phase: approach target exponentially
-        delta = target_heater_temp_K - gas_temp_K
-        gas_temp_K += delta * (1.0 - math.exp(-burner_response_per_s * dt))
-    else:
-        # Cooling phase: natural convection-driven approach to target
-        # (gas is hotter than target, burner is throttled back or cycled)
-        delta = gas_temp_K - target_heater_temp_K
-        # Slower cooling rate (~60s time constant) as the gas loses heat
-        # through the envelope to the ambient air
-        cooling_rate = 1.0 / 60.0
-        gas_temp_K -= delta * (1.0 - math.exp(-cooling_rate * dt))
-
+    if gas_temp_K < target_temp_K:
+        rate = 1.0 / 30.0
+        return gas_temp_K + (target_temp_K - gas_temp_K) * (
+            1.0 - math.exp(-rate * dt)
+        )
+    if gas_temp_K > target_temp_K:
+        rate = 1.0 / 60.0
+        return gas_temp_K - (gas_temp_K - target_temp_K) * (
+            1.0 - math.exp(-rate * dt)
+        )
     return gas_temp_K
