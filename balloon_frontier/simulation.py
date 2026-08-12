@@ -27,6 +27,12 @@ from balloon_frontier.physics import (
 from balloon_frontier.thermal import calculate_balloon_heat_flows, gas_temperature_update
 
 
+# A ruptured envelope is a large bulk-flow opening, not membrane permeation.
+# Until opening-area flow is modeled explicitly, use a first-order exchange
+# constant so burst gas is lost rapidly and consistently across time steps.
+BURST_VENT_RATE_PER_S = 1.0
+
+
 @dataclass
 class EnvelopeConfig:
     """Configuration for a balloon/aerostat envelope."""
@@ -217,7 +223,7 @@ def _update_thermal_state(
     inflation_fraction = actual_volume / max(state.envelope.max_volume_m3, 1e-12)
 
     # Drag and direct solar interception use projected cross-sectional area.
-    # Convection, radiation, and membrane conduction use the whole skin area.
+    # Radiation and boundary heat transfer use the whole membrane surface.
     solar_projected_area_m2 = spherical_area(max(actual_volume, 1e-12))
     envelope_surface_area_m2 = 4.0 * solar_projected_area_m2
 
@@ -255,10 +261,33 @@ def _update_thermal_state(
     return flows, inflation_fraction
 
 
+def _apply_open_venting(state: SimulationState, dt: float) -> None:
+    """Apply bulk gas outflow separately from membrane permeability."""
+    if not state.vent_open or state.gas_mass_kg <= 0.0:
+        return
+    if state.burst:
+        # A rupture exchanges gas on a short time scale. Exponential decay is
+        # stable as dt changes and avoids inventing a fixed kg/s rate for every
+        # balloon size.
+        state.gas_mass_kg *= math.exp(-BURST_VENT_RATE_PER_S * max(0.0, dt))
+    else:
+        state.gas_mass_kg = max(
+            0.001,
+            state.gas_mass_kg - max(0.0, state.vent_rate_kg_per_s) * dt,
+        )
+
+
 def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     """Execute one fixed-step simulation tick using semi-implicit Euler."""
     altitude_m0 = float(state.altitude_m)
     time_s0 = float(state.time_s)
+    ground_alt_m = float(state.terrain_base_altitude_offset_m)
+
+    # Resting-on-ground support is only for craft that truly have not flown yet.
+    # A state initialized above the terrain is already airborne, even if its
+    # first integration step crosses the ground at high descent speed.
+    if altitude_m0 > ground_alt_m + 1e-3:
+        state.has_lifted_off = True
 
     F_buoy, F_weight, F_drag_vertical, F_net, area_m2 = _compute_forces(state)
 
@@ -317,9 +346,8 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     state.altitude_m += state.velocity_mps * dt
 
     # A craft that has not lifted off rests on the ground rather than instantly
-    # completing a zero-duration "landing". This lets real heater power warm a
-    # negatively buoyant envelope until the same force model produces liftoff.
-    ground_alt_m = float(state.terrain_base_altitude_offset_m)
+    # completing a zero-duration landing. This lets heater power warm a
+    # negatively buoyant envelope until the shared force model produces liftoff.
     if state.altitude_m > ground_alt_m + 1e-3:
         state.has_lifted_off = True
     elif not state.has_lifted_off and state.altitude_m <= ground_alt_m:
@@ -327,11 +355,12 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
         if state.velocity_mps < 0.0:
             state.velocity_mps = 0.0
 
-    # Leakage / permeability.
+    # Leakage/permeation and bulk venting are intentionally separate regimes.
     P_amb = atmosphere_pressure(max(0.0, state.altitude_m))
     P_amb_effective = P_amb * weather_pressure_scale
     leak_fraction = max(0.0, state.envelope.permeability) * dt
     state.gas_mass_kg *= max(0.0001, 1.0 - leak_fraction)
+    _apply_open_venting(state, dt)
 
     # Unified thermal energy update.
     heat_flows, inflation_fraction = _update_thermal_state(
@@ -407,6 +436,7 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
         state.burst = True
         state.envelope.contained_gas = False
         state.vent_open = True
+        _apply_open_venting(state, dt)
 
     # Landing/crash applies only after a genuine liftoff. Before liftoff the
     # ground boundary above supplies support while thermal state evolves.
