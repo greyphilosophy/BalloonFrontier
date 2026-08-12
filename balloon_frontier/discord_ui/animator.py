@@ -16,7 +16,7 @@ from balloon_frontier.presentation import (
 
 
 class DiscordFlightAnimator:
-    """Encode a complete flight montage once and upload it in one message edit."""
+    """Encode a complete flight montage and deliver it through the interaction webhook."""
 
     def __init__(self, *, duration_s: float = 10.0, ticks_per_moment: int = 2) -> None:
         self.duration_s = min(15.0, max(8.0, float(duration_s)))
@@ -96,7 +96,10 @@ class DiscordFlightAnimator:
         final_hold_ms = min(1400, max(700, total_ms // 6))
         remaining_ms = max(frame_count - 1, total_ms - final_hold_ms)
         base_ms, remainder = divmod(remaining_ms, frame_count - 1)
-        durations = [base_ms + (1 if index < remainder else 0) for index in range(frame_count - 1)]
+        durations = [
+            base_ms + (1 if index < remainder else 0)
+            for index in range(frame_count - 1)
+        ]
         durations.append(max(final_hold_ms, base_ms))
         return durations
 
@@ -115,10 +118,15 @@ class DiscordFlightAnimator:
             envelope_id=envelope_id,
             payload_ids=payload_ids,
         )
+        followup = getattr(interaction, "followup", None)
+        if followup is None or not hasattr(followup, "send"):
+            raise RuntimeError("Discord interaction does not support follow-up delivery")
         file = discord.File(io.BytesIO(gif), filename="balloon-flight.gif")
-        await interaction.edit_original_response(
+        # The launch handler defers with thinking=True. discord.py completes that
+        # deferred response when the first follow-up is sent, so there is no need
+        # for an explicit edit_original_response() here.
+        await followup.send(
             content="🎈 **Flight playback**",
-            attachments=[file],
-            view=None,
+            file=file,
         )
         return gif
