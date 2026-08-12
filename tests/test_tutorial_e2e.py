@@ -53,28 +53,36 @@ def test_first_flight_limits_choices_without_tutorial_signposting(monkeypatch):
 
     gas_content = configurator._step_content()
     assert "Helium" in gas_content
-    assert "Hot Air" in gas_content
+    assert "Air" in gas_content
+    assert "Hot Air" not in gas_content
     assert "Hydrogen" not in gas_content
     assert "Methane" not in gas_content
     assert "Tutorial" not in gas_content
+    assert "ambient temperature" in gas_content
     assert len(_option_buttons(configurator)) == 2
 
     configurator._current_step = _Step.CHOOSE_ENVELOPE
     configurator.build_buttons()
     envelope_content = configurator._step_content()
     assert "Latex Weather Balloon" in envelope_content
+    assert "Lightweight Hot-Air Envelope" in envelope_content
     assert "Mylar" not in envelope_content
     assert "Zero-Pressure" not in envelope_content
-    assert len(_option_buttons(configurator)) == 1
+    assert "stretch/inflation" in envelope_content
+    assert len(_option_buttons(configurator)) == 2
 
     configurator._current_step = _Step.CHOOSE_PAYLOADS
     configurator.build_buttons()
     payload_content = configurator._step_content()
     assert "Camera" in payload_content
     assert "Parachute" in payload_content
+    assert "Tea Light Heat Source" in payload_content
+    assert "Small Electric Heater" in payload_content
     assert "None" in payload_content
     assert "Small Quadcopter" not in payload_content
-    assert len(_option_buttons(configurator)) == 3
+    assert "Pressure Valve" not in payload_content
+    assert "open-flame methods are flagged" in payload_content
+    assert len(_option_buttons(configurator)) == 5
 
     configurator._current_step = _Step.CHOOSE_SITE
     configurator.build_buttons()
@@ -129,7 +137,7 @@ def test_player_can_drive_first_flight_to_review(monkeypatch):
 def test_completing_first_flight_switches_to_broader_story_configurator(monkeypatch):
     first, player = _configurator(monkeypatch)
     first_gases = tuple(first._first_flight_options(_Step.CHOOSE_GAS))
-    assert first_gases == ("helium", "hot_air")
+    assert first_gases == ("helium", "air")
 
     player.missions_completed.append(FIRST_FLIGHT_MISSION_ID)
     later = game_menu._configurator_for_mode(
