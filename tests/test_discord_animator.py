@@ -30,22 +30,38 @@ def moments():
     )
 
 
-def test_animator_installs_one_gif_on_deferred_response():
+def production_moments():
+    telemetry = [
+        {
+            "time": index * 60,
+            "alt": index * 1500 if index <= 20 else (40 - index) * 1500,
+            "vel": 6 if index <= 20 else -10,
+            "landed": index == 40,
+        }
+        for index in range(41)
+    ]
+    selected = build_flight_moments(telemetry, max_frames=18)
+    assert len(selected) == 18
+    return selected
+
+
+def test_animator_installs_production_size_gif_on_deferred_response():
     interaction = FakeInteraction()
     animator = DiscordFlightAnimator(duration_s=10)
+    selected = production_moments()
 
     gif = asyncio.run(
         animator.play(
             interaction,
-            moments(),
+            selected,
             envelope_id="latex",
             payload_ids=("camera",),
         )
     )
 
     assert gif.startswith(b"GIF")
-    # Keep comfortably below Discord's baseline upload allowance even before any
-    # account/server-specific file-size increases are considered.
+    # Exercise the same 18-moment montage production requests, not the smaller
+    # legacy fixture, so this guard reflects the actual Discord upload.
     assert len(gif) < 8 * 1024 * 1024
     interaction.followup.send.assert_not_awaited()
     interaction.edit_original_response.assert_awaited_once()
@@ -57,7 +73,7 @@ def test_animator_installs_one_gif_on_deferred_response():
 
     with Image.open(BytesIO(gif)) as image:
         assert image.is_animated
-        assert image.n_frames == len(moments()) * animator.ticks_per_moment
+        assert image.n_frames == len(selected) * animator.ticks_per_moment
 
 
 def test_gif_rendering_runs_off_the_event_loop_thread():
