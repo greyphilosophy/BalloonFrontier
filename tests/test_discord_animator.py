@@ -43,6 +43,9 @@ def test_animator_sends_one_gif_without_explicit_message_edit():
     )
 
     assert gif.startswith(b"GIF")
+    # Keep comfortably below Discord's baseline upload allowance even before any
+    # account/server-specific file-size increases are considered.
+    assert len(gif) < 8 * 1024 * 1024
     interaction.edit_original_response.assert_not_awaited()
     interaction.followup.send.assert_awaited_once()
     sent = interaction.followup.send.await_args.kwargs
