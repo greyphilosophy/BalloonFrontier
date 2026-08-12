@@ -17,10 +17,10 @@ def test_first_flight_envelopes_include_standard_latex_and_heated_air_option():
     )
 
     assert tuple(options) == ("latex", "candle_kite")
-    assert options["latex"] is ENVELOPE_OPTIONS["latex"]
+    assert options["latex"] == ENVELOPE_OPTIONS["latex"]
     assert options["latex"][0] == "Latex Weather Balloon"
-    assert options["candle_kite"] is ENVELOPE_OPTIONS["candle_kite"]
     assert options["candle_kite"][0] == "Lightweight Hot-Air Envelope"
+    assert "candle_kite" not in ENVELOPE_OPTIONS
     assert "tutorial_party_balloon" not in ENVELOPE_OPTIONS
 
 
@@ -37,14 +37,17 @@ def test_first_flight_payloads_include_heat_sources_without_special_quadcopter()
         "electric_heater",
         "none",
     )
-    assert options["camera"] is PAYLOAD_OPTIONS["camera"]
-    assert options["candle_heater"] is PAYLOAD_OPTIONS["candle_heater"]
-    assert options["electric_heater"] is PAYLOAD_OPTIONS["electric_heater"]
+    assert options["camera"] == PAYLOAD_OPTIONS["camera"]
+    assert options["parachute"] == PAYLOAD_OPTIONS["parachute"]
+    assert options["candle_heater"][0] == "Tea Light Heat Source"
+    assert options["electric_heater"][0] == "Small Electric Heater"
+    assert "candle_heater" not in PAYLOAD_OPTIONS
+    assert "electric_heater" not in PAYLOAD_OPTIONS
     assert "quadcopter" not in options
     assert "valve" not in options
 
 
-def test_first_flight_air_and_site_are_normal_configurator_entries():
+def test_first_flight_air_and_site_are_local_and_standard_entries_are_compatible():
     holder = type("FirstFlightOptions", (), {"_current_step": _Step.CHOOSE_GAS})()
     gases = DiscoveryFirstFlightConfiguratorMixin._first_flight_options(
         holder, _Step.CHOOSE_GAS
@@ -53,7 +56,8 @@ def test_first_flight_air_and_site_are_normal_configurator_entries():
         holder, _Step.CHOOSE_SITE
     )
 
-    assert gases["helium"] is GAS_OPTIONS["helium"]
-    assert gases["air"] is GAS_OPTIONS["air"]
+    assert gases["helium"] == GAS_OPTIONS["helium"]
+    assert gases["air"][0] == "Air"
+    assert "air" not in GAS_OPTIONS
     assert "hot_air" not in gases
     assert sites["field"] is SITE_OPTIONS["field"]
