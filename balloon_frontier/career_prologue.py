@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from balloon_frontier.catalog import CATALOG
 from balloon_frontier.fill import FillMode, apply_fill_mode
 
 
+FIRST_FLIGHT_REQUIRED_PAYLOADS = ("camera", "quadcopter")
+FIRST_FLIGHT_SITE_NAME = "School Athletic Field"
 FIRST_FLIGHT_OPTION_KEYS = {
     0: ("helium", "air"),
     1: ("latex", "candle_kite"),
     2: ("auto", "light", "normal"),
     3: (
-        "camera",
         "parachute",
         "candle_heater",
         "electric_heater",
@@ -49,9 +52,33 @@ def _envelope_option(envelope_id: str) -> tuple[str, float, float, float, float,
 
 def _payload_option(payload_id: str) -> tuple[str, float, int, bool]:
     if payload_id == "none":
-        return "None", 0.0, 0, False
+        return "No optional payload", 0.0, 0, False
     payload = CATALOG.payload(payload_id)
     return payload.name, payload.mass_kg, payload.cost, payload.has_valve
+
+
+def first_flight_site_info():
+    """Return the mission-specific label over the ordinary ``field`` physics."""
+    from balloon_frontier.discord_ui.configurator import SITE_OPTIONS
+
+    return replace(
+        SITE_OPTIONS["field"],
+        name=FIRST_FLIGHT_SITE_NAME,
+        description="School athletic field, mild crosswind",
+    )
+
+
+def with_required_first_flight_payloads(
+    payload_ids: tuple[str, ...] | list[str],
+) -> tuple[str, ...]:
+    """Return required mission equipment plus deterministic optional payloads."""
+    extras = tuple(
+        pid
+        for pid in payload_ids
+        if pid not in FIRST_FLIGHT_REQUIRED_PAYLOADS and pid != "none"
+    )
+    deduped_extras = tuple(dict.fromkeys(extras))
+    return FIRST_FLIGHT_REQUIRED_PAYLOADS + deduped_extras
 
 
 def toggle_payload_selection(
@@ -68,6 +95,18 @@ def toggle_payload_selection(
     return current + (selected,)
 
 
+def toggle_first_flight_optional_payload(
+    current_payloads: tuple[str, ...] | list[str],
+    selected: str,
+) -> tuple[str, ...]:
+    """Toggle optional equipment while keeping camera and quadcopter essential."""
+    optional = tuple(
+        pid for pid in current_payloads if pid not in FIRST_FLIGHT_REQUIRED_PAYLOADS
+    )
+    toggled = toggle_payload_selection(optional, selected)
+    return with_required_first_flight_payloads(toggled)
+
+
 class DiscoveryFirstFlightConfiguratorMixin:
     """Expose a small Story menu while using the ordinary simulation physics.
 
@@ -79,7 +118,6 @@ class DiscoveryFirstFlightConfiguratorMixin:
     def _first_flight_options(self, step=None):
         from balloon_frontier.discord_ui.configurator import (
             FILL_MODES,
-            SITE_OPTIONS,
             _Step,
         )
 
@@ -94,7 +132,7 @@ class DiscoveryFirstFlightConfiguratorMixin:
         if current_step == _Step.CHOOSE_FILL:
             return {key: FILL_MODES[key] for key in keys}
         if current_step == _Step.CHOOSE_SITE:
-            return {key: SITE_OPTIONS[key] for key in keys}
+            return {"field": first_flight_site_info()}
         return {}
 
     def _compute_gas_mass(self):
@@ -124,9 +162,12 @@ class DiscoveryFirstFlightConfiguratorMixin:
 
     def _build_config_text(self):
         """Build review text without consulting or mutating global UI catalogs."""
-        from balloon_frontier.discord_ui.configurator import FILL_MODES, SITE_OPTIONS
+        from balloon_frontier.discord_ui.configurator import FILL_MODES, _Step
 
         state = self.state
+        state["payloads"] = list(
+            with_required_first_flight_payloads(state.get("payloads") or ())
+        )
         gas = CATALOG.gas(state["gas"])
         envelope = CATALOG.envelope(state["envelope"])
         payload_defs = [
@@ -140,7 +181,7 @@ class DiscoveryFirstFlightConfiguratorMixin:
         if gas_mass is None:
             gas_mass = self._compute_gas_mass()
         fill_label = FILL_MODES[state["fill_mode"]]["label"]
-        site = SITE_OPTIONS[state["site"]]
+        site = self._first_flight_options(_Step.CHOOSE_SITE)[state["site"]]
         lines = ["🎈 **Balloon Configuration**\n"]
         lines.append(f"Gas: {gas.name}")
         lines.append(f"Fill: {fill_label} → {gas_mass:.3f} kg")
@@ -178,14 +219,18 @@ class DiscoveryFirstFlightConfiguratorMixin:
             elif self._current_step == _Step.CHOOSE_ENVELOPE:
                 for index, envelope in enumerate(options.values(), 1):
                     lines.append(f"{index}  {envelope[0]}  ({envelope[1]}m³)")
-                lines.append(
-                    "     Envelope heat loss is material-dependent and changes as stretch/inflation changes."
-                )
             elif self._current_step == _Step.CHOOSE_FILL:
                 for index, fill in enumerate(options.values(), 1):
                     lines.append(f"{index}  {fill['label']}")
                     lines.append(f"     {fill['description']}")
             elif self._current_step == _Step.CHOOSE_PAYLOADS:
+                required = [CATALOG.payload(pid) for pid in FIRST_FLIGHT_REQUIRED_PAYLOADS]
+                lines.append("Essential payloads:")
+                for payload in required:
+                    lines.append(
+                        f"•  {payload.name}  ({payload.mass_kg}kg, ${payload.cost})"
+                    )
+                lines.append("Optional additions:")
                 for index, payload in enumerate(options.values(), 1):
                     lines.append(
                         f"{index}  {payload[0]}  ({payload[1]}kg, ${payload[2]})"
@@ -240,7 +285,9 @@ class DiscoveryFirstFlightConfiguratorMixin:
             )
             return
         self.state["payloads"] = list(
-            toggle_payload_selection(self.state.get("payloads") or (), keys[idx])
+            toggle_first_flight_optional_payload(
+                self.state.get("payloads") or (), keys[idx]
+            )
         )
         self.state["gas_mass"] = self._compute_gas_mass()
         self.build_buttons()
@@ -250,6 +297,9 @@ class DiscoveryFirstFlightConfiguratorMixin:
         await self._select_single_option(interaction, index, "site")
 
     def build_buttons(self):
+        self.state["payloads"] = list(
+            with_required_first_flight_payloads(self.state.get("payloads") or ())
+        )
         super().build_buttons()
 
         from balloon_frontier.balloon_cluster import _BalloonCountButton
@@ -278,7 +328,7 @@ class DiscoveryFirstFlightConfiguratorMixin:
             _Step.CHOOSE_GAS: "Choose gas",
             _Step.CHOOSE_ENVELOPE: "Choose envelope",
             _Step.CHOOSE_FILL: "Choose fill",
-            _Step.CHOOSE_PAYLOADS: "Toggle payload",
+            _Step.CHOOSE_PAYLOADS: "Toggle optional payload",
             _Step.CHOOSE_SITE: "Choose site",
         }[self._current_step]
         for index in range(1, len(self._first_flight_options()) + 1):
