@@ -46,29 +46,31 @@ def _interaction():
     )
 
 
-def test_adding_first_flight_payload_edits_message_with_direct_feedback(monkeypatch):
+def test_adding_first_flight_optional_payload_reports_full_loadout(monkeypatch):
     configurator = _configurator(monkeypatch)
     interaction = _interaction()
 
     asyncio.run(configurator._on_payload(interaction, 1))
 
-    assert configurator.state["payloads"] == ["camera"]
+    assert configurator.state["payloads"] == ["camera", "quadcopter", "parachute"]
     content = interaction.response.edit_message.await_args.kwargs["content"]
-    assert "✅ **Added:** Camera" in content
-    assert "**Currently equipped:** Camera" in content
+    assert "✅ **Added:** Parachute" in content
+    assert (
+        "**Currently equipped:** Camera, Small Quadcopter, Parachute" in content
+    )
 
 
-def test_removing_last_payload_edits_message_with_empty_loadout(monkeypatch):
+def test_clearing_optional_payloads_keeps_first_flight_essentials(monkeypatch):
     configurator = _configurator(monkeypatch)
-    configurator.state["payloads"] = ["camera"]
+    configurator.state["payloads"] = ["camera", "quadcopter", "parachute"]
     interaction = _interaction()
 
-    asyncio.run(configurator._on_payload(interaction, 1))
+    asyncio.run(configurator._on_payload(interaction, 4))
 
-    assert configurator.state["payloads"] == ["none"]
+    assert configurator.state["payloads"] == ["camera", "quadcopter"]
     content = interaction.response.edit_message.await_args.kwargs["content"]
-    assert "➖ **Removed:** Camera" in content
-    assert "**Currently equipped:** None" in content
+    assert "🧹 **Optional payloads cleared.**" in content
+    assert "**Currently equipped:** Camera, Small Quadcopter" in content
 
 
 def test_legacy_tutorial_alias_receives_story_first_flight_feedback(monkeypatch):
@@ -78,9 +80,16 @@ def test_legacy_tutorial_alias_receives_story_first_flight_feedback(monkeypatch)
     asyncio.run(configurator._on_payload(interaction, 2))
 
     content = interaction.response.edit_message.await_args.kwargs["content"]
-    assert configurator.state["payloads"] == ["parachute"]
-    assert "✅ **Added:** Parachute" in content
-    assert "**Currently equipped:** Parachute" in content
+    assert configurator.state["payloads"] == [
+        "camera",
+        "quadcopter",
+        "candle_heater",
+    ]
+    assert "✅ **Added:** Tea Light Heat Source" in content
+    assert (
+        "**Currently equipped:** Camera, Small Quadcopter, Tea Light Heat Source"
+        in content
+    )
 
 
 def test_free_play_payload_toggle_receives_direct_feedback(monkeypatch):
@@ -98,12 +107,14 @@ def test_toggle_action_feedback_does_not_reappear_after_navigation(monkeypatch):
     configurator = _configurator(monkeypatch)
     interaction = _interaction()
     asyncio.run(configurator._on_payload(interaction, 1))
-    assert "✅ **Added:** Camera" in configurator._step_content()
+    assert "✅ **Added:** Parachute" in configurator._step_content()
 
     asyncio.run(configurator._advance(interaction))
     assert configurator._current_step == _Step.CHOOSE_SITE
     configurator._prev_step()
 
     content = configurator._step_content()
-    assert "✅ **Added:** Camera" not in content
-    assert "**Currently equipped:** Camera" in content
+    assert "✅ **Added:** Parachute" not in content
+    assert (
+        "**Currently equipped:** Camera, Small Quadcopter, Parachute" in content
+    )
