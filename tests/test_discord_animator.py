@@ -1,5 +1,6 @@
 import asyncio
 from io import BytesIO
+import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -55,6 +56,24 @@ def test_animator_sends_one_gif_without_explicit_message_edit():
     with Image.open(BytesIO(gif)) as image:
         assert image.is_animated
         assert image.n_frames == len(moments()) * animator.ticks_per_moment
+
+
+def test_gif_rendering_runs_off_the_event_loop_thread():
+    interaction = FakeInteraction()
+    animator = DiscordFlightAnimator(duration_s=10)
+    caller_thread = threading.get_ident()
+    render_threads = []
+    original_render_gif = animator.render_gif
+
+    def recording_render_gif(*args, **kwargs):
+        render_threads.append(threading.get_ident())
+        return original_render_gif(*args, **kwargs)
+
+    animator.render_gif = recording_render_gif
+    asyncio.run(animator.play(interaction, moments()))
+
+    assert render_threads
+    assert render_threads[0] != caller_thread
 
 
 def test_duration_is_longer_clamped_and_empty_moments_do_not_send():
