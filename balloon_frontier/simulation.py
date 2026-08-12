@@ -216,10 +216,10 @@ def _update_thermal_state(
     )
     inflation_fraction = actual_volume / max(state.envelope.max_volume_m3, 1e-12)
 
-    # ``spherical_area`` is the frontal/cross-sectional area used by drag.
-    # The surface area of a sphere is 4*pi*r^2, four times that cross-section.
-    # Thermal exchange belongs to the membrane surface, not the drag silhouette.
-    envelope_surface_area_m2 = 4.0 * spherical_area(max(actual_volume, 1e-12))
+    # Drag and direct solar interception use projected cross-sectional area.
+    # Convection, radiation, and membrane conduction use the whole skin area.
+    solar_projected_area_m2 = spherical_area(max(actual_volume, 1e-12))
+    envelope_surface_area_m2 = 4.0 * solar_projected_area_m2
 
     flows = calculate_balloon_heat_flows(
         altitude_m=max(0.0, state.altitude_m),
@@ -238,6 +238,7 @@ def _update_thermal_state(
         inflation_fraction=inflation_fraction,
         inflation_heat_loss_exponent=state.envelope.inflation_heat_loss_exponent,
         stretch_start_fraction=state.envelope.stretch_start_fraction,
+        solar_projected_area_m2=solar_projected_area_m2,
     )
     state.gas_temperature_k = max(
         1.0,
