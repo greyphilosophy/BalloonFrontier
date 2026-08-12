@@ -9,6 +9,7 @@ Reference: GDD Section 6.8 (Equilibrium/floating altitude).
 from balloon_frontier.physics import (
     atmosphere_pressure,
     atmosphere_density,
+    gas_density,
     gas_volume,
     G,
 )
@@ -27,21 +28,39 @@ def equilibrium_altitude(
     ``total_vehicle_mass_kg`` includes the lifting gas. Therefore Archimedean
     buoyancy is the weight of displaced ambient air; gas weight must not also be
     subtracted inside the buoyancy term.
+
+    For a zero-pressure/open envelope, reaching ``envelope_max_volume`` vents
+    excess gas. The equilibrium calculation mirrors the shared simulator: once
+    the ideal-gas volume would exceed the envelope volume, displaced volume is
+    capped and contained gas mass falls to the amount that fits that volume at
+    the local pressure and gas temperature.
     """
     alt_low = 0.0
     alt_high = 50000.0
     tol = 0.5
+    non_gas_mass_kg = max(0.0, total_vehicle_mass_kg - gas_mass_kg)
 
     def net_lift(alt):
-        P = atmosphere_pressure(alt)
+        pressure = atmosphere_pressure(alt)
         rho_air = atmosphere_density(alt)
-        vol = gas_volume(gas_mass_kg, gas_type, gas_temperature_k, P)
+        ideal_volume = gas_volume(
+            gas_mass_kg,
+            gas_type,
+            gas_temperature_k,
+            pressure,
+        )
 
-        if not contained_gas:
-            vol = min(vol, envelope_max_volume)
+        if contained_gas or ideal_volume <= envelope_max_volume:
+            displaced_volume = ideal_volume
+            current_gas_mass_kg = gas_mass_kg
+        else:
+            displaced_volume = envelope_max_volume
+            rho_gas = gas_density(gas_type, gas_temperature_k, pressure)
+            current_gas_mass_kg = rho_gas * displaced_volume
 
-        archimedean_buoyancy = rho_air * G * vol
-        weight = total_vehicle_mass_kg * G
+        archimedean_buoyancy = rho_air * G * displaced_volume
+        current_total_mass_kg = non_gas_mass_kg + current_gas_mass_kg
+        weight = current_total_mass_kg * G
         return archimedean_buoyancy - weight
 
     lift_low = net_lift(alt_low)
