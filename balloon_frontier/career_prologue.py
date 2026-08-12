@@ -4,10 +4,16 @@ from __future__ import annotations
 
 
 FIRST_FLIGHT_OPTION_KEYS = {
-    0: ("helium", "hot_air"),
-    1: ("latex",),
+    0: ("helium", "air"),
+    1: ("latex", "candle_kite"),
     2: ("auto", "light", "normal"),
-    3: ("camera", "parachute", "none"),
+    3: (
+        "camera",
+        "parachute",
+        "candle_heater",
+        "electric_heater",
+        "none",
+    ),
     4: ("field",),
 }
 
@@ -21,11 +27,46 @@ def needs_first_flight(player_id: str | int | None) -> bool:
     return "first_flight" not in player.missions_completed
 
 
-class DiscoveryFirstFlightConfiguratorMixin:
-    """Expose a small Story menu while using the ordinary configurator physics.
+def _install_first_flight_component_options() -> None:
+    """Expose Story-only aerostat components to the legacy tuple menus.
 
-    The first flight intentionally changes only *which choices are shown*. Gas
-    mass, atmosphere, envelope behavior, simulation, evaluation, and rewards all
+    The canonical definitions are registered in :mod:`balloon_frontier.aerostat`.
+    These tuples are presentation adapters used by the existing Discord wizard
+    and launch renderer.
+    """
+    from balloon_frontier.discord_ui.configurator import (
+        ENVELOPE_OPTIONS,
+        GAS_OPTIONS,
+        PAYLOAD_OPTIONS,
+    )
+
+    GAS_OPTIONS.setdefault("air", ("Air", 0.0289652068, 0))
+    ENVELOPE_OPTIONS.setdefault(
+        "candle_kite",
+        (
+            "Lightweight Hot-Air Envelope",
+            0.20,
+            0.018,
+            1.45,
+            1.05,
+            5,
+        ),
+    )
+    PAYLOAD_OPTIONS.setdefault(
+        "candle_heater",
+        ("Tea Light Heat Source", 0.015, 1, False),
+    )
+    PAYLOAD_OPTIONS.setdefault(
+        "electric_heater",
+        ("Small Electric Heater", 0.080, 20, False),
+    )
+
+
+class DiscoveryFirstFlightConfiguratorMixin:
+    """Expose a small Story menu while using the ordinary simulation physics.
+
+    The first flight changes only which components are offered. Air temperature,
+    heater power, envelope heat loss, buoyancy, weather, evaluation, and rewards
     remain on the same shared paths used by later Story flights.
     """
 
@@ -39,6 +80,7 @@ class DiscoveryFirstFlightConfiguratorMixin:
             _Step,
         )
 
+        _install_first_flight_component_options()
         current_step = self._current_step if step is None else step
         catalogs = {
             _Step.CHOOSE_GAS: GAS_OPTIONS,
@@ -70,12 +112,20 @@ class DiscoveryFirstFlightConfiguratorMixin:
             ]
             if self._current_step == _Step.CHOOSE_GAS:
                 for index, gas in enumerate(options.values(), 1):
+                    # GAS_OPTIONS stores molar mass, despite older UI text calling
+                    # the value density. Use the physically correct label here.
                     lines.append(
-                        f"{index}  {gas[0]}  (ρ={gas[1]} kg/m³, ${gas[2]}/kg)"
+                        f"{index}  {gas[0]}  (M={gas[1]} kg/mol, ${gas[2]}/kg)"
                     )
+                lines.append(
+                    "     Air starts at ambient temperature; heat sources change its density during the simulation."
+                )
             elif self._current_step == _Step.CHOOSE_ENVELOPE:
                 for index, envelope in enumerate(options.values(), 1):
                     lines.append(f"{index}  {envelope[0]}  ({envelope[1]}m³)")
+                lines.append(
+                    "     Envelope heat loss is material-dependent and changes as stretch/inflation changes."
+                )
             elif self._current_step == _Step.CHOOSE_FILL:
                 for index, fill in enumerate(options.values(), 1):
                     lines.append(f"{index}  {fill['label']}")
@@ -85,6 +135,9 @@ class DiscoveryFirstFlightConfiguratorMixin:
                     lines.append(
                         f"{index}  {payload[0]}  ({payload[1]}kg, ${payload[2]})"
                     )
+                lines.append(
+                    "     Heater choices contribute watts to the same gas energy balance; open-flame methods are flagged in results."
+                )
             elif self._current_step == _Step.CHOOSE_SITE:
                 for index, site in enumerate(options.values(), 1):
                     lines.append(f"{index}  {site.name}")
@@ -97,9 +150,6 @@ class DiscoveryFirstFlightConfiguratorMixin:
                 )
             configuration = "\n".join(lines)
 
-        # The reduced First Flight view does not expose recorded-atmosphere
-        # controls, so render only the chapter text rather than advertising a
-        # profile the player cannot select here.
         return story_chapter_intro(
             FIRST_FLIGHT_CHAPTER,
             include_disclaimer=False,
@@ -150,8 +200,6 @@ class DiscoveryFirstFlightConfiguratorMixin:
         if self._current_step not in FIRST_FLIGHT_OPTION_KEYS:
             return
 
-        # Quantity and manual-mass controls are later-game choices. The first
-        # Story flight uses exactly one balloon and the listed fill presets.
         self.state["balloon_count"] = 1
         if hasattr(self, "_sync_balloon_count"):
             self._sync_balloon_count()
