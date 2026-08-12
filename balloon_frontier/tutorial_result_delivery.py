@@ -216,18 +216,32 @@ def _build_next_action_view(configurator, interaction, result):
 
 
 async def _attach_next_action_prompt(interaction, continue_view) -> bool:
+    """Deliver Story continuation without rewriting a successful flight GIF."""
     if continue_view is None:
         return False
 
-    kwargs = {"view": continue_view}
-    if _split_delivery_active.get() and not _split_followup_failed.get():
-        kwargs["content"] = _NEXT_ACTION_PROMPT
+    followup = getattr(interaction, "followup", None)
+    can_follow_up = followup is not None and hasattr(followup, "send")
+    followup_failed = _split_followup_failed.get()
 
     try:
+        if can_follow_up and not followup_failed:
+            await followup.send(
+                content=_NEXT_ACTION_PROMPT,
+                view=continue_view,
+            )
+            return True
+
+        # If follow-up delivery has already failed, preserve the fallback report's
+        # content and attach only the controls to the original response. For
+        # transports without follow-up support, editing is the last-resort path.
+        kwargs = {"view": continue_view}
+        if not followup_failed:
+            kwargs["content"] = _NEXT_ACTION_PROMPT
         await interaction.edit_original_response(**kwargs)
     except Exception:
         logger.warning(
-            "First flight completed, but continuation controls could not be attached",
+            "First flight completed, but continuation controls could not be delivered",
             exc_info=True,
         )
         return False
