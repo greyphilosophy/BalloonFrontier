@@ -40,7 +40,7 @@ class EnvelopeConfig:
     envelope_absorptivity: float = 0.5
     envelope_emissivity: float = 0.8
 
-    # Effective material/system thermal properties.  ``None`` keeps the legacy
+    # Effective material/system thermal properties. ``None`` keeps the legacy
     # thermal model; material-aware requests populate these through aerostat.py.
     thermal_resistance_m2_k_w: float | None = None
     inflation_heat_loss_exponent: float = 0.0
@@ -79,7 +79,7 @@ class SimulationState:
     gas_temperature_delta_k: Optional[float] = None
     gas_pressure_pa: float = 101325.0
 
-    # Heat inputs.  Components supply watts; the thermal model decides the
+    # Heat inputs. Components supply watts; the thermal model decides the
     # resulting temperature and the physics engine decides the resulting lift.
     heater_power_watts: float = 0.0
     equipment_heat_watts: float = 0.0
@@ -170,16 +170,19 @@ def _gas_and_displaced_volume(state: SimulationState) -> tuple[float, float]:
 
 
 def _compute_forces(state: SimulationState) -> tuple:
-    """Return buoyancy, weight, vertical drag, net force, and frontal area."""
+    """Return Archimedean buoyancy, weight, drag, net force, and frontal area."""
     pressure = _effective_pressure(state)
     _, displaced_vol = _gas_and_displaced_volume(state)
 
     ambient_temp = atmosphere_temperature(max(0.0, state.altitude_m))
     rho_air = pressure / (R_AIR * ambient_temp)
-    rho_gas = gas_density(state.gas_type, state.gas_temperature_k, pressure)
-    F_buoy = (rho_air - rho_gas) * G * displaced_vol
 
+    # Archimedes supplies the weight of displaced ambient air. Gas mass is
+    # already included in total_mass(), so subtracting rho_gas here as well
+    # would charge the contained gas weight twice.
+    F_buoy = rho_air * G * displaced_vol
     F_weight = state.total_mass() * G
+
     area_m2 = spherical_area(max(displaced_vol, 1e-12))
     F_drag = drag_force(
         state.velocity_mps,
@@ -309,7 +312,7 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     state.altitude_m += state.velocity_mps * dt
 
     # A craft that has not lifted off rests on the ground rather than instantly
-    # completing a zero-duration "landing".  This lets real heater power warm a
+    # completing a zero-duration "landing". This lets real heater power warm a
     # negatively buoyant envelope until the same force model produces liftoff.
     ground_alt_m = float(state.terrain_base_altitude_offset_m)
     if state.altitude_m > ground_alt_m + 1e-3:
@@ -334,7 +337,7 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     )
 
     # Zero-pressure/open envelopes vent overflow instead of stretching without
-    # limit.  Heating ordinary air therefore reduces contained mass naturally:
+    # limit. Heating ordinary air therefore reduces contained mass naturally:
     # T rises -> ideal volume rises -> excess gas leaves -> density falls.
     if not state.envelope.contained_gas:
         gas_vol = gas_volume(
@@ -400,7 +403,7 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
         state.envelope.contained_gas = False
         state.vent_open = True
 
-    # Landing/crash applies only after a genuine liftoff.  Before liftoff the
+    # Landing/crash applies only after a genuine liftoff. Before liftoff the
     # ground boundary above supplies support while thermal state evolves.
     relative_alt_m = state.altitude_m - ground_alt_m
     if state.has_lifted_off and relative_alt_m <= 0.0 and state.velocity_mps < 0.0:
