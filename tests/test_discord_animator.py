@@ -1,5 +1,7 @@
 import asyncio
 from io import BytesIO
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from PIL import Image
 
@@ -9,10 +11,8 @@ from balloon_frontier.presentation import build_flight_moments
 
 class FakeInteraction:
     def __init__(self):
-        self.edits = []
-
-    async def edit_original_response(self, **kwargs):
-        self.edits.append(kwargs)
+        self.followup = SimpleNamespace(send=AsyncMock())
+        self.edit_original_response = AsyncMock()
 
 
 def moments():
@@ -29,7 +29,7 @@ def moments():
     )
 
 
-def test_animator_uploads_one_gif_instead_of_editing_every_frame():
+def test_animator_sends_one_gif_without_explicit_message_edit():
     interaction = FakeInteraction()
     animator = DiscordFlightAnimator(duration_s=10)
 
@@ -43,24 +43,24 @@ def test_animator_uploads_one_gif_instead_of_editing_every_frame():
     )
 
     assert gif.startswith(b"GIF")
-    assert len(interaction.edits) == 1
-    edit = interaction.edits[0]
-    assert edit["content"] == "🎈 **Flight playback**"
-    assert edit["view"] is None
-    assert len(edit["attachments"]) == 1
-    assert edit["attachments"][0].filename == "balloon-flight.gif"
+    interaction.edit_original_response.assert_not_awaited()
+    interaction.followup.send.assert_awaited_once()
+    sent = interaction.followup.send.await_args.kwargs
+    assert sent["content"] == "🎈 **Flight playback**"
+    assert sent["file"].filename == "balloon-flight.gif"
 
     with Image.open(BytesIO(gif)) as image:
         assert image.is_animated
         assert image.n_frames == len(moments()) * animator.ticks_per_moment
 
 
-def test_duration_is_longer_clamped_and_empty_moments_do_not_edit():
+def test_duration_is_longer_clamped_and_empty_moments_do_not_send():
     assert DiscordFlightAnimator(duration_s=0).duration_s == 8
     assert DiscordFlightAnimator(duration_s=99).duration_s == 15
     interaction = FakeInteraction()
     assert asyncio.run(DiscordFlightAnimator().play(interaction, [])) is None
-    assert interaction.edits == []
+    interaction.followup.send.assert_not_awaited()
+    interaction.edit_original_response.assert_not_awaited()
 
 
 def test_frame_durations_cover_requested_animation_time():
