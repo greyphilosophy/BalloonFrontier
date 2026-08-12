@@ -6,7 +6,10 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
-from balloon_frontier.aerostat import configure_simulation_state
+from balloon_frontier.aerostat import (
+    configure_simulation_state,
+    safety_notes_for_request,
+)
 from balloon_frontier.atmosphere import (
     AtmosphereProvider,
     current_atmosphere_provider,
@@ -54,6 +57,7 @@ class FlightOutcome:
     weather: Optional[WeatherEvent] = None
     mission_assignment: Optional[MissionAssignment] = None
     mission_results: tuple[MissionResult, ...] = ()
+    safety_notes: tuple[str, ...] = ()
     weather_impacts: dict = field(default_factory=dict)
     atmosphere_provider: AtmosphereProvider | None = None
 
@@ -129,7 +133,7 @@ class FlightService:
         with use_atmosphere(provider):
             sim_state = req.to_simulation_state()
             # Apply material and heater properties without creating a separate
-            # hot-air simulation path.  The ordinary SimulationState receives
+            # hot-air simulation path. The ordinary SimulationState receives
             # watts and thermal parameters, then shared equations do the rest.
             configure_simulation_state(req, sim_state)
 
@@ -188,6 +192,7 @@ class FlightService:
             prep.sim_state.weather_ascent_multiplier = impacts.get("ascent_rate", 1.0)
             prep.sim_state.weather_drift_multiplier = impacts.get("drift_factor", 1.0)
 
+        safety_notes = safety_notes_for_request(launch_request)
         assignment_dict = prep.mission_assignment or {}
         is_mission = bool(assignment_dict.get("mission_ids"))
         max_time = self.mission_sim_time if is_mission else self.default_sim_time
@@ -210,6 +215,7 @@ class FlightService:
                 result=FlightResult(telemetry=(), launch_request=launch_request),
                 weather=prep.weather,
                 mission_assignment=mission_assignment,
+                safety_notes=safety_notes,
                 weather_impacts=prep.weather_impacts,
                 atmosphere_provider=provider,
             )
@@ -248,6 +254,7 @@ class FlightService:
             weather=prep.weather,
             mission_assignment=mission_assignment,
             mission_results=mission_results,
+            safety_notes=safety_notes,
             weather_impacts=prep.weather_impacts,
             atmosphere_provider=provider,
         )
