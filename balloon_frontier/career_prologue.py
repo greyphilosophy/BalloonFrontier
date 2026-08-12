@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from balloon_frontier.catalog import CATALOG
+from balloon_frontier.launch_result import FillMode, LaunchRequest
+
 
 FIRST_FLIGHT_OPTION_KEYS = {
     0: ("helium", "air"),
@@ -27,74 +30,123 @@ def needs_first_flight(player_id: str | int | None) -> bool:
     return "first_flight" not in player.missions_completed
 
 
-def _install_first_flight_component_options() -> None:
-    """Expose Story-only aerostat components to the legacy tuple menus.
+def _gas_option(gas_id: str) -> tuple[str, float, int]:
+    """Return the legacy Discord tuple for a canonical gas definition."""
+    gas = CATALOG.gas(gas_id)
+    return gas.name, gas.molar_mass, gas.cost_per_kg
 
-    The canonical definitions are registered in :mod:`balloon_frontier.aerostat`.
-    These tuples are presentation adapters used by the existing Discord wizard
-    and launch renderer.
-    """
-    from balloon_frontier.discord_ui.configurator import (
-        ENVELOPE_OPTIONS,
-        GAS_OPTIONS,
-        PAYLOAD_OPTIONS,
+
+def _envelope_option(envelope_id: str) -> tuple[str, float, float, float, float, int]:
+    """Return the legacy Discord tuple for a canonical envelope definition."""
+    envelope = CATALOG.envelope(envelope_id)
+    return (
+        envelope.name,
+        envelope.max_volume_m3,
+        envelope.mass_kg,
+        envelope.drag_coefficient,
+        envelope.burst_stretch_ratio,
+        envelope.cost,
     )
 
-    GAS_OPTIONS.setdefault("air", ("Air", 0.0289652068, 0))
-    ENVELOPE_OPTIONS.setdefault(
-        "candle_kite",
-        (
-            "Lightweight Hot-Air Envelope",
-            0.20,
-            0.018,
-            1.45,
-            1.05,
-            5,
-        ),
-    )
-    PAYLOAD_OPTIONS.setdefault(
-        "candle_heater",
-        ("Tea Light Heat Source", 0.015, 1, False),
-    )
-    PAYLOAD_OPTIONS.setdefault(
-        "electric_heater",
-        ("Small Electric Heater", 0.080, 20, False),
+
+def _payload_option(payload_id: str) -> tuple[str, float, int, bool]:
+    """Return the legacy Discord tuple for a canonical payload definition."""
+    if payload_id == "none":
+        return "None", 0.0, 0, False
+    payload = CATALOG.payload(payload_id)
+    return payload.name, payload.mass_kg, payload.cost, payload.has_valve
+
+
+def toggle_payload_selection(
+    current_payloads: tuple[str, ...] | list[str],
+    selected: str,
+) -> tuple[str, ...]:
+    """Pure deterministic payload toggle with ``none`` as the empty sentinel."""
+    current = tuple(pid for pid in current_payloads if pid != "none")
+    if selected == "none":
+        return ("none",)
+    if selected in current:
+        remaining = tuple(pid for pid in current if pid != selected)
+        return remaining or ("none",)
+    return current + (selected,)
+
+
+def _request_from_state(state: dict) -> LaunchRequest:
+    """Build an immutable launch request from configurator state."""
+    return LaunchRequest(
+        gas_id=state["gas"],
+        envelope_id=state["envelope"],
+        payload_ids=tuple(state.get("payloads") or ()),
+        launch_site_id=state["site"],
+        fill_mode=FillMode(state.get("fill_mode", "auto")),
+        manual_gas_mass_kg=state.get("manual_gas_mass"),
+        balloon_size=None,
     )
 
 
 class DiscoveryFirstFlightConfiguratorMixin:
     """Expose a small Story menu while using the ordinary simulation physics.
 
-    The first flight changes only which components are offered. Air temperature,
-    heater power, envelope heat loss, buoyancy, weather, evaluation, and rewards
-    remain on the same shared paths used by later Story flights.
+    First Flight creates local option views from canonical definitions; it never
+    mutates the process-wide Discord option dictionaries. This keeps one user's
+    onboarding choices from leaking into another user's later Story session.
     """
 
     def _first_flight_options(self, step=None):
         from balloon_frontier.discord_ui.configurator import (
-            ENVELOPE_OPTIONS,
             FILL_MODES,
-            GAS_OPTIONS,
-            PAYLOAD_OPTIONS,
             SITE_OPTIONS,
             _Step,
         )
 
-        _install_first_flight_component_options()
         current_step = self._current_step if step is None else step
-        catalogs = {
-            _Step.CHOOSE_GAS: GAS_OPTIONS,
-            _Step.CHOOSE_ENVELOPE: ENVELOPE_OPTIONS,
-            _Step.CHOOSE_FILL: FILL_MODES,
-            _Step.CHOOSE_PAYLOADS: PAYLOAD_OPTIONS,
-            _Step.CHOOSE_SITE: SITE_OPTIONS,
-        }
-        catalog = catalogs[current_step]
-        return {
-            key: catalog[key]
-            for key in FIRST_FLIGHT_OPTION_KEYS[current_step]
-            if key in catalog
-        }
+        keys = FIRST_FLIGHT_OPTION_KEYS[current_step]
+        if current_step == _Step.CHOOSE_GAS:
+            return {key: _gas_option(key) for key in keys}
+        if current_step == _Step.CHOOSE_ENVELOPE:
+            return {key: _envelope_option(key) for key in keys}
+        if current_step == _Step.CHOOSE_PAYLOADS:
+            return {key: _payload_option(key) for key in keys}
+        if current_step == _Step.CHOOSE_FILL:
+            return {key: FILL_MODES[key] for key in keys}
+        if current_step == _Step.CHOOSE_SITE:
+            return {key: SITE_OPTIONS[key] for key in keys}
+        return {}
+
+    def _compute_gas_mass(self):
+        """Compute First Flight fill from the immutable canonical request."""
+        return round(_request_from_state(self.state).gas_mass_kg, 3)
+
+    def _build_config_text(self):
+        """Build review text without consulting or mutating global UI catalogs."""
+        from balloon_frontier.discord_ui.configurator import FILL_MODES, SITE_OPTIONS
+
+        state = self.state
+        gas = CATALOG.gas(state["gas"])
+        envelope = CATALOG.envelope(state["envelope"])
+        payload_defs = [
+            CATALOG.payload(pid)
+            for pid in state.get("payloads") or ()
+            if pid != "none"
+        ]
+        payload_names = [payload.name for payload in payload_defs] or ["None"]
+        payload_mass = sum(payload.mass_kg for payload in payload_defs)
+        gas_mass = state.get("gas_mass")
+        if gas_mass is None:
+            gas_mass = self._compute_gas_mass()
+        fill_label = FILL_MODES[state["fill_mode"]]["label"]
+        site = SITE_OPTIONS[state["site"]]
+        lines = ["🎈 **Balloon Configuration**\n"]
+        lines.append(f"Gas: {gas.name}")
+        lines.append(f"Fill: {fill_label} → {gas_mass:.3f} kg")
+        lines.append(f"Envelope: {envelope.name} — {envelope.max_volume_m3}m³")
+        lines.append(f"Payloads: {', '.join(payload_names)}")
+        lines.append(f"Site: {site.name}")
+        lines.append(
+            f"Total mass: {gas_mass + envelope.mass_kg + payload_mass:.1f} kg\n"
+        )
+        lines.append("Review looks good? Hit **Launch**! 🚀")
+        return "\n".join(lines)
 
     def _step_content(self) -> str:
         from balloon_frontier.discord_ui.configurator import _Step
@@ -112,8 +164,6 @@ class DiscoveryFirstFlightConfiguratorMixin:
             ]
             if self._current_step == _Step.CHOOSE_GAS:
                 for index, gas in enumerate(options.values(), 1):
-                    # GAS_OPTIONS stores molar mass, despite older UI text calling
-                    # the value density. Use the physically correct label here.
                     lines.append(
                         f"{index}  {gas[0]}  (M={gas[1]} kg/mol, ${gas[2]}/kg)"
                     )
@@ -156,13 +206,15 @@ class DiscoveryFirstFlightConfiguratorMixin:
         ) + "\n\n" + configuration
 
     async def _select_single_option(self, interaction, index: int, state_key: str):
-        key = self._option_by_index(index, self._first_flight_options())
-        if key is None:
+        options = self._first_flight_options()
+        keys = tuple(options)
+        idx = index - 1
+        if idx < 0 or idx >= len(keys):
             await interaction.response.send_message(
                 "That option isn't available right now.", ephemeral=True
             )
             return
-        self.state[state_key] = key
+        self.state[state_key] = keys[idx]
         self.state["gas_mass"] = self._compute_gas_mass()
         await self._advance(interaction)
 
@@ -176,12 +228,16 @@ class DiscoveryFirstFlightConfiguratorMixin:
         await self._select_single_option(interaction, index, "fill_mode")
 
     async def _on_payload(self, interaction, index: int):
-        key = self._option_by_index(index, self._first_flight_options(), multi=True)
-        if key is None:
+        keys = tuple(self._first_flight_options())
+        idx = index - 1
+        if idx < 0 or idx >= len(keys):
             await interaction.response.send_message(
                 "That option isn't available right now.", ephemeral=True
             )
             return
+        self.state["payloads"] = list(
+            toggle_payload_selection(self.state.get("payloads") or (), keys[idx])
+        )
         self.state["gas_mass"] = self._compute_gas_mass()
         self.build_buttons()
         await self._send_step(interaction)
