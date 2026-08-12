@@ -12,13 +12,13 @@ R_AIR = 287.05
 SEA_LEVEL_PRESSURE = 101325.0
 SEA_LEVEL_TEMPERATURE = 288.15
 
-# Molar masses (kg/mol)
+# Molar masses (kg/mol).  ``air`` is the physical gas; ``hot_air`` remains a
+# backward-compatible identifier with exactly the same composition.  Heating
+# changes temperature, not gas identity.
 MOLAR_MASS = {
     "helium": 0.0040026,
     "hydrogen": 0.002016,
-    # Chosen so R/M ≈ R_AIR (287.05 J/kg/K), ensuring hot_air density
-    # matches ambient air density at the same T and P (zero ghost lift).
-    # VALIDATED: lift = 22.12 N at T_gas=353K, T_amb=288.15K, mass=10kg.
+    "air": 0.0289652068,
     "hot_air": 0.0289652068,
     "methane": 0.01604,
 }
