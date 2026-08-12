@@ -21,7 +21,10 @@ class DiscordFlightAnimator:
     """Encode a complete flight montage and install it on the deferred response."""
 
     def __init__(self, *, duration_s: float = 5.0, ticks_per_moment: int = 2) -> None:
-        self.duration_s = min(15.0, max(3.0, float(duration_s)))
+        # Discord playback is intentionally a compact five-second slideshow.
+        # Older callers still pass 10s explicitly, so cap rather than merely
+        # changing the default.
+        self.duration_s = min(5.0, max(3.0, float(duration_s)))
         self.ticks_per_moment = min(4, max(1, int(ticks_per_moment)))
         self._renderer = GraphicFlightSceneRenderer()
 
@@ -35,7 +38,7 @@ class DiscordFlightAnimator:
         """Render slideshow frames without changing the represented flight time.
 
         Each animation tick for a slide keeps the exact ``FlightMoment`` supplied
-        by the telemetry timeline.  The HUD therefore reports that moment's real
+        by the telemetry timeline. The HUD therefore reports that moment's real
         simulation ``time_s`` while the small per-tick sway remains cosmetic.
         """
         frames: list[Image.Image] = []
