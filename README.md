@@ -7,6 +7,7 @@ A playable balloon building simulator with realistic physics, CLI game interface
 - **Realistic Physics Engine**: Ideal gas law, US Standard Atmosphere model, semi-implicit Euler integration
 - **CLI Game**: Interactive terminal game for testing balloon configurations
 - **Discord Bot**: Step-by-step button interface for configuring and launching flights
+- **Shared Flight Animation**: Graphical flight frames render as GIFs in Discord and are converted from the same pixels to ANSI/ASCII in the CLI
 - **Modular Architecture**: Physics, simulation, thermal, wind, valves, and fuel subsystems
 - **Fill Modes**: Auto-fill presets (Light, Normal, Heavy, Manual) for strategic gas management
 - **Medal System**: Peak altitude tiers from Bronze to Platinum
@@ -19,7 +20,7 @@ A playable balloon building simulator with realistic physics, CLI game interface
 cd BalloonFrontier
 python3 -m venv venv
 source venv/bin/activate
-pip install pytest discord.py
+pip install -r requirements.txt
 ```
 
 ## CLI Game
@@ -85,6 +86,14 @@ All auto-fill modes (Auto, Light, Normal, Heavy) are clamped to a dynamic burst-
 - **Mountain Ridge**: 283.15K, elevated
 - **Urban Rooftop**: 291.15K, warm microclimate
 
+## Flight Animation
+
+Discord and CLI share the same rendered flight scene. The renderer draws the balloon, actual selected payload, sky/terrain, flight state, and telemetry HUD as Pillow image frames.
+
+- **Discord** encodes the frames into a single animated GIF and completes the deferred interaction via a follow-up send, avoiding explicit per-frame message edits and Discord rate-limit pressure.
+- **CLI** downsamples those same frames to a compact palette and renders them with ANSI half-block characters. Non-color or non-TTY output falls back to image-derived grayscale ASCII.
+- The flight timeline can select up to 24 representative moments; Discord and CLI currently request 18 for a longer, smoother montage.
+
 ## Medal System
 
 Flights earn medals based on the peak altitude achieved. Medals provide quick visual feedback on flight performance.
@@ -135,7 +144,6 @@ Each flight can be assigned 1–3 missions selected from the mission pool. Missi
 
 Missions are stored as JSON files in `data/missions/` for easy content expansion.
 
-
 ## Weather
 
 The atmospheric weather model supports altitude and diurnal variation. Each Discord launch also receives a deterministic site-specific weather event based on its configuration.
@@ -155,7 +163,7 @@ Each launch generates randomized weather conditions with four severity levels:
 | 🟢 Favorable | Calm, clear skies | Smooth sailing, gentle breeze |
 | 🟡 Moderate | Moderate winds, some clouds | Unsettled air, temperature inversion |
 | 🟠 Challenging | Strong crosswinds, pressure dips | Thermal instability, cloud ceiling |
-| 🔴 Hazardous | Storm fronts, extreme conditions | Jet stream crosswinds, pressure crash |
+| 🔴 Hazardous | Storm fronts, extreme conditions |
 
 Weather factors include:
 - **Wind Gust Factor** (0.5x–2.5x): Multiplier on wind speed affecting drift
@@ -171,7 +179,7 @@ Weather is seeded deterministically from the launch configuration (gas, envelope
 ```bash
 python3 -m venv venv
 source venv/bin/activate
-pip install discord.py
+pip install -r requirements.txt
 python3 start_bot.py
 ```
 
@@ -234,32 +242,11 @@ balloon_frontier/
 ├── missions.py     — Mission objectives
 ├── evaluation.py   — Post-flight scoring
 ├── weather.py      — Weather conditions
-├── weather_event.py — Random weather event generation
 ├── wind.py         — Wind models
-├── fill.py         — Fill mode presets and auto-fill calculator
-├── medal_tier.py   — Medal tier determination
-├── mission_selection.py — Mission selection from pool
-├── flight_score.py — Flight scoring
-├── narrative_result.py — Narrative result formatting
 ├── discord_bot.py  — Discord bot integration
 tests/
-├── test_physics.py   — Physics engine tests
-├── test_simulation.py — Simulation engine tests
-├── test_thermal.py   — Thermal model tests
-├── test_equilibrium.py — Equilibrium calculations
-├── test_valves.py    — Valve controls
-├── test_fuel.py      — Fuel models
-├── test_payloads.py  — Payload system
-├── test_progression.py — Mission progression
-├── test_missions.py   — Mission objectives
-├── test_evaluation.py — Scoring system
-├── test_weather.py   — Weather conditions
-├── test_wind.py      — Wind models
-├── test_discord_bot.py — Discord bot tests
-├── test_e2e.py       — End-to-end tests
-├── test_e2e_gameplay.py — End-to-end gameplay tests
+├── test_physics.py
+├── test_simulation.py
+├── test_discord_bot.py
+└── ...
 ```
-
-## License
-
-Copyright (c) 2026 Balloon Frontier
