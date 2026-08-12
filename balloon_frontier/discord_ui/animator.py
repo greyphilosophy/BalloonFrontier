@@ -20,8 +20,8 @@ from balloon_frontier.presentation import (
 class DiscordFlightAnimator:
     """Encode a complete flight montage and install it on the deferred response."""
 
-    def __init__(self, *, duration_s: float = 10.0, ticks_per_moment: int = 2) -> None:
-        self.duration_s = min(15.0, max(8.0, float(duration_s)))
+    def __init__(self, *, duration_s: float = 5.0, ticks_per_moment: int = 2) -> None:
+        self.duration_s = min(15.0, max(3.0, float(duration_s)))
         self.ticks_per_moment = min(4, max(1, int(ticks_per_moment)))
         self._renderer = GraphicFlightSceneRenderer()
 
@@ -32,6 +32,12 @@ class DiscordFlightAnimator:
         envelope_id: str = "latex",
         payload_ids: Sequence[str] = (),
     ) -> list[Image.Image]:
+        """Render slideshow frames without changing the represented flight time.
+
+        Each animation tick for a slide keeps the exact ``FlightMoment`` supplied
+        by the telemetry timeline.  The HUD therefore reports that moment's real
+        simulation ``time_s`` while the small per-tick sway remains cosmetic.
+        """
         frames: list[Image.Image] = []
         for index, moment in enumerate(moments):
             for tick in range(self.ticks_per_moment):
@@ -92,7 +98,7 @@ class DiscordFlightAnimator:
         total_ms = round(self.duration_s * 1000)
         if frame_count <= 1:
             return [total_ms]
-        final_hold_ms = min(1400, max(700, total_ms // 6))
+        final_hold_ms = min(1000, max(450, total_ms // 6))
         remaining_ms = max(frame_count - 1, total_ms - final_hold_ms)
         base_ms, remainder = divmod(remaining_ms, frame_count - 1)
         durations = [
