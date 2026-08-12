@@ -364,7 +364,7 @@ async def run_launch(
             time_of_flight=result_obj.duration_s,
             telemetry=tel,
             gas_name=gas_definition.name,
-            gas_mass=launch_request.gas_mass_kg,
+            gas_mass=gas_mass,
             env_name=envelope_definition.name,
             payload_names=payload_display,
             site_name=site_info.name,
