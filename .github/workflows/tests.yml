@@ -117,7 +117,8 @@ jobs:
         run: |
           python -m coverage run --source=balloon_frontier.aerostat -m pytest \
             tests/test_unified_aerostat_thermal.py \
+            tests/test_unified_aerostat_coverage_edges.py \
             tests/test_safety_mission_constraints.py -q
-          python -m coverage report \
+          python -m coverage report -m \
             --include='*/balloon_frontier/aerostat.py' \
             --fail-under=100
