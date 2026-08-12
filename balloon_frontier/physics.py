@@ -12,8 +12,8 @@ R_AIR = 287.05
 SEA_LEVEL_PRESSURE = 101325.0
 SEA_LEVEL_TEMPERATURE = 288.15
 
-# Molar masses (kg/mol).  ``air`` is the physical gas; ``hot_air`` remains a
-# backward-compatible identifier with exactly the same composition.  Heating
+# Molar masses (kg/mol). ``air`` is the physical gas; ``hot_air`` remains a
+# backward-compatible identifier with exactly the same composition. Heating
 # changes temperature, not gas identity.
 MOLAR_MASS = {
     "helium": 0.0040026,
@@ -109,7 +109,13 @@ def gas_density(gas_type, temp_K, pressure_PA):
 
 
 def buoyant_force(gas_type, gas_mass, gas_temp, alt_m):
-    """Net buoyant lift force (N) = (ρ_air - ρ_gas) × g × V."""
+    """Compatibility helper: gas lifting capacity above its own weight.
+
+    This returns ``(rho_air - rho_gas) * g * V``: the amount of non-gas mass a
+    gas volume could support before envelope/payload/ballast weight is applied.
+    The full simulator instead records Archimedean buoyancy ``rho_air * g * V``
+    and subtracts total vehicle weight, which already includes the gas mass.
+    """
     rho_air = atmosphere_density(alt_m)
     pressure = atmosphere_pressure(alt_m)
     volume = gas_volume(gas_mass, gas_type, gas_temp, pressure)
