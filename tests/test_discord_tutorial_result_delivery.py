@@ -77,8 +77,11 @@ def test_split_followup_failure_delegates_to_safe_sender():
     original_send.assert_awaited_once_with(interaction, "Launch report")
 
 
-def test_next_action_prompt_is_story_only():
-    interaction = SimpleNamespace(edit_original_response=AsyncMock())
+def test_next_action_prompt_is_a_followup_and_does_not_edit_flight_message():
+    interaction = SimpleNamespace(
+        followup=SimpleNamespace(send=AsyncMock()),
+        edit_original_response=AsyncMock(),
+    )
     view = ContinueToStoryView(
         player_id="player",
         channel_kind="dm",
@@ -94,17 +97,21 @@ def test_next_action_prompt_is_story_only():
         _split_delivery_active.reset(active_token)
 
     assert attached is True
-    interaction.edit_original_response.assert_awaited_once_with(
+    interaction.followup.send.assert_awaited_once_with(
         content=_NEXT_ACTION_PROMPT,
         view=view,
     )
+    interaction.edit_original_response.assert_not_awaited()
     assert "Tutorial" not in _NEXT_ACTION_PROMPT
     assert "Replay" not in _NEXT_ACTION_PROMPT
     assert view.children[0].label == "Continue Story"
 
 
 def test_fallback_report_is_not_overwritten_by_next_action_prompt():
-    interaction = SimpleNamespace(edit_original_response=AsyncMock())
+    interaction = SimpleNamespace(
+        followup=SimpleNamespace(send=AsyncMock()),
+        edit_original_response=AsyncMock(),
+    )
     view = object()
 
     active_token = _split_delivery_active.set(True)
@@ -116,7 +123,27 @@ def test_fallback_report_is_not_overwritten_by_next_action_prompt():
         _split_delivery_active.reset(active_token)
 
     assert attached is True
+    interaction.followup.send.assert_not_awaited()
     interaction.edit_original_response.assert_awaited_once_with(view=view)
+
+
+def test_transport_without_followups_uses_original_response_as_last_resort():
+    interaction = SimpleNamespace(edit_original_response=AsyncMock())
+    view = object()
+
+    active_token = _split_delivery_active.set(True)
+    fallback_token = _split_followup_failed.set(False)
+    try:
+        attached = asyncio.run(_attach_next_action_prompt(interaction, view))
+    finally:
+        _split_followup_failed.reset(fallback_token)
+        _split_delivery_active.reset(active_token)
+
+    assert attached is True
+    interaction.edit_original_response.assert_awaited_once_with(
+        content=_NEXT_ACTION_PROMPT,
+        view=view,
+    )
 
 
 def test_oversized_report_is_split_without_dropping_text():
