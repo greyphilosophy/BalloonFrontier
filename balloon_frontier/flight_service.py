@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Optional
 
 from balloon_frontier.aerostat import (
-    configure_simulation_state,
+    configured_simulation_state,
     safety_notes_for_request,
 )
 from balloon_frontier.atmosphere import (
@@ -79,6 +79,25 @@ class FlightServiceError(Exception):
     """Raised when flight simulation fails."""
 
 
+def _state_with_weather_impacts(
+    state: SimulationState,
+    impacts: dict,
+) -> SimulationState:
+    """Return a weather-adjusted state copy without mutating preparation data."""
+    envelope = replace(
+        state.envelope,
+        weather_burst_risk_modifier=impacts.get("burst_risk", 1.0),
+        weather_solar_modifier=impacts.get("thermal_efficiency", 1.0),
+        weather_pressure_modifier=impacts.get("pressure_modifier", 1.0),
+    )
+    return replace(
+        state,
+        envelope=envelope,
+        weather_ascent_multiplier=impacts.get("ascent_rate", 1.0),
+        weather_drift_multiplier=impacts.get("drift_factor", 1.0),
+    )
+
+
 class FlightService:
     """Transport-neutral flight pipeline."""
 
@@ -131,11 +150,10 @@ class FlightService:
             or weather_column
         )
         with use_atmosphere(provider):
-            sim_state = req.to_simulation_state()
-            # Apply material and heater properties without creating a separate
-            # hot-air simulation path. The ordinary SimulationState receives
-            # watts and thermal parameters, then shared equations do the rest.
-            configure_simulation_state(req, sim_state)
+            sim_state = configured_simulation_state(
+                req,
+                req.to_simulation_state(),
+            )
 
         payload_count = len(payload_keys) if payload_keys else 0
         mission_count = choose_mission_count(payload_count)
@@ -178,19 +196,11 @@ class FlightService:
         prep: LaunchPreparation,
         provider: AtmosphereProvider | None,
     ) -> FlightOutcome:
-        if prep.weather:
-            impacts = prep.weather_impacts
-            prep.sim_state.envelope.weather_burst_risk_modifier = impacts.get(
-                "burst_risk", 1.0
-            )
-            prep.sim_state.envelope.weather_solar_modifier = impacts.get(
-                "thermal_efficiency", 1.0
-            )
-            prep.sim_state.envelope.weather_pressure_modifier = impacts.get(
-                "pressure_modifier", 1.0
-            )
-            prep.sim_state.weather_ascent_multiplier = impacts.get("ascent_rate", 1.0)
-            prep.sim_state.weather_drift_multiplier = impacts.get("drift_factor", 1.0)
+        sim_state = (
+            _state_with_weather_impacts(prep.sim_state, prep.weather_impacts)
+            if prep.weather
+            else prep.sim_state
+        )
 
         safety_notes = safety_notes_for_request(launch_request)
         assignment_dict = prep.mission_assignment or {}
@@ -199,7 +209,7 @@ class FlightService:
         max_steps = int(max_time / 0.1)
         step_interval = self.mission_step_interval if is_mission else None
         telemetry = run_full_simulation(
-            prep.sim_state,
+            sim_state,
             dt=0.1,
             total_time_s=max_time,
             max_steps=max_steps,
