@@ -220,23 +220,25 @@ async def _attach_next_action_prompt(interaction, continue_view) -> bool:
     if continue_view is None:
         return False
 
+    split_active = _split_delivery_active.get()
     followup = getattr(interaction, "followup", None)
     can_follow_up = followup is not None and hasattr(followup, "send")
     followup_failed = _split_followup_failed.get()
 
     try:
-        if can_follow_up and not followup_failed:
+        if split_active and can_follow_up and not followup_failed:
             await followup.send(
                 content=_NEXT_ACTION_PROMPT,
                 view=continue_view,
             )
             return True
 
-        # If follow-up delivery has already failed, preserve the fallback report's
-        # content and attach only the controls to the original response. For
-        # transports without follow-up support, editing is the last-resort path.
+        # Outside the split First Flight scope, preserve the legacy contract:
+        # attach only the view and never rewrite the existing message content.
+        # Inside the split scope, add the prompt only when no prior follow-up
+        # failure has already forced the report onto the original response.
         kwargs = {"view": continue_view}
-        if not followup_failed:
+        if split_active and not followup_failed:
             kwargs["content"] = _NEXT_ACTION_PROMPT
         await interaction.edit_original_response(**kwargs)
     except Exception:
