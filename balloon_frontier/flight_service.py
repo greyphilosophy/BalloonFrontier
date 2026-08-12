@@ -6,6 +6,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
+from balloon_frontier.aerostat import configure_simulation_state
 from balloon_frontier.atmosphere import (
     AtmosphereProvider,
     current_atmosphere_provider,
@@ -17,7 +18,6 @@ from balloon_frontier.launch_result import (
     LaunchRequest,
     MissionAssignment,
     MissionResult,
-    TelemetryPoint,
     telemetry_list_to_points,
 )
 from balloon_frontier.medal_tier import get_medal_emoji, medal_tier_to_string
@@ -30,7 +30,6 @@ from balloon_frontier.mission_selection import (
 from balloon_frontier.progression import PlayerRegistryRepository
 from balloon_frontier.reward_service import RewardService
 from balloon_frontier.simulation import (
-    EnvelopeConfig,
     SimulationState,
     run_simulation as run_full_simulation,
 )
@@ -129,6 +128,10 @@ class FlightService:
         )
         with use_atmosphere(provider):
             sim_state = req.to_simulation_state()
+            # Apply material and heater properties without creating a separate
+            # hot-air simulation path.  The ordinary SimulationState receives
+            # watts and thermal parameters, then shared equations do the rest.
+            configure_simulation_state(req, sim_state)
 
         payload_count = len(payload_keys) if payload_keys else 0
         mission_count = choose_mission_count(payload_count)
@@ -152,7 +155,6 @@ class FlightService:
 
     def run(self, launch_request: LaunchRequest) -> FlightOutcome:
         """Execute the full flight pipeline under the selected atmosphere."""
-
         try:
             with use_atmosphere(self.atmosphere_provider):
                 return self._run_active(launch_request)
@@ -253,7 +255,6 @@ class FlightService:
 
 def _scenario_for_weather(weather: WeatherEvent) -> str:
     """Keep narrative weather and the hidden vertical column broadly consistent."""
-
     name = weather.name.lower()
     if "jet stream" in name:
         return "jet_stream"
