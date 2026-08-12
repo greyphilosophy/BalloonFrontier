@@ -47,5 +47,9 @@ def test_ansi_serializers_reset_every_line():
         assert all(line.endswith("\x1b[0m") for line in serializer.serialize(canvas).splitlines())
 
 
-def test_requested_frame_count_never_exceeds_nine():
-    assert len(build_flight_moments(telemetry(), max_frames=999)) <= 9
+def test_requested_frame_count_never_exceeds_twenty_four():
+    dense = [
+        {"time": index * 5, "alt": min(index, 30 - index) * 1000, "vel": 4}
+        for index in range(31)
+    ]
+    assert len(build_flight_moments(dense, max_frames=999)) <= 24
