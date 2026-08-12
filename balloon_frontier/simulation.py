@@ -283,11 +283,17 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     time_s0 = float(state.time_s)
     ground_alt_m = float(state.terrain_base_altitude_offset_m)
 
-    # Resting-on-ground support is only for craft that truly have not flown yet.
     # A state initialized above the terrain is already airborne, even if its
     # first integration step crosses the ground at high descent speed.
     if altitude_m0 > ground_alt_m + 1e-3:
         state.has_lifted_off = True
+
+    # Ground support is a preflight heater behavior, not a universal boundary
+    # condition. An under-lifted unheated launch should settle/land normally;
+    # a heated craft may remain staged while its gas energy state changes.
+    ground_support_active = (
+        not state.has_lifted_off and state.heater_power_watts > 0.0
+    )
 
     F_buoy, F_weight, F_drag_vertical, F_net, area_m2 = _compute_forces(state)
 
@@ -345,12 +351,9 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     state.velocity_mps += acceleration_y * dt
     state.altitude_m += state.velocity_mps * dt
 
-    # A craft that has not lifted off rests on the ground rather than instantly
-    # completing a zero-duration landing. This lets heater power warm a
-    # negatively buoyant envelope until the shared force model produces liftoff.
     if state.altitude_m > ground_alt_m + 1e-3:
         state.has_lifted_off = True
-    elif not state.has_lifted_off and state.altitude_m <= ground_alt_m:
+    elif ground_support_active and state.altitude_m <= ground_alt_m:
         state.altitude_m = ground_alt_m
         if state.velocity_mps < 0.0:
             state.velocity_mps = 0.0
@@ -438,10 +441,15 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
         state.vent_open = True
         _apply_open_venting(state, dt)
 
-    # Landing/crash applies only after a genuine liftoff. Before liftoff the
-    # ground boundary above supplies support while thermal state evolves.
+    # Unheated launches preserve the previous settle/landing behavior. Heated
+    # craft are held only while still in preflight staging; once they lift off,
+    # the same terrain-relative landing logic applies to everyone.
     relative_alt_m = state.altitude_m - ground_alt_m
-    if state.has_lifted_off and relative_alt_m <= 0.0 and state.velocity_mps < 0.0:
+    if (
+        relative_alt_m <= 0.0
+        and state.velocity_mps < 0.0
+        and (state.has_lifted_off or not ground_support_active)
+    ):
         state.altitude_m = ground_alt_m
         state.landed = True
         if abs(state.velocity_mps) > 15.0:
