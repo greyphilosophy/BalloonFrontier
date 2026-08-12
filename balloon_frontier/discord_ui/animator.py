@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 from collections.abc import Sequence
 
@@ -113,7 +114,11 @@ class DiscordFlightAnimator:
     ) -> bytes | None:
         if not moments:
             return None
-        gif = self.render_gif(
+
+        # Rendering and GIF encoding are CPU-bound Pillow work. Keep them off the
+        # Discord event loop so one launch cannot stall unrelated bot callbacks.
+        gif = await asyncio.to_thread(
+            self.render_gif,
             moments,
             envelope_id=envelope_id,
             payload_ids=payload_ids,
