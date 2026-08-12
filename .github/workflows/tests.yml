@@ -101,3 +101,23 @@ jobs:
         run: python -m pytest tests/test_atmosphere_profile.py -q
       - name: Test recorded atmosphere replay
         run: python -m pytest tests/test_recorded_atmosphere_replay.py -q
+
+  aerostat-domain-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest coverage
+      - name: Measure unified aerostat core
+        run: |
+          python -m coverage run --source=balloon_frontier.aerostat -m pytest \
+            tests/test_unified_aerostat_thermal.py \
+            tests/test_safety_mission_constraints.py -q
+          python -m coverage report \
+            --include='*/balloon_frontier/aerostat.py' \
+            --fail-under=100
