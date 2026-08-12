@@ -41,9 +41,9 @@ def test_same_graphical_frame_can_be_rendered_as_color_ansi_and_plain_ascii():
     assert all(len(line) == 40 for line in plain.splitlines())
 
 
-def test_graphical_scene_changes_for_selected_payload_and_burst():
+def test_graphical_scene_changes_for_selected_payload():
     renderer = GraphicFlightSceneRenderer()
-    ordinary = renderer.render(
+    camera = renderer.render(
         RenderFrame(moments()[2]),
         payload_ids=("camera",),
     )
@@ -51,5 +51,28 @@ def test_graphical_scene_changes_for_selected_payload_and_burst():
         RenderFrame(moments()[2]),
         payload_ids=("small_quadcopter",),
     )
+    no_payload = renderer.render(
+        RenderFrame(moments()[2]),
+        payload_ids=("none",),
+    )
+    unknown_loadout = renderer.render(RenderFrame(moments()[2]))
 
-    assert ordinary.tobytes() != quadcopter.tobytes()
+    assert camera.tobytes() != quadcopter.tobytes()
+    assert no_payload.tobytes() != camera.tobytes()
+    assert no_payload.tobytes() != unknown_loadout.tobytes()
+
+
+def test_timeline_can_supply_more_moments_without_discord_edit_pressure():
+    telemetry = [
+        {
+            "time": index * 10,
+            "alt": index * 750 if index <= 20 else (40 - index) * 750,
+            "vel": 5 if index <= 20 else -5,
+            "landed": index == 40,
+        }
+        for index in range(41)
+    ]
+
+    selected = build_flight_moments(telemetry, max_frames=24)
+
+    assert 18 <= len(selected) <= 24
