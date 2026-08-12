@@ -1,16 +1,28 @@
 """Regression tests for the unified gas/thermal aerostat model."""
 
+import pytest
+
 from balloon_frontier.aerostat import configure_simulation_state
 from balloon_frontier.flight_service import FlightService
 from balloon_frontier.launch_result import FillMode, LaunchRequest
 from balloon_frontier.physics import (
+    G,
     atmosphere_density,
     atmosphere_pressure,
     atmosphere_temperature,
     gas_density,
+    gas_volume,
 )
-from balloon_frontier.simulation import EnvelopeConfig, SimulationState, run_simulation
-from balloon_frontier.thermal import effective_thermal_resistance
+from balloon_frontier.simulation import (
+    EnvelopeConfig,
+    SimulationState,
+    run_simulation,
+    simulation_step,
+)
+from balloon_frontier.thermal import (
+    calculate_balloon_heat_flows,
+    effective_thermal_resistance,
+)
 
 
 def test_air_at_ambient_state_matches_ambient_density():
@@ -43,6 +55,70 @@ def test_envelope_resistance_falls_when_stretch_increases():
         stretch_start_fraction=0.65,
     )
     assert stretched < relaxed
+
+
+def test_solar_uses_projected_area_while_losses_use_envelope_surface():
+    flows = calculate_balloon_heat_flows(
+        altitude_m=0.0,
+        gas_temp_K=320.0,
+        gas_mass_kg=0.1,
+        gas_type="air",
+        envelope_absorptivity=0.5,
+        envelope_emissivity=0.8,
+        envelope_area_m2=4.0,
+        envelope_mass_kg=0.01,
+        heater_power_watts=0.0,
+        equipment_heat_watts=0.0,
+        thermal_resistance_m2_k_w=1.0,
+        solar_projected_area_m2=1.0,
+    )
+    legacy_area_flows = calculate_balloon_heat_flows(
+        altitude_m=0.0,
+        gas_temp_K=320.0,
+        gas_mass_kg=0.1,
+        gas_type="air",
+        envelope_absorptivity=0.5,
+        envelope_emissivity=0.8,
+        envelope_area_m2=4.0,
+        envelope_mass_kg=0.01,
+        heater_power_watts=0.0,
+        equipment_heat_watts=0.0,
+        thermal_resistance_m2_k_w=1.0,
+    )
+
+    assert flows["Q_solar"] * 4.0 == pytest.approx(legacy_area_flows["Q_solar"])
+    assert flows["Q_radiation"] == pytest.approx(legacy_area_flows["Q_radiation"])
+    assert flows["Q_convection"] == pytest.approx(legacy_area_flows["Q_convection"])
+    assert flows["Q_envelope"] == pytest.approx(legacy_area_flows["Q_envelope"])
+
+
+def test_archimedean_buoyancy_does_not_charge_gas_weight_twice():
+    state = SimulationState(
+        gas_type="helium",
+        gas_mass_kg=0.05,
+        payload_mass_kg=0.10,
+        ballast_mass_kg=0.0,
+        wind_enabled=False,
+        envelope=EnvelopeConfig(
+            max_volume_m3=10.0,
+            mass_kg=0.05,
+            contained_gas=True,
+            permeability=0.0,
+            envelope_absorptivity=0.0,
+            envelope_emissivity=0.0,
+        ),
+    )
+    initial_volume = gas_volume(
+        state.gas_mass_kg,
+        state.gas_type,
+        state.gas_temperature_k,
+        atmosphere_pressure(0.0),
+    )
+    tick = simulation_step(state, dt=0.01)
+
+    expected_buoyancy = atmosphere_density(0.0) * G * initial_volume
+    assert tick["buoyancy_N"] == pytest.approx(expected_buoyancy, rel=1e-3)
+    assert tick["weight_N"] == pytest.approx(state.total_mass() * G, rel=1e-3)
 
 
 def test_first_flight_candle_components_feed_shared_state():
