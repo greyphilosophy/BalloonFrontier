@@ -62,6 +62,20 @@ def test_graphical_scene_changes_for_selected_payload():
     assert no_payload.tobytes() != unknown_loadout.tobytes()
 
 
+def test_landed_camera_remains_visible_above_hud():
+    image = GraphicFlightSceneRenderer().render(
+        RenderFrame(moments()[-1]),
+        payload_ids=("camera",),
+    )
+    # The HUD begins at y=178. The camera lens color must remain visible above it.
+    lens = (83, 153, 191)
+    assert any(
+        image.getpixel((x, y)) == lens
+        for y in range(130, 178)
+        for x in range(150, 235)
+    )
+
+
 def test_timeline_can_supply_more_moments_without_discord_edit_pressure():
     telemetry = [
         {
