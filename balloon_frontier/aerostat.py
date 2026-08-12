@@ -133,9 +133,10 @@ HEAT_SOURCE_PROFILES: dict[str, HeatSourceProfile] = {
 }
 
 
-# Maximum horizontal acceleration a control payload can command while trying to
-# remain over its launch point.  The controller itself lives in simulation.py;
-# this table is only immutable equipment capability data.
+# Maximum horizontal acceleration associated with control payloads.  The current
+# world model treats any positive authority as active station keeping by
+# cancelling passive wind drift; the numeric value is retained for the later
+# battery/thrust controller without creating First-Flight-only physics.
 HORIZONTAL_CONTROL_ACCEL_MPS2: dict[str, float] = {
     "quadcopter": 2.5,
 }
@@ -284,13 +285,15 @@ def configured_simulation_state(request, state):
             else state.envelope.permeability
         ),
     )
+    control_authority = horizontal_control_accel_mps2(request.payload_ids)
     return replace(
         state,
         gas_mass_kg=resolved_gas_mass_kg(request),
         heater_power_watts=heat_source_power_watts(request.payload_ids),
-        horizontal_control_accel_mps2=horizontal_control_accel_mps2(
-            request.payload_ids
-        ),
+        # Until explicit thrust/battery state is introduced, a powered control
+        # payload represents active station keeping rather than passive wind
+        # following. Vertical LTA physics is unchanged.
+        wind_enabled=state.wind_enabled and control_authority <= 0.0,
         envelope=envelope,
     )
 
