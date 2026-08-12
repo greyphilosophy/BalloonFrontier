@@ -16,8 +16,9 @@ _ASCII_RAMP = " .:-=+*#%@"
 class ImageAnsiRenderer:
     """Render a Pillow image using half-block true color or grayscale ASCII."""
 
-    def __init__(self, *, columns: int = 48) -> None:
+    def __init__(self, *, columns: int = 48, palette_colors: int = 32) -> None:
         self.columns = max(20, int(columns))
+        self.palette_colors = min(128, max(8, int(palette_colors)))
 
     def render(self, image: Image.Image, *, color: bool = True) -> str:
         rgb = image.convert("RGB")
@@ -29,11 +30,21 @@ class ImageAnsiRenderer:
             target_height = max(2, round(target_width * aspect))
             if target_height % 2:
                 target_height += 1
-            resized = rgb.resize((target_width, target_height), Image.Resampling.LANCZOS)
-            return self._truecolor_half_blocks(resized)
+            resized = rgb.resize(
+                (target_width, target_height),
+                Image.Resampling.LANCZOS,
+            )
+            # A smooth sky gradient otherwise produces almost one ANSI style
+            # escape per character.  Quantizing after resize preserves the same
+            # picture while making redraws substantially smaller and steadier.
+            reduced = resized.quantize(colors=self.palette_colors).convert("RGB")
+            return self._truecolor_half_blocks(reduced)
 
         target_height = max(1, round(target_width * aspect * 0.5))
-        resized = rgb.resize((target_width, target_height), Image.Resampling.LANCZOS)
+        resized = rgb.resize(
+            (target_width, target_height),
+            Image.Resampling.LANCZOS,
+        )
         return self._ascii_luminance(resized)
 
     @staticmethod
@@ -69,6 +80,8 @@ class ImageAnsiRenderer:
             for x in range(image.width):
                 r, g, b = pixels[x, y]
                 luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
-                characters.append(_ASCII_RAMP[round((luminance / 255.0) * last_index)])
+                characters.append(
+                    _ASCII_RAMP[round((luminance / 255.0) * last_index)]
+                )
             lines.append("".join(characters))
         return "\n".join(lines)
