@@ -89,13 +89,15 @@ def test_first_flight_limits_choices_without_tutorial_signposting(monkeypatch):
     assert "Essential payloads (provided):" in payload_content
     assert "Camera" in payload_content
     assert "Small Quadcopter" in payload_content
+    assert "Battery Pack" in payload_content
+    assert "Battery energy is finite" in payload_content
     assert "Parachute" in payload_content
     assert "Tea Light Heat Source" in payload_content
     assert "Small Electric Heater" in payload_content
+    assert "Pressure Valve" in payload_content
     assert "No optional payload" in payload_content
-    assert "Pressure Valve" not in payload_content
     assert "open-flame methods are flagged" in payload_content
-    assert len(_option_buttons(configurator)) == 4
+    assert len(_option_buttons(configurator)) == 5
 
     configurator._current_step = _Step.CHOOSE_SITE
     configurator.build_buttons()
@@ -147,13 +149,14 @@ def test_first_flight_optional_toggle_always_keeps_essential_payloads():
     assert toggle_first_flight_optional_payload([], "none") == (
         "camera",
         "quadcopter",
+        "battery",
     )
     assert toggle_first_flight_optional_payload(
-        ["camera", "quadcopter"], "parachute"
-    ) == ("camera", "quadcopter", "parachute")
+        ["camera", "quadcopter", "battery"], "parachute"
+    ) == ("camera", "quadcopter", "battery", "parachute")
     assert toggle_first_flight_optional_payload(
-        ["camera", "quadcopter", "parachute"], "parachute"
-    ) == ("camera", "quadcopter")
+        ["camera", "quadcopter", "battery", "parachute"], "parachute"
+    ) == ("camera", "quadcopter", "battery")
 
 
 def test_first_flight_uses_base_configurator_gas_mass_physics(monkeypatch):
@@ -163,7 +166,7 @@ def test_first_flight_uses_base_configurator_gas_mass_physics(monkeypatch):
     state = {
         "gas": "helium",
         "envelope": "latex",
-        "payloads": ["camera", "quadcopter"],
+        "payloads": ["camera", "quadcopter", "battery"],
         "site": "field",
         "fill_mode": "normal",
         "manual_gas_mass": None,
@@ -181,7 +184,7 @@ def test_experimental_air_fill_uses_canonical_envelope_without_global_menu_state
     configurator.state.update(
         gas="air",
         envelope="candle_kite",
-        payloads=["camera", "quadcopter", "candle_heater"],
+        payloads=["camera", "quadcopter", "battery", "candle_heater"],
         site="field",
         fill_mode="normal",
         manual_gas_mass=None,
@@ -194,6 +197,7 @@ def test_experimental_air_fill_uses_canonical_envelope_without_global_menu_state
     assert "Lightweight Hot-Air Envelope" in config_text
     assert "Tea Light Heat Source" in config_text
     assert "Small Quadcopter" in config_text
+    assert "Battery Pack" in config_text
     assert "School Athletic Field" in config_text
     assert "air" not in GAS_OPTIONS
     assert "candle_kite" not in ENVELOPE_OPTIONS
@@ -206,14 +210,14 @@ def test_player_can_drive_first_flight_to_review(monkeypatch):
     asyncio.run(configurator._on_gas(interaction, 1))
     asyncio.run(configurator._on_envelope(interaction, 1))
     asyncio.run(configurator._on_fill(interaction, 1))
-    asyncio.run(configurator._on_payload(interaction, 4))
+    asyncio.run(configurator._on_payload(interaction, 5))
     asyncio.run(configurator._advance(interaction))
     asyncio.run(configurator._on_site(interaction, 1))
 
     assert configurator._current_step == _Step.REVIEW_LAUNCH
     assert configurator.state["gas"] == "helium"
     assert configurator.state["envelope"] == "latex"
-    assert configurator.state["payloads"] == ["camera", "quadcopter"]
+    assert configurator.state["payloads"] == ["camera", "quadcopter", "battery"]
     assert configurator.state["site"] == "field"
     assert "Your First Flight" in configurator._step_content()
     assert "School Athletic Field" in configurator._step_content()
