@@ -28,6 +28,7 @@ def _evaluate(telemetry, params):
     mission = Mission(
         id="target_photo",
         title="Target Photo",
+        description="Take a useful photo near the target area.",
         launch_site="field",
         required_payloads=["camera", "quadcopter"],
         objectives=[Objective("capture_photo", params)],
