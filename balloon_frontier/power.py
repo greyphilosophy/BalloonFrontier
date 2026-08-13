@@ -3,7 +3,7 @@
 This is the functional core for electrical equipment. It deliberately knows
 nothing about Discord, Story missions, or mutable simulation loops: payload IDs
 become an immutable power configuration, then pure functions answer questions
-about battery energy, motor power, and requested vertical thrust.
+about energy, motor load, buoyancy assistance, and requested control force.
 """
 
 from __future__ import annotations
@@ -13,19 +13,19 @@ from math import hypot
 from typing import Iterable
 
 from balloon_frontier.aerostat import HEAT_SOURCE_PROFILES, horizontal_control_force_N
+from balloon_frontier.physics import G
 
 
 BATTERY_PACK_CAPACITY_WH = 500.0
 QUADCOPTER_MAX_VERTICAL_FORCE_N = 18.0
+QUADCOPTER_ASSIST_FORCE_N = 4.0
 QUADCOPTER_CRUISE_ALTITUDE_M = 30.0
 QUADCOPTER_RETURN_TIME_S = 30.0
 QUADCOPTER_MOTOR_W_PER_N = 35.0
 
+# Only loads whose powered behavior is enforced by this model belong here.
+# Other electronics can be added when their gameplay behavior is power-aware.
 CONSTANT_ELECTRICAL_LOAD_W: dict[str, float] = {
-    "camera": 5.0,
-    "radio": 15.0,
-    "weather_sensor": 3.0,
-    "flight_computer": 8.0,
     "quadcopter": 6.0,
 }
 
@@ -69,7 +69,7 @@ class PowerConfiguration:
 
 
 def power_configuration_for_payloads(payload_ids: Iterable[str]) -> PowerConfiguration:
-    """Resolve a loadout into finite-energy sources and consumers."""
+    """Resolve a loadout into finite-energy sources and modeled consumers."""
     payloads = tuple(pid for pid in payload_ids if pid != "none")
     battery_count = sum(1 for pid in payloads if pid == "battery")
     has_quadcopter = "quadcopter" in payloads
@@ -104,6 +104,35 @@ def power_configuration_for_payloads(payload_ids: Iterable[str]) -> PowerConfigu
             QUADCOPTER_MAX_VERTICAL_FORCE_N if has_quadcopter else 0.0
         ),
     )
+
+
+def powered_assist_gas_mass_kg(
+    *,
+    non_gas_mass_kg: float,
+    ambient_density_kg_m3: float,
+    lifting_gas_density_kg_m3: float,
+    max_volume_m3: float,
+    target_control_force_N: float = QUADCOPTER_ASSIST_FORCE_N,
+) -> float:
+    """Choose a fill that deliberately leaves some weight for powered lift.
+
+    The result solves the launch force balance for a requested upward control
+    contribution.  It is capped at nominal envelope volume.  A gas that is not
+    lighter than ambient air has no valid buoyancy-assist solution.
+    """
+    ambient_density = max(0.0, float(ambient_density_kg_m3))
+    gas_density = max(0.0, float(lifting_gas_density_kg_m3))
+    if gas_density <= 0.0 or ambient_density <= gas_density:
+        raise ValueError("Powered assist requires a lifting gas lighter than ambient air")
+
+    supported_mass_kg = max(
+        0.0,
+        float(non_gas_mass_kg) - max(0.0, float(target_control_force_N)) / G,
+    )
+    lift_per_gas_mass = ambient_density / gas_density - 1.0
+    requested_gas_mass_kg = supported_mass_kg / lift_per_gas_mass
+    nominal_gas_mass_kg = gas_density * max(0.0, float(max_volume_m3))
+    return max(0.0, min(requested_gas_mass_kg, nominal_gas_mass_kg))
 
 
 def motor_power_w(vertical_force_N: float, horizontal_force_N: float) -> float:
@@ -154,11 +183,11 @@ def vertical_control_force_N(
     total_mass_kg: float,
     max_vertical_force_N: float,
 ) -> float:
-    """Return bounded upward thrust for a simple altitude-hold controller.
+    """Return bounded upward force for a simple altitude-hold controller.
 
-    The controller can add upward force but cannot create negative thrust. That
+    The controller can add upward force but cannot create negative force. That
     asymmetry is intentional: an over-buoyant aircraft cannot command descent by
-    merely reducing quadcopter thrust to zero.
+    merely reducing quadcopter output to zero.
     """
     mass = max(0.0, float(total_mass_kg))
     authority = max(0.0, float(max_vertical_force_N))
