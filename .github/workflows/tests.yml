@@ -137,7 +137,8 @@ jobs:
       - name: Measure finite electrical core
         run: |
           python -m coverage run --source=balloon_frontier.power -m pytest \
-            tests/test_power.py -q
+            tests/test_power.py \
+            tests/test_power_assist.py -q
           python -m coverage report -m \
             --include='*/balloon_frontier/power.py' \
             --fail-under=100
