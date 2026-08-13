@@ -73,6 +73,7 @@ class SimulationState:
     terrain_base_altitude_offset_m: float = 0.0
     wind_enabled: bool = False
     wind_site_id: str = "field"
+    horizontal_control_accel_mps2: float = 0.0
 
     # Weather modifiers
     weather_ascent_multiplier: float = 1.0
@@ -277,6 +278,20 @@ def _apply_open_venting(state: SimulationState, dt: float) -> None:
         )
 
 
+def _bounded_station_keeping_acceleration(
+    vx_mps: float,
+    passive_accel_mps2: float,
+    authority_mps2: float,
+    dt: float,
+) -> float:
+    """Return bounded control acceleration that tries to hold ground speed at zero."""
+    authority = max(0.0, float(authority_mps2))
+    if authority <= 0.0 or dt <= 0.0:
+        return 0.0
+    desired = -(float(vx_mps) / dt + float(passive_accel_mps2))
+    return max(-authority, min(authority, desired))
+
+
 def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     """Execute one fixed-step simulation tick using semi-implicit Euler."""
     altitude_m0 = float(state.altitude_m)
@@ -341,10 +356,18 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     total_mass = state.total_mass()
     if total_mass > 0:
         acceleration_y = F_net / total_mass
-        acceleration_x = F_drag_x / total_mass
+        passive_acceleration_x = F_drag_x / total_mass
+        control_acceleration_x = _bounded_station_keeping_acceleration(
+            state.vx_mps,
+            passive_acceleration_x,
+            state.horizontal_control_accel_mps2,
+            dt,
+        )
+        acceleration_x = passive_acceleration_x + control_acceleration_x
     else:
         acceleration_y = 0.0
         acceleration_x = 0.0
+        control_acceleration_x = 0.0
 
     state.vx_mps += acceleration_x * dt
     state.x_m += state.vx_mps * dt
@@ -494,6 +517,7 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
         "gas_volume_m3": gas_vol_current,
         "gas_temperature_k": state.gas_temperature_k,
         "heater_power_watts": state.heater_power_watts,
+        "control_accel_x_mps2": control_acceleration_x,
         "inflation_fraction": inflation_fraction,
         "effective_thermal_resistance_m2_k_w": heat_flows.get(
             "effective_thermal_resistance_m2_k_w"
