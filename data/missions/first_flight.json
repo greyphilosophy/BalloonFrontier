@@ -1,10 +1,10 @@
 {
   "id": "first_flight",
   "title": "Your First Flight",
-  "description": "Launch a camera-equipped, balloon-assisted quadcopter from the school athletic field and recover it safely using the same simulation rules as every other flight. The provided battery powers the quadcopter and other electrical equipment; recovery still depends on whether the aircraft can actually reduce lift and descend.",
+  "description": "Launch a camera-equipped, balloon-assisted quadcopter from the school athletic field and recover it safely using the same simulation rules as every other flight. A battery pack is provided with the starter aircraft; recovery still depends on whether the aircraft can actually reduce lift and descend.",
   "launch_site": "field",
   "budget": 500,
-  "required_payloads": ["camera", "quadcopter", "battery"],
+  "required_payloads": ["camera", "quadcopter"],
   "objectives": [
     {
       "type": "capture_photo",
@@ -14,7 +14,7 @@
     {
       "type": "recover_data",
       "params": {},
-      "description": "Recover the camera, quadcopter, and battery pack without crashing."
+      "description": "Recover the camera-equipped aircraft without crashing."
     }
   ],
   "difficulty": 1,
