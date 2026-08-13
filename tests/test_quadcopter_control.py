@@ -5,15 +5,15 @@ import pytest
 from balloon_frontier.simulation import EnvelopeConfig, SimulationState, simulation_step
 
 
-def _state(control_accel_mps2: float) -> SimulationState:
+def _state(control_force_N: float, *, payload_mass_kg: float = 0.25) -> SimulationState:
     return SimulationState(
         altitude_m=100.0,
         gas_type="helium",
         gas_mass_kg=0.05,
-        payload_mass_kg=0.25,
+        payload_mass_kg=payload_mass_kg,
         ballast_mass_kg=0.0,
         wind_enabled=True,
-        horizontal_control_accel_mps2=control_accel_mps2,
+        horizontal_control_force_N=control_force_N,
         envelope=EnvelopeConfig(
             max_volume_m3=10.0,
             mass_kg=0.05,
@@ -42,11 +42,11 @@ def test_quadcopter_control_counteracts_mild_wind_without_disabling_it(monkeypat
     assert calls
     assert passive_tick["vx_mps"] > 0.0
     assert abs(controlled_tick["vx_mps"]) < abs(passive_tick["vx_mps"])
-    assert controlled_tick["control_accel_x_mps2"] < 0.0
+    assert controlled_tick["control_force_x_N"] < 0.0
     assert controlled.wind_enabled is True
 
 
-def test_control_authority_is_bounded_when_wind_is_too_strong(monkeypatch):
+def test_control_force_is_bounded_when_wind_is_too_strong(monkeypatch):
     monkeypatch.setattr(
         "balloon_frontier.wind.wind_vector",
         lambda altitude_m, *, time_s=0.0, site_id="field": (20.0, 0.0),
@@ -55,6 +55,24 @@ def test_control_authority_is_bounded_when_wind_is_too_strong(monkeypatch):
     controlled = _state(2.5)
     tick = simulation_step(controlled, dt=0.1)
 
-    assert tick["control_accel_x_mps2"] == pytest.approx(-2.5)
+    assert tick["control_force_x_N"] == pytest.approx(-2.5)
     assert tick["vx_mps"] > 0.0
     assert tick["x_m"] > 0.0
+
+
+def test_same_control_force_has_less_effect_on_heavier_vehicle(monkeypatch):
+    monkeypatch.setattr(
+        "balloon_frontier.wind.wind_vector",
+        lambda altitude_m, *, time_s=0.0, site_id="field": (20.0, 0.0),
+    )
+
+    light = _state(2.5, payload_mass_kg=0.25)
+    heavy = _state(2.5, payload_mass_kg=5.0)
+    light_tick = simulation_step(light, dt=0.1)
+    heavy_tick = simulation_step(heavy, dt=0.1)
+
+    assert light_tick["control_force_x_N"] == pytest.approx(-2.5)
+    assert heavy_tick["control_force_x_N"] == pytest.approx(-2.5)
+    assert abs(heavy_tick["control_force_x_N"] / heavy.total_mass()) < abs(
+        light_tick["control_force_x_N"] / light.total_mass()
+    )

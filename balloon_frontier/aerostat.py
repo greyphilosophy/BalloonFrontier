@@ -133,10 +133,10 @@ HEAT_SOURCE_PROFILES: dict[str, HeatSourceProfile] = {
 }
 
 
-# Maximum horizontal acceleration available to control payloads. The simulator
-# keeps the real wind field active and uses this as a bounded station-keeping
-# input, so control can reduce drift but cannot make strong wind disappear.
-HORIZONTAL_CONTROL_ACCEL_MPS2: dict[str, float] = {
+# Maximum horizontal thrust available to control payloads. The shared simulator
+# keeps the real wind field active and lets total vehicle mass determine the
+# resulting acceleration, rather than granting a mass-independent control effect.
+HORIZONTAL_CONTROL_FORCE_N: dict[str, float] = {
     "quadcopter": 2.5,
 }
 
@@ -183,10 +183,10 @@ def heat_source_power_watts(payload_ids: Iterable[str]) -> float:
     )
 
 
-def horizontal_control_accel_mps2(payload_ids: Iterable[str]) -> float:
-    """Return the strongest installed horizontal station-keeping authority."""
+def horizontal_control_force_N(payload_ids: Iterable[str]) -> float:
+    """Return the strongest installed horizontal station-keeping thrust."""
     return max(
-        (HORIZONTAL_CONTROL_ACCEL_MPS2.get(pid, 0.0) for pid in payload_ids),
+        (HORIZONTAL_CONTROL_FORCE_N.get(pid, 0.0) for pid in payload_ids),
         default=0.0,
     )
 
@@ -284,12 +284,12 @@ def configured_simulation_state(request, state):
             else state.envelope.permeability
         ),
     )
-    control_authority = horizontal_control_accel_mps2(request.payload_ids)
+    control_force_N = horizontal_control_force_N(request.payload_ids)
     return replace(
         state,
         gas_mass_kg=resolved_gas_mass_kg(request),
         heater_power_watts=heat_source_power_watts(request.payload_ids),
-        horizontal_control_accel_mps2=control_authority,
+        horizontal_control_force_N=control_force_N,
         envelope=envelope,
     )
 

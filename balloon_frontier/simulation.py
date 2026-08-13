@@ -117,7 +117,7 @@ class SimulationState:
 
     # Powered horizontal-control equipment. Appended to preserve the positional
     # constructor order of all pre-existing SimulationState fields.
-    horizontal_control_accel_mps2: float = 0.0
+    horizontal_control_force_N: float = 0.0
 
     def __post_init__(self) -> None:
         """Resolve initial gas temperature from absolute T, delta-T, or ambient."""
@@ -281,17 +281,19 @@ def _apply_open_venting(state: SimulationState, dt: float) -> None:
         )
 
 
-def _bounded_station_keeping_acceleration(
+def _bounded_station_keeping_force(
     vx_mps: float,
-    passive_accel_mps2: float,
-    authority_mps2: float,
+    passive_force_N: float,
+    authority_N: float,
+    total_mass_kg: float,
     dt: float,
 ) -> float:
-    """Return bounded control acceleration that tries to hold ground speed at zero."""
-    authority = max(0.0, float(authority_mps2))
-    if authority <= 0.0 or dt <= 0.0:
+    """Return bounded control force that tries to hold ground speed at zero."""
+    authority = max(0.0, float(authority_N))
+    mass = max(0.0, float(total_mass_kg))
+    if authority <= 0.0 or mass <= 0.0 or dt <= 0.0:
         return 0.0
-    desired = -(float(vx_mps) / dt + float(passive_accel_mps2))
+    desired = -(mass * float(vx_mps) / dt + float(passive_force_N))
     return max(-authority, min(authority, desired))
 
 
@@ -359,18 +361,18 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
     total_mass = state.total_mass()
     if total_mass > 0:
         acceleration_y = F_net / total_mass
-        passive_acceleration_x = F_drag_x / total_mass
-        control_acceleration_x = _bounded_station_keeping_acceleration(
+        control_force_x = _bounded_station_keeping_force(
             state.vx_mps,
-            passive_acceleration_x,
-            state.horizontal_control_accel_mps2,
+            F_drag_x,
+            state.horizontal_control_force_N,
+            total_mass,
             dt,
         )
-        acceleration_x = passive_acceleration_x + control_acceleration_x
+        acceleration_x = (F_drag_x + control_force_x) / total_mass
     else:
         acceleration_y = 0.0
         acceleration_x = 0.0
-        control_acceleration_x = 0.0
+        control_force_x = 0.0
 
     state.vx_mps += acceleration_x * dt
     state.x_m += state.vx_mps * dt
@@ -520,7 +522,7 @@ def simulation_step(state: SimulationState, dt: float = 0.1) -> dict:
         "gas_volume_m3": gas_vol_current,
         "gas_temperature_k": state.gas_temperature_k,
         "heater_power_watts": state.heater_power_watts,
-        "control_accel_x_mps2": control_acceleration_x,
+        "control_force_x_N": control_force_x,
         "inflation_fraction": inflation_fraction,
         "effective_thermal_resistance_m2_k_w": heat_flows.get(
             "effective_thermal_resistance_m2_k_w"

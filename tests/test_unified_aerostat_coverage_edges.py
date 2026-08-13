@@ -3,7 +3,7 @@
 from balloon_frontier.aerostat import (
     configured_simulation_state,
     fill_mass_for_configuration,
-    horizontal_control_accel_mps2,
+    horizontal_control_force_N,
     register_aerostat_catalog_extensions,
 )
 from balloon_frontier.catalog import CATALOG, FillMode
@@ -24,8 +24,8 @@ def test_fill_resolution_handles_balloon_override_and_temperature_delta():
 
 
 def test_quadcopter_is_shared_control_equipment_and_preserves_wind():
-    assert horizontal_control_accel_mps2(()) == 0.0
-    assert horizontal_control_accel_mps2(("camera", "quadcopter")) == 2.5
+    assert horizontal_control_force_N(()) == 0.0
+    assert horizontal_control_force_N(("camera", "quadcopter")) == 2.5
 
     quadcopter = CATALOG.payload("quadcopter")
     assert quadcopter.name == "Small Quadcopter"
@@ -45,8 +45,8 @@ def test_quadcopter_is_shared_control_equipment_and_preserves_wind():
 
     assert original.wind_enabled is True
     assert configured.wind_enabled is True
-    assert original.horizontal_control_accel_mps2 == 0.0
-    assert configured.horizontal_control_accel_mps2 == 2.5
+    assert original.horizontal_control_force_N == 0.0
+    assert configured.horizontal_control_force_N == 2.5
 
 
 def test_aerostat_catalog_registration_is_idempotent():
