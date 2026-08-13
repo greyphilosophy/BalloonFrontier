@@ -23,6 +23,11 @@ QUADCOPTER_CRUISE_ALTITUDE_M = 30.0
 QUADCOPTER_RETURN_TIME_S = 30.0
 QUADCOPTER_MOTOR_W_PER_N = 35.0
 
+# Semantic fill targets.  These describe how much of the non-gas aircraft
+# weight is offset by net gas lift (displaced air minus lifting-gas weight).
+ALMOST_LIGHTER_THAN_AIR_SUPPORT_FRACTION = 0.95
+LIGHTER_THAN_AIR_SUPPORT_FRACTION = 1.05
+
 # Loads with behavior exercised by the current powered-flight path.
 CONSTANT_ELECTRICAL_LOAD_W: dict[str, float] = {
     "camera": 5.0,
@@ -106,6 +111,51 @@ def power_configuration_for_payloads(payload_ids: Iterable[str]) -> PowerConfigu
     )
 
 
+def gas_mass_for_supported_fraction_kg(
+    *,
+    non_gas_mass_kg: float,
+    ambient_density_kg_m3: float,
+    lifting_gas_density_kg_m3: float,
+    max_volume_m3: float,
+    support_fraction: float,
+) -> float:
+    """Return gas mass that offsets a requested fraction of non-gas weight.
+
+    Net gas lift is ``(rho_air - rho_gas) * volume * g``.  A support fraction
+    of 0.95 therefore leaves 5% of the envelope+payload weight for powered lift,
+    while 1.05 produces 5% passive free lift.  The target must be achievable
+    within nominal envelope volume; otherwise ``ValueError`` is raised so a UI
+    never presents a lift label that the selected aircraft cannot actually meet.
+    """
+    ambient_density = max(0.0, float(ambient_density_kg_m3))
+    gas_density = max(0.0, float(lifting_gas_density_kg_m3))
+    non_gas_mass = max(0.0, float(non_gas_mass_kg))
+    volume_limit = max(0.0, float(max_volume_m3))
+    fraction = float(support_fraction)
+    if fraction < 0.0:
+        raise ValueError("Support fraction cannot be negative")
+    if gas_density <= 0.0 or ambient_density <= gas_density:
+        raise ValueError("Lift target requires a gas lighter than ambient air")
+
+    required_volume_m3 = (
+        fraction * non_gas_mass / (ambient_density - gas_density)
+    )
+    if required_volume_m3 > volume_limit + 1e-12:
+        raise ValueError("Selected envelope cannot reach the requested lift target")
+    return gas_density * required_volume_m3
+
+
+def maximum_capacity_gas_mass_kg(
+    *,
+    lifting_gas_density_kg_m3: float,
+    max_volume_m3: float,
+) -> float:
+    """Return the gas mass that fills nominal envelope volume at launch."""
+    return max(0.0, float(lifting_gas_density_kg_m3)) * max(
+        0.0, float(max_volume_m3)
+    )
+
+
 def powered_assist_gas_mass_kg(
     *,
     non_gas_mass_kg: float,
@@ -116,9 +166,9 @@ def powered_assist_gas_mass_kg(
 ) -> float:
     """Choose a fill that deliberately leaves some weight for powered lift.
 
-    The result solves the launch force balance for a requested upward control
-    contribution. It is capped at nominal envelope volume. A gas that is not
-    lighter than ambient air has no valid buoyancy-assist solution.
+    Retained as a compatibility helper for callers that specify a force target.
+    New player-facing fill presets use ``gas_mass_for_supported_fraction_kg`` so
+    their labels describe a stable fraction of aircraft weight instead.
     """
     ambient_density = max(0.0, float(ambient_density_kg_m3))
     gas_density = max(0.0, float(lifting_gas_density_kg_m3))
