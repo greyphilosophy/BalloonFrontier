@@ -140,8 +140,8 @@ class DiscoveryFirstFlightConfiguratorMixin:
             if self.state.get("gas") == "helium":
                 return {
                     "assist": POWERED_ASSIST_FILL,
-                    "light": FILL_MODES["light"],
-                    "normal": FILL_MODES["normal"],
+                    "light": {**FILL_MODES["light"], "label": "Light Fill"},
+                    "normal": {**FILL_MODES["normal"], "label": "Normal Fill"},
                 }
             return {key: FILL_MODES[key] for key in keys}
         if current_step == _Step.CHOOSE_SITE:
