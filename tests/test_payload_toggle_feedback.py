@@ -52,25 +52,38 @@ def test_adding_first_flight_optional_payload_reports_full_loadout(monkeypatch):
 
     asyncio.run(configurator._on_payload(interaction, 1))
 
-    assert configurator.state["payloads"] == ["camera", "quadcopter", "parachute"]
+    assert configurator.state["payloads"] == [
+        "camera",
+        "quadcopter",
+        "battery",
+        "parachute",
+    ]
     content = interaction.response.edit_message.await_args.kwargs["content"]
     assert "✅ **Added:** Parachute" in content
     assert (
-        "**Currently equipped:** Camera, Small Quadcopter, Parachute" in content
+        "**Currently equipped:** Camera, Small Quadcopter, Battery Pack, Parachute"
+        in content
     )
 
 
 def test_clearing_optional_payloads_keeps_first_flight_essentials(monkeypatch):
     configurator = _configurator(monkeypatch)
-    configurator.state["payloads"] = ["camera", "quadcopter", "parachute"]
+    configurator.state["payloads"] = [
+        "camera",
+        "quadcopter",
+        "battery",
+        "parachute",
+    ]
     interaction = _interaction()
 
-    asyncio.run(configurator._on_payload(interaction, 4))
+    asyncio.run(configurator._on_payload(interaction, 5))
 
-    assert configurator.state["payloads"] == ["camera", "quadcopter"]
+    assert configurator.state["payloads"] == ["camera", "quadcopter", "battery"]
     content = interaction.response.edit_message.await_args.kwargs["content"]
     assert "🧹 **Optional payloads cleared.**" in content
-    assert "**Currently equipped:** Camera, Small Quadcopter" in content
+    assert (
+        "**Currently equipped:** Camera, Small Quadcopter, Battery Pack" in content
+    )
 
 
 def test_legacy_tutorial_alias_receives_story_first_flight_feedback(monkeypatch):
@@ -83,11 +96,12 @@ def test_legacy_tutorial_alias_receives_story_first_flight_feedback(monkeypatch)
     assert configurator.state["payloads"] == [
         "camera",
         "quadcopter",
+        "battery",
         "candle_heater",
     ]
     assert "✅ **Added:** Tea Light Heat Source" in content
     assert (
-        "**Currently equipped:** Camera, Small Quadcopter, Tea Light Heat Source"
+        "**Currently equipped:** Camera, Small Quadcopter, Battery Pack, Tea Light Heat Source"
         in content
     )
 
@@ -116,5 +130,6 @@ def test_toggle_action_feedback_does_not_reappear_after_navigation(monkeypatch):
     content = configurator._step_content()
     assert "✅ **Added:** Parachute" not in content
     assert (
-        "**Currently equipped:** Camera, Small Quadcopter, Parachute" in content
+        "**Currently equipped:** Camera, Small Quadcopter, Battery Pack, Parachute"
+        in content
     )
