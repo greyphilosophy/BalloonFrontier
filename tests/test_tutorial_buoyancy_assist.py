@@ -2,6 +2,7 @@
 
 from balloon_frontier.career_prologue import (
     DiscoveryFirstFlightConfiguratorMixin,
+    FIRST_FLIGHT_PROVIDED_PAYLOADS,
     FIRST_FLIGHT_REQUIRED_PAYLOADS,
     FIRST_FLIGHT_SITE_NAME,
 )
@@ -28,22 +29,26 @@ def test_first_flight_envelopes_include_standard_latex_and_heated_air_option():
     assert "tutorial_party_balloon" not in ENVELOPE_OPTIONS
 
 
-def test_first_flight_required_equipment_is_not_optional():
+def test_first_flight_provided_equipment_is_not_optional():
+    holder = type(
+        "FirstFlightOptions",
+        (),
+        {"_current_step": _Step.CHOOSE_PAYLOADS, "state": {"gas": "helium"}},
+    )()
     options = DiscoveryFirstFlightConfiguratorMixin._first_flight_options(
-        type("FirstFlightOptions", (), {"_current_step": _Step.CHOOSE_PAYLOADS})(),
+        holder,
         _Step.CHOOSE_PAYLOADS,
     )
 
-    assert FIRST_FLIGHT_REQUIRED_PAYLOADS == ("camera", "quadcopter", "battery")
+    assert FIRST_FLIGHT_REQUIRED_PAYLOADS == ("camera", "quadcopter")
+    assert FIRST_FLIGHT_PROVIDED_PAYLOADS == ("camera", "quadcopter", "battery")
     assert tuple(options) == (
         "parachute",
         "candle_heater",
         "electric_heater",
-        "valve",
         "none",
     )
     assert options["parachute"] == PAYLOAD_OPTIONS["parachute"]
-    assert options["valve"] == PAYLOAD_OPTIONS["valve"]
     assert options["candle_heater"][0] == "Tea Light Heat Source"
     assert options["electric_heater"][0] == "Small Electric Heater"
     assert options["none"][0] == "No optional payload"
@@ -53,7 +58,11 @@ def test_first_flight_required_equipment_is_not_optional():
 
 
 def test_first_flight_air_and_school_site_are_local_to_story():
-    holder = type("FirstFlightOptions", (), {"_current_step": _Step.CHOOSE_GAS})()
+    holder = type(
+        "FirstFlightOptions",
+        (),
+        {"_current_step": _Step.CHOOSE_GAS, "state": {"gas": "helium"}},
+    )()
     gases = DiscoveryFirstFlightConfiguratorMixin._first_flight_options(
         holder, _Step.CHOOSE_GAS
     )
@@ -68,3 +77,22 @@ def test_first_flight_air_and_school_site_are_local_to_story():
     assert sites["field"].name == FIRST_FLIGHT_SITE_NAME
     assert sites["field"].altitude_m == SITE_OPTIONS["field"].altitude_m
     assert SITE_OPTIONS["field"].name == "Open Field"
+
+
+def test_powered_assist_fill_is_only_offered_for_helium():
+    holder = type(
+        "FirstFlightOptions",
+        (),
+        {"_current_step": _Step.CHOOSE_FILL, "state": {"gas": "helium"}},
+    )()
+    helium = DiscoveryFirstFlightConfiguratorMixin._first_flight_options(
+        holder, _Step.CHOOSE_FILL
+    )
+    holder.state["gas"] = "air"
+    air = DiscoveryFirstFlightConfiguratorMixin._first_flight_options(
+        holder, _Step.CHOOSE_FILL
+    )
+
+    assert tuple(helium) == ("assist", "light", "normal")
+    assert helium["assist"]["label"] == "Powered Assist"
+    assert tuple(air) == ("auto", "light", "normal")
