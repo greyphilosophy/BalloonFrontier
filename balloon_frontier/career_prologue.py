@@ -6,22 +6,36 @@ from dataclasses import replace
 
 from balloon_frontier.catalog import CATALOG
 from balloon_frontier.fill import FillMode, apply_fill_mode
+from balloon_frontier.physics import gas_density
+from balloon_frontier.power import powered_assist_gas_mass_kg
 
 
-FIRST_FLIGHT_REQUIRED_PAYLOADS = ("camera", "quadcopter", "battery")
+# Mission requirements describe what must be present for objective validation.
+# Provided equipment describes the actual starter aircraft.  Keeping those ideas
+# separate avoids turning provisioning into a mission-rule side effect.
+FIRST_FLIGHT_REQUIRED_PAYLOADS = ("camera", "quadcopter")
+FIRST_FLIGHT_PROVIDED_PAYLOADS = ("camera", "quadcopter", "battery")
 FIRST_FLIGHT_SITE_NAME = "School Athletic Field"
 FIRST_FLIGHT_OPTION_KEYS = {
     0: ("helium", "air"),
     1: ("latex", "candle_kite"),
+    # Compatibility view; helium swaps Auto for the explicit Powered Assist
+    # option at runtime while air retains the ordinary fill choices.
     2: ("auto", "light", "normal"),
     3: (
         "parachute",
         "candle_heater",
         "electric_heater",
-        "valve",
         "none",
     ),
     4: ("field",),
+}
+
+POWERED_ASSIST_FILL = {
+    "label": "Powered Assist",
+    "description": (
+        "Balloon carries most of the weight; the quadcopter supplies the remaining lift"
+    ),
 }
 
 
@@ -72,14 +86,14 @@ def first_flight_site_info():
 def with_required_first_flight_payloads(
     payload_ids: tuple[str, ...] | list[str],
 ) -> tuple[str, ...]:
-    """Return required mission equipment plus deterministic optional payloads."""
+    """Return the provided starter aircraft plus deterministic optional equipment."""
     extras = tuple(
         pid
         for pid in payload_ids
-        if pid not in FIRST_FLIGHT_REQUIRED_PAYLOADS and pid != "none"
+        if pid not in FIRST_FLIGHT_PROVIDED_PAYLOADS and pid != "none"
     )
     deduped_extras = tuple(dict.fromkeys(extras))
-    return FIRST_FLIGHT_REQUIRED_PAYLOADS + deduped_extras
+    return FIRST_FLIGHT_PROVIDED_PAYLOADS + deduped_extras
 
 
 def toggle_payload_selection(
@@ -100,9 +114,9 @@ def toggle_first_flight_optional_payload(
     current_payloads: tuple[str, ...] | list[str],
     selected: str,
 ) -> tuple[str, ...]:
-    """Toggle optional equipment while keeping mission equipment essential."""
+    """Toggle optional equipment while keeping the provided starter aircraft."""
     optional = tuple(
-        pid for pid in current_payloads if pid not in FIRST_FLIGHT_REQUIRED_PAYLOADS
+        pid for pid in current_payloads if pid not in FIRST_FLIGHT_PROVIDED_PAYLOADS
     )
     toggled = toggle_payload_selection(optional, selected)
     return with_required_first_flight_payloads(toggled)
@@ -131,18 +145,44 @@ class DiscoveryFirstFlightConfiguratorMixin:
         if current_step == _Step.CHOOSE_PAYLOADS:
             return {key: _payload_option(key) for key in keys}
         if current_step == _Step.CHOOSE_FILL:
+            if self.state.get("gas") == "helium":
+                return {
+                    "assist": POWERED_ASSIST_FILL,
+                    "light": FILL_MODES["light"],
+                    "normal": FILL_MODES["normal"],
+                }
             return {key: FILL_MODES[key] for key in keys}
         if current_step == _Step.CHOOSE_SITE:
             return {"field": first_flight_site_info()}
         return {}
 
     def _compute_gas_mass(self):
-        """Compute fill with the same shared fill equations as the base wizard."""
+        """Compute fill through shared fill equations or the powered-assist balance."""
         from balloon_frontier.discord_ui.configurator import SITE_OPTIONS
 
         state = self.state
         envelope = CATALOG.envelope(state["envelope"])
         site_conditions = SITE_OPTIONS[state["site"]].derive_conditions()
+        if state.get("fill_mode") == "assist":
+            payload_ids = with_required_first_flight_payloads(
+                state.get("payloads") or ()
+            )
+            payload_mass_kg = sum(
+                CATALOG.payload(pid).mass_kg for pid in payload_ids if pid != "none"
+            )
+            lifting_density = gas_density(
+                state["gas"],
+                site_conditions["gas_temperature"],
+                site_conditions["launch_pressure"],
+            )
+            mass = powered_assist_gas_mass_kg(
+                non_gas_mass_kg=envelope.mass_kg + payload_mass_kg,
+                ambient_density_kg_m3=site_conditions["launch_density_kg_m3"],
+                lifting_gas_density_kg_m3=lifting_density,
+                max_volume_m3=envelope.max_volume_m3,
+            )
+            return round(mass, 3)
+
         mode = FillMode(state.get("fill_mode", "auto"))
         mass = apply_fill_mode(
             envelope.max_volume_m3,
@@ -181,7 +221,11 @@ class DiscoveryFirstFlightConfiguratorMixin:
         gas_mass = state.get("gas_mass")
         if gas_mass is None:
             gas_mass = self._compute_gas_mass()
-        fill_label = FILL_MODES[state["fill_mode"]]["label"]
+        fill_label = (
+            POWERED_ASSIST_FILL["label"]
+            if state["fill_mode"] == "assist"
+            else FILL_MODES[state["fill_mode"]]["label"]
+        )
         site = self._first_flight_options(_Step.CHOOSE_SITE)[state["site"]]
         lines = ["🎈 **Balloon Configuration**\n"]
         lines.append(f"Gas: {gas.name}")
@@ -225,12 +269,14 @@ class DiscoveryFirstFlightConfiguratorMixin:
                     lines.append(f"{index}  {fill['label']}")
                     lines.append(f"     {fill['description']}")
             elif self._current_step == _Step.CHOOSE_PAYLOADS:
-                required = [CATALOG.payload(pid) for pid in FIRST_FLIGHT_REQUIRED_PAYLOADS]
+                provided = [
+                    CATALOG.payload(pid) for pid in FIRST_FLIGHT_PROVIDED_PAYLOADS
+                ]
                 lines.append("Essential payloads (provided):")
-                for payload in required:
+                for payload in provided:
                     lines.append(f"•  {payload.name}  ({payload.mass_kg}kg)")
                 lines.append(
-                    "     Battery energy is finite; the quadcopter and electrical equipment draw from the same pack."
+                    "     Battery energy is finite; the camera and quadcopter draw from the provided pack."
                 )
                 lines.append("Optional additions:")
                 for index, payload in enumerate(options.values(), 1):
