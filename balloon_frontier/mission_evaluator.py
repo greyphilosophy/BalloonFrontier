@@ -24,6 +24,25 @@ from balloon_frontier.launch_result import (
 logger = logging.getLogger(__name__)
 
 
+def _peak_altitude_within_horizontal_radius(
+    telemetry: tuple[TelemetryPoint, ...],
+    max_distance_m: float,
+) -> float:
+    """Return peak altitude reached while remaining near the launch/target area."""
+    if not telemetry:
+        return 0.0
+    origin_x_m = telemetry[0].x_m
+    radius_m = max(0.0, float(max_distance_m))
+    return max(
+        (
+            point.altitude_m
+            for point in telemetry
+            if abs(point.x_m - origin_x_m) <= radius_m
+        ),
+        default=0.0,
+    )
+
+
 class MissionEvaluator:
     """Pure game-rules evaluator that judges mission outcomes from telemetry."""
 
@@ -208,7 +227,16 @@ class MissionEvaluator:
             if "camera" not in selected_payloads:
                 return False
             min_quality = objective.params.get("minimum_quality", 0.5)
-            quality = min(peak_altitude / 50000.0, 1.0)
+            photo_peak_altitude = peak_altitude
+            max_horizontal_distance_m = objective.params.get(
+                "max_horizontal_distance_m"
+            )
+            if max_horizontal_distance_m is not None:
+                photo_peak_altitude = _peak_altitude_within_horizontal_radius(
+                    telemetry,
+                    max_horizontal_distance_m,
+                )
+            quality = min(photo_peak_altitude / 50000.0, 1.0)
             if burst:
                 quality *= 0.5
             return quality >= min_quality

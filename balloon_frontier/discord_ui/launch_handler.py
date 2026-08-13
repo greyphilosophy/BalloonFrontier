@@ -270,6 +270,21 @@ def _limit_result_content(configurator, content: str, limit: int = 2000) -> str:
     return text[: limit - 3] + "..."
 
 
+def _site_info_for_configurator(configurator, site_id: str):
+    """Resolve a mission-local site view before falling back to the global site."""
+    from balloon_frontier.discord_ui.configurator import SITE_OPTIONS, _Step
+
+    local_options = getattr(configurator, "_first_flight_options", None)
+    if callable(local_options):
+        try:
+            sites = local_options(_Step.CHOOSE_SITE)
+            if site_id in sites:
+                return sites[site_id]
+        except (KeyError, TypeError, ValueError):
+            pass
+    return SITE_OPTIONS[site_id]
+
+
 async def run_launch(
     configurator: "BalloonConfigurator",
     interaction: discord.Interaction,
@@ -284,11 +299,10 @@ async def run_launch(
             else "anonymous"
         )
         state = configurator.state
-        from balloon_frontier.discord_ui.configurator import SITE_OPTIONS
 
         gas_definition = CATALOG.gas(state["gas"])
         envelope_definition = CATALOG.envelope(state["envelope"])
-        site_info = SITE_OPTIONS[state["site"]]
+        site_info = _site_info_for_configurator(configurator, state["site"])
         payload_names = [
             CATALOG.payload(pid).name
             for pid in state.get("payloads") or ()

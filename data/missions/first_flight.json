@@ -8,8 +8,8 @@
   "objectives": [
     {
       "type": "capture_photo",
-      "params": {"minimum_quality": 0.0002},
-      "description": "Use the stabilized camera payload to capture an aerial view of the school."
+      "params": {"minimum_quality": 0.0002, "max_horizontal_distance_m": 150.0},
+      "description": "Use the stabilized camera payload to capture an aerial view of the school while remaining near the school athletic field."
     },
     {
       "type": "recover_data",
