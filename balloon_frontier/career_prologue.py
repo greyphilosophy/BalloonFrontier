@@ -11,7 +11,7 @@ from balloon_frontier.power import powered_assist_gas_mass_kg
 
 
 # Mission requirements describe what must be present for objective validation.
-# Provided equipment describes the actual starter aircraft.  Keeping those ideas
+# Provided equipment describes the actual starter aircraft. Keeping those ideas
 # separate avoids turning provisioning into a mission-rule side effect.
 FIRST_FLIGHT_REQUIRED_PAYLOADS = ("camera", "quadcopter")
 FIRST_FLIGHT_PROVIDED_PAYLOADS = ("camera", "quadcopter", "battery")
@@ -123,18 +123,10 @@ def toggle_first_flight_optional_payload(
 
 
 class DiscoveryFirstFlightConfiguratorMixin:
-    """Expose a small Story menu while using the ordinary simulation physics.
-
-    First Flight creates local option views from canonical definitions; it never
-    mutates process-wide Discord option dictionaries. The configurator itself is
-    the imperative UI shell, while option/fill transformations are deterministic.
-    """
+    """Expose a small Story menu while using the ordinary simulation physics."""
 
     def _first_flight_options(self, step=None):
-        from balloon_frontier.discord_ui.configurator import (
-            FILL_MODES,
-            _Step,
-        )
+        from balloon_frontier.discord_ui.configurator import FILL_MODES, _Step
 
         current_step = self._current_step if step is None else step
         keys = FIRST_FLIGHT_OPTION_KEYS[current_step]
@@ -164,9 +156,7 @@ class DiscoveryFirstFlightConfiguratorMixin:
         envelope = CATALOG.envelope(state["envelope"])
         site_conditions = SITE_OPTIONS[state["site"]].derive_conditions()
         if state.get("fill_mode") == "assist":
-            payload_ids = with_required_first_flight_payloads(
-                state.get("payloads") or ()
-            )
+            payload_ids = with_required_first_flight_payloads(state.get("payloads") or ())
             payload_mass_kg = sum(
                 CATALOG.payload(pid).mass_kg for pid in payload_ids if pid != "none"
             )
@@ -221,11 +211,9 @@ class DiscoveryFirstFlightConfiguratorMixin:
         gas_mass = state.get("gas_mass")
         if gas_mass is None:
             gas_mass = self._compute_gas_mass()
-        fill_label = (
-            POWERED_ASSIST_FILL["label"]
-            if state["fill_mode"] == "assist"
-            else FILL_MODES[state["fill_mode"]]["label"]
-        )
+        fill_label = state.get("_first_flight_fill_label") or FILL_MODES[
+            state["fill_mode"]
+        ]["label"]
         site = self._first_flight_options(_Step.CHOOSE_SITE)[state["site"]]
         lines = ["🎈 **Balloon Configuration**\n"]
         lines.append(f"Gas: {gas.name}")
@@ -255,9 +243,7 @@ class DiscoveryFirstFlightConfiguratorMixin:
             ]
             if self._current_step == _Step.CHOOSE_GAS:
                 for index, gas in enumerate(options.values(), 1):
-                    lines.append(
-                        f"{index}  {gas[0]}  (M={gas[1]} kg/mol, ${gas[2]}/kg)"
-                    )
+                    lines.append(f"{index}  {gas[0]}  (M={gas[1]} kg/mol, ${gas[2]}/kg)")
                 lines.append(
                     "     Air starts at ambient temperature; heat sources change its density during the simulation."
                 )
@@ -269,9 +255,7 @@ class DiscoveryFirstFlightConfiguratorMixin:
                     lines.append(f"{index}  {fill['label']}")
                     lines.append(f"     {fill['description']}")
             elif self._current_step == _Step.CHOOSE_PAYLOADS:
-                provided = [
-                    CATALOG.payload(pid) for pid in FIRST_FLIGHT_PROVIDED_PAYLOADS
-                ]
+                provided = [CATALOG.payload(pid) for pid in FIRST_FLIGHT_PROVIDED_PAYLOADS]
                 lines.append("Essential payloads (provided):")
                 for payload in provided:
                     lines.append(f"•  {payload.name}  ({payload.mass_kg}kg)")
@@ -280,9 +264,7 @@ class DiscoveryFirstFlightConfiguratorMixin:
                 )
                 lines.append("Optional additions:")
                 for index, payload in enumerate(options.values(), 1):
-                    lines.append(
-                        f"{index}  {payload[0]}  ({payload[1]}kg, ${payload[2]})"
-                    )
+                    lines.append(f"{index}  {payload[0]}  ({payload[1]}kg, ${payload[2]})")
                 lines.append(
                     "     Heater choices contribute watts to the same gas energy balance; open-flame methods are flagged in results."
                 )
@@ -298,10 +280,7 @@ class DiscoveryFirstFlightConfiguratorMixin:
                 )
             configuration = "\n".join(lines)
 
-        return story_chapter_intro(
-            FIRST_FLIGHT_CHAPTER,
-            include_disclaimer=False,
-        ) + "\n\n" + configuration
+        return story_chapter_intro(FIRST_FLIGHT_CHAPTER, include_disclaimer=False) + "\n\n" + configuration
 
     async def _select_single_option(self, interaction, index: int, state_key: str):
         keys = tuple(self._first_flight_options())
@@ -316,12 +295,35 @@ class DiscoveryFirstFlightConfiguratorMixin:
         await self._advance(interaction)
 
     async def _on_gas(self, interaction, index: int):
+        if self.state.get("_first_flight_fill_label"):
+            self.state.pop("_first_flight_fill_label", None)
+            self.state["fill_mode"] = "auto"
+            self.state["manual_gas_mass"] = None
         await self._select_single_option(interaction, index, "gas")
 
     async def _on_envelope(self, interaction, index: int):
         await self._select_single_option(interaction, index, "envelope")
 
     async def _on_fill(self, interaction, index: int):
+        keys = tuple(self._first_flight_options())
+        idx = index - 1
+        if idx < 0 or idx >= len(keys):
+            await interaction.response.send_message(
+                "That option isn't available right now.", ephemeral=True
+            )
+            return
+        selected = keys[idx]
+        self.state.pop("_first_flight_fill_label", None)
+        self.state["manual_gas_mass"] = None
+        if selected == "assist":
+            self.state["fill_mode"] = "assist"
+            mass = self._compute_gas_mass()
+            self.state["fill_mode"] = "manual"
+            self.state["manual_gas_mass"] = mass
+            self.state["gas_mass"] = mass
+            self.state["_first_flight_fill_label"] = POWERED_ASSIST_FILL["label"]
+            await self._advance(interaction)
+            return
         await self._select_single_option(interaction, index, "fill_mode")
 
     async def _on_payload(self, interaction, index: int):
@@ -333,9 +335,7 @@ class DiscoveryFirstFlightConfiguratorMixin:
             )
             return
         self.state["payloads"] = list(
-            toggle_first_flight_optional_payload(
-                self.state.get("payloads") or (), keys[idx]
-            )
+            toggle_first_flight_optional_payload(self.state.get("payloads") or (), keys[idx])
         )
         self.state["gas_mass"] = self._compute_gas_mass()
         self.build_buttons()
