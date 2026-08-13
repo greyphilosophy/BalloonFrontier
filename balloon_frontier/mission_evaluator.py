@@ -29,15 +29,12 @@ def _peak_altitude_within_horizontal_radius(
     max_distance_m: float,
 ) -> float:
     """Return peak altitude reached while remaining near the launch/target area."""
-    if not telemetry:
-        return 0.0
-    origin_x_m = telemetry[0].x_m
     radius_m = max(0.0, float(max_distance_m))
     return max(
         (
             point.altitude_m
             for point in telemetry
-            if abs(point.x_m - origin_x_m) <= radius_m
+            if abs(point.x_m) <= radius_m
         ),
         default=0.0,
     )
