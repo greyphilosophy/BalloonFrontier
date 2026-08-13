@@ -78,6 +78,8 @@ def test_first_flight_air_and_school_site_are_local_to_story():
 
 
 def test_lift_target_fill_options_are_truthful_for_selected_aircraft():
+    # This path calls other mixin helpers, so mirror the production inheritance
+    # instead of using the method as an unbound function on an incomplete stub.
     holder = type(
         "FirstFlightOptions",
         (DiscoveryFirstFlightConfiguratorMixin,),
