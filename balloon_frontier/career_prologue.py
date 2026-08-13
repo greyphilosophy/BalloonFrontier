@@ -8,7 +8,7 @@ from balloon_frontier.catalog import CATALOG
 from balloon_frontier.fill import FillMode, apply_fill_mode
 
 
-FIRST_FLIGHT_REQUIRED_PAYLOADS = ("camera", "quadcopter")
+FIRST_FLIGHT_REQUIRED_PAYLOADS = ("camera", "quadcopter", "battery")
 FIRST_FLIGHT_SITE_NAME = "School Athletic Field"
 FIRST_FLIGHT_OPTION_KEYS = {
     0: ("helium", "air"),
@@ -18,6 +18,7 @@ FIRST_FLIGHT_OPTION_KEYS = {
         "parachute",
         "candle_heater",
         "electric_heater",
+        "valve",
         "none",
     ),
     4: ("field",),
@@ -99,7 +100,7 @@ def toggle_first_flight_optional_payload(
     current_payloads: tuple[str, ...] | list[str],
     selected: str,
 ) -> tuple[str, ...]:
-    """Toggle optional equipment while keeping camera and quadcopter essential."""
+    """Toggle optional equipment while keeping mission equipment essential."""
     optional = tuple(
         pid for pid in current_payloads if pid not in FIRST_FLIGHT_REQUIRED_PAYLOADS
     )
@@ -228,6 +229,9 @@ class DiscoveryFirstFlightConfiguratorMixin:
                 lines.append("Essential payloads (provided):")
                 for payload in required:
                     lines.append(f"•  {payload.name}  ({payload.mass_kg}kg)")
+                lines.append(
+                    "     Battery energy is finite; the quadcopter and electrical equipment draw from the same pack."
+                )
                 lines.append("Optional additions:")
                 for index, payload in enumerate(options.values(), 1):
                     lines.append(
