@@ -7,7 +7,12 @@ from dataclasses import replace
 from balloon_frontier.catalog import CATALOG
 from balloon_frontier.fill import FillMode, apply_fill_mode
 from balloon_frontier.physics import gas_density
-from balloon_frontier.power import powered_assist_gas_mass_kg
+from balloon_frontier.power import (
+    ALMOST_LIGHTER_THAN_AIR_SUPPORT_FRACTION,
+    LIGHTER_THAN_AIR_SUPPORT_FRACTION,
+    gas_mass_for_supported_fraction_kg,
+    maximum_capacity_gas_mass_kg,
+)
 
 
 # Mission requirements describe what must be present for objective validation.
@@ -19,9 +24,7 @@ FIRST_FLIGHT_SITE_NAME = "School Athletic Field"
 FIRST_FLIGHT_OPTION_KEYS = {
     0: ("helium", "air"),
     1: ("latex", "candle_kite"),
-    # Compatibility view; helium swaps Auto for the explicit Powered Assist
-    # option at runtime while air retains the ordinary fill choices.
-    2: ("auto", "light", "normal"),
+    2: ("almost_lta", "lighter_lta", "maximum"),
     3: (
         "parachute",
         "candle_heater",
@@ -31,11 +34,31 @@ FIRST_FLIGHT_OPTION_KEYS = {
     4: ("field",),
 }
 
-POWERED_ASSIST_FILL = {
-    "label": "Powered Assist",
-    "description": (
-        "Balloon carries most of the weight; the quadcopter supplies the remaining lift"
-    ),
+FIRST_FLIGHT_FILL_OPTIONS = {
+    "almost_lta": {
+        "label": "Almost Lighter Than Air",
+        "description": (
+            "Net gas lift offsets 95% of the envelope and payload weight; "
+            "the quadcopter supplies the last 5%."
+        ),
+        "support_fraction": ALMOST_LIGHTER_THAN_AIR_SUPPORT_FRACTION,
+    },
+    "lighter_lta": {
+        "label": "Lighter Than Air",
+        "description": (
+            "Net gas lift offsets 105% of the envelope and payload weight, "
+            "giving about 5% passive free lift."
+        ),
+        "support_fraction": LIGHTER_THAN_AIR_SUPPORT_FRACTION,
+    },
+    "maximum": {
+        "label": "Maximum Capacity",
+        "description": (
+            "Fill the envelope to its full nominal launch volume for the most "
+            "passive lift this gas and envelope can provide."
+        ),
+        "support_fraction": None,
+    },
 }
 
 
@@ -125,8 +148,43 @@ def toggle_first_flight_optional_payload(
 class DiscoveryFirstFlightConfiguratorMixin:
     """Expose a small Story menu while using the ordinary simulation physics."""
 
+    def _first_flight_fill_context(self):
+        from balloon_frontier.discord_ui.configurator import SITE_OPTIONS
+
+        state = self.state
+        envelope = CATALOG.envelope(state["envelope"])
+        site_conditions = SITE_OPTIONS[state["site"]].derive_conditions()
+        payload_ids = with_required_first_flight_payloads(state.get("payloads") or ())
+        payload_mass_kg = sum(
+            CATALOG.payload(pid).mass_kg for pid in payload_ids if pid != "none"
+        )
+        lifting_density = gas_density(
+            state["gas"],
+            site_conditions["gas_temperature"],
+            site_conditions["launch_pressure"],
+        )
+        return envelope, site_conditions, payload_mass_kg, lifting_density
+
+    def _first_flight_fill_mass(self, fill_key: str) -> float:
+        envelope, site_conditions, payload_mass_kg, lifting_density = (
+            self._first_flight_fill_context()
+        )
+        if fill_key == "maximum":
+            return maximum_capacity_gas_mass_kg(
+                lifting_gas_density_kg_m3=lifting_density,
+                max_volume_m3=envelope.max_volume_m3,
+            )
+        option = FIRST_FLIGHT_FILL_OPTIONS[fill_key]
+        return gas_mass_for_supported_fraction_kg(
+            non_gas_mass_kg=envelope.mass_kg + payload_mass_kg,
+            ambient_density_kg_m3=site_conditions["launch_density_kg_m3"],
+            lifting_gas_density_kg_m3=lifting_density,
+            max_volume_m3=envelope.max_volume_m3,
+            support_fraction=option["support_fraction"],
+        )
+
     def _first_flight_options(self, step=None):
-        from balloon_frontier.discord_ui.configurator import FILL_MODES, _Step
+        from balloon_frontier.discord_ui.configurator import _Step
 
         current_step = self._current_step if step is None else step
         keys = FIRST_FLIGHT_OPTION_KEYS[current_step]
@@ -137,41 +195,28 @@ class DiscoveryFirstFlightConfiguratorMixin:
         if current_step == _Step.CHOOSE_PAYLOADS:
             return {key: _payload_option(key) for key in keys}
         if current_step == _Step.CHOOSE_FILL:
-            if self.state.get("gas") == "helium":
-                return {
-                    "assist": POWERED_ASSIST_FILL,
-                    "light": {**FILL_MODES["light"], "label": "Light Fill"},
-                    "normal": {**FILL_MODES["normal"], "label": "Normal Fill"},
-                }
-            return {key: FILL_MODES[key] for key in keys}
+            available = {}
+            for key in keys:
+                if key != "maximum":
+                    try:
+                        self._first_flight_fill_mass(key)
+                    except ValueError:
+                        continue
+                available[key] = FIRST_FLIGHT_FILL_OPTIONS[key]
+            return available
         if current_step == _Step.CHOOSE_SITE:
             return {"field": first_flight_site_info()}
         return {}
 
     def _compute_gas_mass(self):
-        """Compute fill through shared fill equations or the powered-assist balance."""
+        """Compute fill through shared equations or the semantic lift targets."""
         from balloon_frontier.discord_ui.configurator import SITE_OPTIONS
 
         state = self.state
         envelope = CATALOG.envelope(state["envelope"])
         site_conditions = SITE_OPTIONS[state["site"]].derive_conditions()
-        if state.get("fill_mode") == "assist":
-            payload_ids = with_required_first_flight_payloads(state.get("payloads") or ())
-            payload_mass_kg = sum(
-                CATALOG.payload(pid).mass_kg for pid in payload_ids if pid != "none"
-            )
-            lifting_density = gas_density(
-                state["gas"],
-                site_conditions["gas_temperature"],
-                site_conditions["launch_pressure"],
-            )
-            mass = powered_assist_gas_mass_kg(
-                non_gas_mass_kg=envelope.mass_kg + payload_mass_kg,
-                ambient_density_kg_m3=site_conditions["launch_density_kg_m3"],
-                lifting_gas_density_kg_m3=lifting_density,
-                max_volume_m3=envelope.max_volume_m3,
-            )
-            return round(mass, 3)
+        if state.get("fill_mode") in FIRST_FLIGHT_FILL_OPTIONS:
+            return round(self._first_flight_fill_mass(state["fill_mode"]), 3)
 
         mode = FillMode(state.get("fill_mode", "auto"))
         mass = apply_fill_mode(
@@ -282,6 +327,13 @@ class DiscoveryFirstFlightConfiguratorMixin:
 
         return story_chapter_intro(FIRST_FLIGHT_CHAPTER, include_disclaimer=False) + "\n\n" + configuration
 
+    def _clear_first_flight_fill(self):
+        if self.state.get("_first_flight_fill_label"):
+            self.state.pop("_first_flight_fill_label", None)
+            self.state["fill_mode"] = "auto"
+            self.state["manual_gas_mass"] = None
+            self.state["gas_mass"] = None
+
     async def _select_single_option(self, interaction, index: int, state_key: str):
         keys = tuple(self._first_flight_options())
         idx = index - 1
@@ -295,17 +347,16 @@ class DiscoveryFirstFlightConfiguratorMixin:
         await self._advance(interaction)
 
     async def _on_gas(self, interaction, index: int):
-        if self.state.get("_first_flight_fill_label"):
-            self.state.pop("_first_flight_fill_label", None)
-            self.state["fill_mode"] = "auto"
-            self.state["manual_gas_mass"] = None
+        self._clear_first_flight_fill()
         await self._select_single_option(interaction, index, "gas")
 
     async def _on_envelope(self, interaction, index: int):
+        self._clear_first_flight_fill()
         await self._select_single_option(interaction, index, "envelope")
 
     async def _on_fill(self, interaction, index: int):
-        keys = tuple(self._first_flight_options())
+        options = self._first_flight_options()
+        keys = tuple(options)
         idx = index - 1
         if idx < 0 or idx >= len(keys):
             await interaction.response.send_message(
@@ -315,16 +366,13 @@ class DiscoveryFirstFlightConfiguratorMixin:
         selected = keys[idx]
         self.state.pop("_first_flight_fill_label", None)
         self.state["manual_gas_mass"] = None
-        if selected == "assist":
-            self.state["fill_mode"] = "assist"
-            mass = self._compute_gas_mass()
-            self.state["fill_mode"] = "manual"
-            self.state["manual_gas_mass"] = mass
-            self.state["gas_mass"] = mass
-            self.state["_first_flight_fill_label"] = POWERED_ASSIST_FILL["label"]
-            await self._advance(interaction)
-            return
-        await self._select_single_option(interaction, index, "fill_mode")
+        self.state["fill_mode"] = selected
+        mass = self._compute_gas_mass()
+        self.state["fill_mode"] = "manual"
+        self.state["manual_gas_mass"] = mass
+        self.state["gas_mass"] = mass
+        self.state["_first_flight_fill_label"] = options[selected]["label"]
+        await self._advance(interaction)
 
     async def _on_payload(self, interaction, index: int):
         keys = tuple(self._first_flight_options())
