@@ -23,9 +23,9 @@ QUADCOPTER_CRUISE_ALTITUDE_M = 30.0
 QUADCOPTER_RETURN_TIME_S = 30.0
 QUADCOPTER_MOTOR_W_PER_N = 35.0
 
-# Only loads whose powered behavior is enforced by this model belong here.
-# Other electronics can be added when their gameplay behavior is power-aware.
+# Loads with behavior exercised by the current powered-flight path.
 CONSTANT_ELECTRICAL_LOAD_W: dict[str, float] = {
+    "camera": 5.0,
     "quadcopter": 6.0,
 }
 
@@ -117,7 +117,7 @@ def powered_assist_gas_mass_kg(
     """Choose a fill that deliberately leaves some weight for powered lift.
 
     The result solves the launch force balance for a requested upward control
-    contribution.  It is capped at nominal envelope volume.  A gas that is not
+    contribution. It is capped at nominal envelope volume. A gas that is not
     lighter than ambient air has no valid buoyancy-assist solution.
     """
     ambient_density = max(0.0, float(ambient_density_kg_m3))
