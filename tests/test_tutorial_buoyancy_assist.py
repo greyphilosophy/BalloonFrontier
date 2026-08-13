@@ -80,7 +80,7 @@ def test_first_flight_air_and_school_site_are_local_to_story():
 def test_lift_target_fill_options_are_truthful_for_selected_aircraft():
     holder = type(
         "FirstFlightOptions",
-        (),
+        (DiscoveryFirstFlightConfiguratorMixin,),
         {
             "_current_step": _Step.CHOOSE_FILL,
             "state": {
