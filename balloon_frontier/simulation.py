@@ -73,7 +73,6 @@ class SimulationState:
     terrain_base_altitude_offset_m: float = 0.0
     wind_enabled: bool = False
     wind_site_id: str = "field"
-    horizontal_control_accel_mps2: float = 0.0
 
     # Weather modifiers
     weather_ascent_multiplier: float = 1.0
@@ -115,6 +114,10 @@ class SimulationState:
     crashed: bool = False
     has_lifted_off: bool = False
     thermal_limit_exceeded: bool = False
+
+    # Powered horizontal-control equipment. Appended to preserve the positional
+    # constructor order of all pre-existing SimulationState fields.
+    horizontal_control_accel_mps2: float = 0.0
 
     def __post_init__(self) -> None:
         """Resolve initial gas temperature from absolute T, delta-T, or ambient."""
