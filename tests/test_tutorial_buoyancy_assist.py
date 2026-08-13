@@ -28,26 +28,28 @@ def test_first_flight_envelopes_include_standard_latex_and_heated_air_option():
     assert "tutorial_party_balloon" not in ENVELOPE_OPTIONS
 
 
-def test_first_flight_required_camera_and_quadcopter_are_not_optional_toggles():
+def test_first_flight_required_equipment_is_not_optional():
     options = DiscoveryFirstFlightConfiguratorMixin._first_flight_options(
         type("FirstFlightOptions", (), {"_current_step": _Step.CHOOSE_PAYLOADS})(),
         _Step.CHOOSE_PAYLOADS,
     )
 
-    assert FIRST_FLIGHT_REQUIRED_PAYLOADS == ("camera", "quadcopter")
+    assert FIRST_FLIGHT_REQUIRED_PAYLOADS == ("camera", "quadcopter", "battery")
     assert tuple(options) == (
         "parachute",
         "candle_heater",
         "electric_heater",
+        "valve",
         "none",
     )
     assert options["parachute"] == PAYLOAD_OPTIONS["parachute"]
+    assert options["valve"] == PAYLOAD_OPTIONS["valve"]
     assert options["candle_heater"][0] == "Tea Light Heat Source"
     assert options["electric_heater"][0] == "Small Electric Heater"
     assert options["none"][0] == "No optional payload"
     assert "camera" not in options
     assert "quadcopter" not in options
-    assert "valve" not in options
+    assert "battery" not in options
 
 
 def test_first_flight_air_and_school_site_are_local_to_story():
