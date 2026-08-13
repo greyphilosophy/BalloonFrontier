@@ -20,8 +20,11 @@ def _configurator(monkeypatch, mode=GameMode.STORY):
         classmethod(lambda cls, player_id: player),
     )
     configurator = game_menu._configurator_for_mode(
-        service=object(), mode=mode, player_id=player.player_id,
-        channel_kind="dm", on_finished=None,
+        service=object(),
+        mode=mode,
+        player_id=player.player_id,
+        channel_kind="dm",
+        on_finished=None,
     )
     assert isinstance(configurator, PayloadFeedbackConfiguratorMixin)
     if mode in (GameMode.STORY, GameMode.TUTORIAL):
@@ -36,51 +39,77 @@ def _configurator(monkeypatch, mode=GameMode.STORY):
 def _interaction():
     return SimpleNamespace(
         message=SimpleNamespace(),
-        response=SimpleNamespace(edit_message=AsyncMock(), send_message=AsyncMock()),
+        response=SimpleNamespace(
+            edit_message=AsyncMock(),
+            send_message=AsyncMock(),
+        ),
     )
 
 
 def test_adding_first_flight_optional_payload_reports_full_loadout(monkeypatch):
     configurator = _configurator(monkeypatch)
     interaction = _interaction()
+
     asyncio.run(configurator._on_payload(interaction, 1))
+
     assert configurator.state["payloads"] == [
-        "camera", "quadcopter", "battery", "parachute"
+        "camera",
+        "quadcopter",
+        "battery",
+        "parachute",
     ]
     content = interaction.response.edit_message.await_args.kwargs["content"]
     assert "✅ **Added:** Parachute" in content
-    assert "Camera, Small Quadcopter, Battery Pack, Parachute" in content
+    assert (
+        "**Currently equipped:** Camera, Small Quadcopter, Battery Pack, Parachute"
+        in content
+    )
 
 
-def test_clearing_optional_payloads_keeps_first_flight_provided_equipment(monkeypatch):
+def test_clearing_optional_payloads_keeps_first_flight_essentials(monkeypatch):
     configurator = _configurator(monkeypatch)
     configurator.state["payloads"] = [
-        "camera", "quadcopter", "battery", "parachute"
+        "camera",
+        "quadcopter",
+        "battery",
+        "parachute",
     ]
     interaction = _interaction()
+
     asyncio.run(configurator._on_payload(interaction, 4))
+
     assert configurator.state["payloads"] == ["camera", "quadcopter", "battery"]
     content = interaction.response.edit_message.await_args.kwargs["content"]
     assert "🧹 **Optional payloads cleared.**" in content
-    assert "Camera, Small Quadcopter, Battery Pack" in content
+    assert "**Currently equipped:** Camera, Small Quadcopter, Battery Pack" in content
 
 
 def test_legacy_tutorial_alias_receives_story_first_flight_feedback(monkeypatch):
     configurator = _configurator(monkeypatch, GameMode.TUTORIAL)
     interaction = _interaction()
+
     asyncio.run(configurator._on_payload(interaction, 2))
+
     content = interaction.response.edit_message.await_args.kwargs["content"]
     assert configurator.state["payloads"] == [
-        "camera", "quadcopter", "battery", "candle_heater"
+        "camera",
+        "quadcopter",
+        "battery",
+        "candle_heater",
     ]
     assert "✅ **Added:** Tea Light Heat Source" in content
-    assert "Camera, Small Quadcopter, Battery Pack, Tea Light Heat Source" in content
+    assert (
+        "**Currently equipped:** Camera, Small Quadcopter, Battery Pack, Tea Light Heat Source"
+        in content
+    )
 
 
 def test_free_play_payload_toggle_receives_direct_feedback(monkeypatch):
     configurator = _configurator(monkeypatch, GameMode.FREE_PLAY)
     interaction = _interaction()
+
     asyncio.run(configurator._on_payload(interaction, 1))
+
     content = interaction.response.edit_message.await_args.kwargs["content"]
     assert "✅ **Added:** Camera" in content
     assert "**Currently equipped:** Camera" in content
@@ -91,9 +120,14 @@ def test_toggle_action_feedback_does_not_reappear_after_navigation(monkeypatch):
     interaction = _interaction()
     asyncio.run(configurator._on_payload(interaction, 1))
     assert "✅ **Added:** Parachute" in configurator._step_content()
+
     asyncio.run(configurator._advance(interaction))
     assert configurator._current_step == _Step.CHOOSE_SITE
     configurator._prev_step()
+
     content = configurator._step_content()
     assert "✅ **Added:** Parachute" not in content
-    assert "Camera, Small Quadcopter, Battery Pack, Parachute" in content
+    assert (
+        "**Currently equipped:** Camera, Small Quadcopter, Battery Pack, Parachute"
+        in content
+    )
