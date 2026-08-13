@@ -3,7 +3,10 @@
 import pytest
 
 from balloon_frontier.balloon_cluster import ClusteredLaunchRequest
-from balloon_frontier.career_prologue import FIRST_FLIGHT_OPTION_KEYS
+from balloon_frontier.career_prologue import (
+    FIRST_FLIGHT_OPTION_KEYS,
+    FIRST_FLIGHT_REQUIRED_PAYLOADS,
+)
 from balloon_frontier.catalog import CATALOG, FillMode
 from balloon_frontier.launch_result import LaunchRequest
 from balloon_frontier.physics import atmosphere_pressure, gas_density, gas_volume
@@ -175,16 +178,17 @@ def test_pressure_valve_adds_its_own_mass_and_cost():
     )
 
 
-def test_first_flight_menu_exposes_only_foundational_heat_experiments():
+def test_first_flight_menu_exposes_only_optional_foundational_experiments():
     payloads = FIRST_FLIGHT_OPTION_KEYS[3]
 
+    assert FIRST_FLIGHT_REQUIRED_PAYLOADS == ("camera", "quadcopter")
     assert payloads == (
-        "camera",
         "parachute",
         "candle_heater",
         "electric_heater",
         "none",
     )
+    assert "camera" not in payloads
     assert "quadcopter" not in payloads
     assert "valve" not in payloads
     assert "heater" not in payloads

@@ -1,6 +1,9 @@
 """Compatibility coverage after replacing Tutorial with How to Play and Story."""
 
-from balloon_frontier.career_prologue import FIRST_FLIGHT_OPTION_KEYS
+from balloon_frontier.career_prologue import (
+    FIRST_FLIGHT_OPTION_KEYS,
+    FIRST_FLIGHT_REQUIRED_PAYLOADS,
+)
 from balloon_frontier.game_modes import GameMode, list_game_modes, select_game_mode
 from balloon_frontier.how_to_play import how_to_play_text
 from balloon_frontier.session_controller import get_mode_policy
@@ -30,11 +33,11 @@ def test_how_to_play_explains_shared_physics_and_progressive_story_choices():
 
 
 def test_first_flight_menu_uses_normal_catalog_keys():
+    assert FIRST_FLIGHT_REQUIRED_PAYLOADS == ("camera", "quadcopter")
     assert FIRST_FLIGHT_OPTION_KEYS[0] == ("helium", "air")
     assert FIRST_FLIGHT_OPTION_KEYS[1] == ("latex", "candle_kite")
     assert FIRST_FLIGHT_OPTION_KEYS[2] == ("auto", "light", "normal")
     assert FIRST_FLIGHT_OPTION_KEYS[3] == (
-        "camera",
         "parachute",
         "candle_heater",
         "electric_heater",

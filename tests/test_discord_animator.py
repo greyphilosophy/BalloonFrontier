@@ -47,7 +47,10 @@ def production_moments():
 
 def test_animator_installs_production_size_gif_on_deferred_response():
     interaction = FakeInteraction()
+    # Legacy launch code still requests 10 seconds; the animator caps playback
+    # at the current five-second product duration.
     animator = DiscordFlightAnimator(duration_s=10)
+    assert animator.duration_s == 5
     selected = production_moments()
 
     gif = asyncio.run(
@@ -60,8 +63,6 @@ def test_animator_installs_production_size_gif_on_deferred_response():
     )
 
     assert gif.startswith(b"GIF")
-    # Exercise the same 18-moment montage production requests, not the smaller
-    # legacy fixture, so this guard reflects the actual Discord upload.
     assert len(gif) < 8 * 1024 * 1024
     interaction.followup.send.assert_not_awaited()
     interaction.edit_original_response.assert_awaited_once()
@@ -74,6 +75,27 @@ def test_animator_installs_production_size_gif_on_deferred_response():
     with Image.open(BytesIO(gif)) as image:
         assert image.is_animated
         assert image.n_frames == len(selected) * animator.ticks_per_moment
+
+
+def test_each_slide_tick_keeps_the_depicted_simulation_time():
+    selected = moments()
+    animator = DiscordFlightAnimator(ticks_per_moment=2)
+    observed_times = []
+
+    class CapturingRenderer:
+        def render(self, frame, **_kwargs):
+            observed_times.append(frame.moment.time_s)
+            return Image.new("RGB", (16, 16))
+
+    animator._renderer = CapturingRenderer()
+    animator.render_frames(selected)
+
+    assert observed_times == [
+        moment.time_s
+        for moment in selected
+        for _ in range(animator.ticks_per_moment)
+    ]
+    assert any(time_s > 0 for time_s in observed_times)
 
 
 def test_gif_rendering_runs_off_the_event_loop_thread():
@@ -94,18 +116,19 @@ def test_gif_rendering_runs_off_the_event_loop_thread():
     assert render_threads[0] != caller_thread
 
 
-def test_duration_is_longer_clamped_and_empty_moments_do_not_send():
-    assert DiscordFlightAnimator(duration_s=0).duration_s == 8
-    assert DiscordFlightAnimator(duration_s=99).duration_s == 15
+def test_duration_is_clamped_to_compact_playback_and_empty_moments_do_not_send():
+    assert DiscordFlightAnimator(duration_s=0).duration_s == 3
+    assert DiscordFlightAnimator(duration_s=99).duration_s == 5
+    assert DiscordFlightAnimator().duration_s == 5
     interaction = FakeInteraction()
     assert asyncio.run(DiscordFlightAnimator().play(interaction, [])) is None
     interaction.followup.send.assert_not_awaited()
     interaction.edit_original_response.assert_not_awaited()
 
 
-def test_frame_durations_cover_requested_animation_time():
+def test_frame_durations_cover_five_second_animation_time():
     animator = DiscordFlightAnimator(duration_s=10)
     durations = animator._frame_durations(14)
     assert len(durations) == 14
-    assert sum(durations) == 10000
+    assert sum(durations) == 5000
     assert durations[-1] > durations[0]
