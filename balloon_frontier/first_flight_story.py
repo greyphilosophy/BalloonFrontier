@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 
+
+FIRST_FLIGHT_MISSION_ID = "first_flight"
 FIRST_FLIGHT_INTRODUCTION = (
     "School let out twenty minutes ago, but you're still standing at the edge of "
     "the athletic field with a balloon, a camera-equipped quadcopter, and a folding "
@@ -59,3 +62,31 @@ def first_flight_epilogue(*, completed: bool, crashed: bool) -> str:
         "Before leaving the field, you make a list of what went wrong. The next "
         "version starts there."
     )
+
+
+def add_first_flight_epilogue(outcome):
+    """Append the opening chapter's result beat without changing rewards or physics."""
+
+    mission_results = tuple(getattr(outcome, "mission_results", ()) or ())
+    if not mission_results:
+        return outcome
+
+    crashed = bool(getattr(outcome.result, "crashed", False))
+    changed = False
+    updated_results = []
+    for result in mission_results:
+        if result.mission_id != FIRST_FLIGHT_MISSION_ID:
+            updated_results.append(result)
+            continue
+        changed = True
+        epilogue = first_flight_epilogue(
+            completed=bool(result.completed),
+            crashed=crashed,
+        )
+        updated_results.append(
+            replace(result, explanation=f"{result.explanation} {epilogue}")
+        )
+
+    if not changed:
+        return outcome
+    return replace(outcome, mission_results=tuple(updated_results))
