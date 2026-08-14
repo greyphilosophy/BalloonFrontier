@@ -30,12 +30,10 @@ from balloon_frontier.mission_selection import (
     choose_mission_count,
     seed_from_game_state,
 )
+from balloon_frontier.powered_simulation import run_powered_simulation
 from balloon_frontier.progression import PlayerRegistryRepository
 from balloon_frontier.reward_service import RewardService
-from balloon_frontier.simulation import (
-    SimulationState,
-    run_simulation as run_full_simulation,
-)
+from balloon_frontier.simulation import SimulationState
 from balloon_frontier.weather_column import generate_weather_column
 from balloon_frontier.weather_event import (
     WeatherEvent,
@@ -60,6 +58,8 @@ class FlightOutcome:
     safety_notes: tuple[str, ...] = ()
     weather_impacts: dict = field(default_factory=dict)
     atmosphere_provider: AtmosphereProvider | None = None
+    # Appended so every pre-existing positional field keeps its old index.
+    flight_notes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -95,6 +95,20 @@ def _state_with_weather_impacts(
         envelope=envelope,
         weather_ascent_multiplier=impacts.get("ascent_rate", 1.0),
         weather_drift_multiplier=impacts.get("drift_factor", 1.0),
+    )
+
+
+def _mission_results_with_flight_notes(
+    mission_results: tuple[MissionResult, ...],
+    flight_notes: tuple[str, ...],
+) -> tuple[MissionResult, ...]:
+    """Append emergent flight lessons without changing completion or rewards."""
+    if not mission_results or not flight_notes:
+        return mission_results
+    note_text = " Flight notes: " + " ".join(flight_notes)
+    return tuple(
+        replace(result, explanation=result.explanation + note_text)
+        for result in mission_results
     )
 
 
@@ -208,13 +222,16 @@ class FlightService:
         max_time = self.mission_sim_time if is_mission else self.default_sim_time
         max_steps = int(max_time / 0.1)
         step_interval = self.mission_step_interval if is_mission else None
-        telemetry = run_full_simulation(
+        powered_result = run_powered_simulation(
             sim_state,
+            payload_ids=tuple(launch_request.payload_ids),
             dt=0.1,
             total_time_s=max_time,
             max_steps=max_steps,
             step_interval=step_interval,
         )
+        telemetry = list(powered_result.telemetry)
+        flight_notes = powered_result.flight_notes
 
         mission_assignment = MissionAssignment(
             mission_ids=tuple(assignment_dict.get("mission_ids", [])),
@@ -228,6 +245,7 @@ class FlightService:
                 safety_notes=safety_notes,
                 weather_impacts=prep.weather_impacts,
                 atmosphere_provider=provider,
+                flight_notes=flight_notes,
             )
 
         points = telemetry_list_to_points(telemetry)
@@ -246,6 +264,10 @@ class FlightService:
             request=launch_request,
             telemetry=tuple(points),
             assignment=mission_assignment,
+        )
+        mission_results = _mission_results_with_flight_notes(
+            mission_results,
+            flight_notes,
         )
         if launch_request.player_id:
             mission_results = self.reward_service.apply(
@@ -267,6 +289,7 @@ class FlightService:
             safety_notes=safety_notes,
             weather_impacts=prep.weather_impacts,
             atmosphere_provider=provider,
+            flight_notes=flight_notes,
         )
 
 

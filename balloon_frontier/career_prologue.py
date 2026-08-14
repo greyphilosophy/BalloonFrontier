@@ -6,14 +6,25 @@ from dataclasses import replace
 
 from balloon_frontier.catalog import CATALOG
 from balloon_frontier.fill import FillMode, apply_fill_mode
+from balloon_frontier.physics import gas_density
+from balloon_frontier.power import (
+    ALMOST_LIGHTER_THAN_AIR_SUPPORT_FRACTION,
+    LIGHTER_THAN_AIR_SUPPORT_FRACTION,
+    gas_mass_for_supported_fraction_kg,
+    maximum_capacity_gas_mass_kg,
+)
 
 
+# Mission requirements describe what must be present for objective validation.
+# Provided equipment describes the actual starter aircraft. Keeping those ideas
+# separate avoids turning provisioning into a mission-rule side effect.
 FIRST_FLIGHT_REQUIRED_PAYLOADS = ("camera", "quadcopter")
+FIRST_FLIGHT_PROVIDED_PAYLOADS = ("camera", "quadcopter", "battery")
 FIRST_FLIGHT_SITE_NAME = "School Athletic Field"
 FIRST_FLIGHT_OPTION_KEYS = {
     0: ("helium", "air"),
     1: ("latex", "candle_kite"),
-    2: ("auto", "light", "normal"),
+    2: ("almost_lta", "lighter_lta", "maximum"),
     3: (
         "parachute",
         "candle_heater",
@@ -21,6 +32,33 @@ FIRST_FLIGHT_OPTION_KEYS = {
         "none",
     ),
     4: ("field",),
+}
+
+FIRST_FLIGHT_FILL_OPTIONS = {
+    "almost_lta": {
+        "label": "Almost Lighter Than Air",
+        "description": (
+            "Net gas lift offsets 95% of the envelope and payload weight; "
+            "the quadcopter supplies the last 5%."
+        ),
+        "support_fraction": ALMOST_LIGHTER_THAN_AIR_SUPPORT_FRACTION,
+    },
+    "lighter_lta": {
+        "label": "Lighter Than Air",
+        "description": (
+            "Net gas lift offsets 105% of the envelope and payload weight, "
+            "giving about 5% passive free lift."
+        ),
+        "support_fraction": LIGHTER_THAN_AIR_SUPPORT_FRACTION,
+    },
+    "maximum": {
+        "label": "Maximum Capacity",
+        "description": (
+            "Fill the envelope to its full nominal launch volume for the most "
+            "passive lift this gas and envelope can provide."
+        ),
+        "support_fraction": None,
+    },
 }
 
 
@@ -71,14 +109,14 @@ def first_flight_site_info():
 def with_required_first_flight_payloads(
     payload_ids: tuple[str, ...] | list[str],
 ) -> tuple[str, ...]:
-    """Return required mission equipment plus deterministic optional payloads."""
+    """Return the provided starter aircraft plus deterministic optional equipment."""
     extras = tuple(
         pid
         for pid in payload_ids
-        if pid not in FIRST_FLIGHT_REQUIRED_PAYLOADS and pid != "none"
+        if pid not in FIRST_FLIGHT_PROVIDED_PAYLOADS and pid != "none"
     )
     deduped_extras = tuple(dict.fromkeys(extras))
-    return FIRST_FLIGHT_REQUIRED_PAYLOADS + deduped_extras
+    return FIRST_FLIGHT_PROVIDED_PAYLOADS + deduped_extras
 
 
 def toggle_payload_selection(
@@ -99,27 +137,54 @@ def toggle_first_flight_optional_payload(
     current_payloads: tuple[str, ...] | list[str],
     selected: str,
 ) -> tuple[str, ...]:
-    """Toggle optional equipment while keeping camera and quadcopter essential."""
+    """Toggle optional equipment while keeping the provided starter aircraft."""
     optional = tuple(
-        pid for pid in current_payloads if pid not in FIRST_FLIGHT_REQUIRED_PAYLOADS
+        pid for pid in current_payloads if pid not in FIRST_FLIGHT_PROVIDED_PAYLOADS
     )
     toggled = toggle_payload_selection(optional, selected)
     return with_required_first_flight_payloads(toggled)
 
 
 class DiscoveryFirstFlightConfiguratorMixin:
-    """Expose a small Story menu while using the ordinary simulation physics.
+    """Expose a small Story menu while using the ordinary simulation physics."""
 
-    First Flight creates local option views from canonical definitions; it never
-    mutates process-wide Discord option dictionaries. The configurator itself is
-    the imperative UI shell, while option/fill transformations are deterministic.
-    """
+    def _first_flight_fill_context(self):
+        from balloon_frontier.discord_ui.configurator import SITE_OPTIONS
+
+        state = self.state
+        envelope = CATALOG.envelope(state["envelope"])
+        site_conditions = SITE_OPTIONS[state["site"]].derive_conditions()
+        payload_ids = with_required_first_flight_payloads(state.get("payloads") or ())
+        payload_mass_kg = sum(
+            CATALOG.payload(pid).mass_kg for pid in payload_ids if pid != "none"
+        )
+        lifting_density = gas_density(
+            state["gas"],
+            site_conditions["gas_temperature"],
+            site_conditions["launch_pressure"],
+        )
+        return envelope, site_conditions, payload_mass_kg, lifting_density
+
+    def _first_flight_fill_mass(self, fill_key: str) -> float:
+        envelope, site_conditions, payload_mass_kg, lifting_density = (
+            self._first_flight_fill_context()
+        )
+        if fill_key == "maximum":
+            return maximum_capacity_gas_mass_kg(
+                lifting_gas_density_kg_m3=lifting_density,
+                max_volume_m3=envelope.max_volume_m3,
+            )
+        option = FIRST_FLIGHT_FILL_OPTIONS[fill_key]
+        return gas_mass_for_supported_fraction_kg(
+            non_gas_mass_kg=envelope.mass_kg + payload_mass_kg,
+            ambient_density_kg_m3=site_conditions["launch_density_kg_m3"],
+            lifting_gas_density_kg_m3=lifting_density,
+            max_volume_m3=envelope.max_volume_m3,
+            support_fraction=option["support_fraction"],
+        )
 
     def _first_flight_options(self, step=None):
-        from balloon_frontier.discord_ui.configurator import (
-            FILL_MODES,
-            _Step,
-        )
+        from balloon_frontier.discord_ui.configurator import _Step
 
         current_step = self._current_step if step is None else step
         keys = FIRST_FLIGHT_OPTION_KEYS[current_step]
@@ -130,18 +195,29 @@ class DiscoveryFirstFlightConfiguratorMixin:
         if current_step == _Step.CHOOSE_PAYLOADS:
             return {key: _payload_option(key) for key in keys}
         if current_step == _Step.CHOOSE_FILL:
-            return {key: FILL_MODES[key] for key in keys}
+            available = {}
+            for key in keys:
+                if key != "maximum":
+                    try:
+                        self._first_flight_fill_mass(key)
+                    except ValueError:
+                        continue
+                available[key] = FIRST_FLIGHT_FILL_OPTIONS[key]
+            return available
         if current_step == _Step.CHOOSE_SITE:
             return {"field": first_flight_site_info()}
         return {}
 
     def _compute_gas_mass(self):
-        """Compute fill with the same shared fill equations as the base wizard."""
+        """Compute fill through shared equations or the semantic lift targets."""
         from balloon_frontier.discord_ui.configurator import SITE_OPTIONS
 
         state = self.state
         envelope = CATALOG.envelope(state["envelope"])
         site_conditions = SITE_OPTIONS[state["site"]].derive_conditions()
+        if state.get("fill_mode") in FIRST_FLIGHT_FILL_OPTIONS:
+            return round(self._first_flight_fill_mass(state["fill_mode"]), 3)
+
         mode = FillMode(state.get("fill_mode", "auto"))
         mass = apply_fill_mode(
             envelope.max_volume_m3,
@@ -180,7 +256,9 @@ class DiscoveryFirstFlightConfiguratorMixin:
         gas_mass = state.get("gas_mass")
         if gas_mass is None:
             gas_mass = self._compute_gas_mass()
-        fill_label = FILL_MODES[state["fill_mode"]]["label"]
+        fill_label = state.get("_first_flight_fill_label") or FILL_MODES[
+            state["fill_mode"]
+        ]["label"]
         site = self._first_flight_options(_Step.CHOOSE_SITE)[state["site"]]
         lines = ["🎈 **Balloon Configuration**\n"]
         lines.append(f"Gas: {gas.name}")
@@ -210,9 +288,7 @@ class DiscoveryFirstFlightConfiguratorMixin:
             ]
             if self._current_step == _Step.CHOOSE_GAS:
                 for index, gas in enumerate(options.values(), 1):
-                    lines.append(
-                        f"{index}  {gas[0]}  (M={gas[1]} kg/mol, ${gas[2]}/kg)"
-                    )
+                    lines.append(f"{index}  {gas[0]}  (M={gas[1]} kg/mol, ${gas[2]}/kg)")
                 lines.append(
                     "     Air starts at ambient temperature; heat sources change its density during the simulation."
                 )
@@ -224,15 +300,19 @@ class DiscoveryFirstFlightConfiguratorMixin:
                     lines.append(f"{index}  {fill['label']}")
                     lines.append(f"     {fill['description']}")
             elif self._current_step == _Step.CHOOSE_PAYLOADS:
-                required = [CATALOG.payload(pid) for pid in FIRST_FLIGHT_REQUIRED_PAYLOADS]
+                provided = [CATALOG.payload(pid) for pid in FIRST_FLIGHT_PROVIDED_PAYLOADS]
                 lines.append("Essential payloads (provided):")
-                for payload in required:
+                for payload in provided:
                     lines.append(f"•  {payload.name}  ({payload.mass_kg}kg)")
+                lines.append(
+                    "     Battery energy is finite; the camera and quadcopter draw from the provided pack."
+                )
+                lines.append(
+                    "     Lift-target fills update as optional payload mass changes so their labels stay true."
+                )
                 lines.append("Optional additions:")
                 for index, payload in enumerate(options.values(), 1):
-                    lines.append(
-                        f"{index}  {payload[0]}  ({payload[1]}kg, ${payload[2]})"
-                    )
+                    lines.append(f"{index}  {payload[0]}  ({payload[1]}kg, ${payload[2]})")
                 lines.append(
                     "     Heater choices contribute watts to the same gas energy balance; open-flame methods are flagged in results."
                 )
@@ -248,10 +328,38 @@ class DiscoveryFirstFlightConfiguratorMixin:
                 )
             configuration = "\n".join(lines)
 
-        return story_chapter_intro(
-            FIRST_FLIGHT_CHAPTER,
-            include_disclaimer=False,
-        ) + "\n\n" + configuration
+        return story_chapter_intro(FIRST_FLIGHT_CHAPTER, include_disclaimer=False) + "\n\n" + configuration
+
+    def _clear_first_flight_fill(self):
+        if self.state.get("_first_flight_fill_label"):
+            self.state.pop("_first_flight_fill_key", None)
+            self.state.pop("_first_flight_fill_label", None)
+            self.state["fill_mode"] = "auto"
+            self.state["manual_gas_mass"] = None
+            self.state["gas_mass"] = None
+
+    def _refresh_first_flight_fill_target(self) -> bool:
+        """Keep a semantic fill target truthful when the pre-launch loadout changes."""
+        fill_key = self.state.get("_first_flight_fill_key")
+        if fill_key not in FIRST_FLIGHT_FILL_OPTIONS:
+            self.state["gas_mass"] = self._compute_gas_mass()
+            return True
+
+        try:
+            mass = round(self._first_flight_fill_mass(fill_key), 3)
+        except ValueError:
+            self.state.pop("_first_flight_fill_key", None)
+            self.state.pop("_first_flight_fill_label", None)
+            self.state["fill_mode"] = "auto"
+            self.state["manual_gas_mass"] = None
+            self.state["gas_mass"] = self._compute_gas_mass()
+            return False
+
+        self.state["fill_mode"] = "manual"
+        self.state["manual_gas_mass"] = mass
+        self.state["gas_mass"] = mass
+        self.state["_first_flight_fill_label"] = FIRST_FLIGHT_FILL_OPTIONS[fill_key]["label"]
+        return True
 
     async def _select_single_option(self, interaction, index: int, state_key: str):
         keys = tuple(self._first_flight_options())
@@ -266,13 +374,33 @@ class DiscoveryFirstFlightConfiguratorMixin:
         await self._advance(interaction)
 
     async def _on_gas(self, interaction, index: int):
+        self._clear_first_flight_fill()
         await self._select_single_option(interaction, index, "gas")
 
     async def _on_envelope(self, interaction, index: int):
+        self._clear_first_flight_fill()
         await self._select_single_option(interaction, index, "envelope")
 
     async def _on_fill(self, interaction, index: int):
-        await self._select_single_option(interaction, index, "fill_mode")
+        options = self._first_flight_options()
+        keys = tuple(options)
+        idx = index - 1
+        if idx < 0 or idx >= len(keys):
+            await interaction.response.send_message(
+                "That option isn't available right now.", ephemeral=True
+            )
+            return
+        selected = keys[idx]
+        self.state.pop("_first_flight_fill_label", None)
+        self.state["manual_gas_mass"] = None
+        self.state["fill_mode"] = selected
+        mass = self._compute_gas_mass()
+        self.state["fill_mode"] = "manual"
+        self.state["manual_gas_mass"] = mass
+        self.state["gas_mass"] = mass
+        self.state["_first_flight_fill_key"] = selected
+        self.state["_first_flight_fill_label"] = options[selected]["label"]
+        await self._advance(interaction)
 
     async def _on_payload(self, interaction, index: int):
         keys = tuple(self._first_flight_options())
@@ -283,11 +411,12 @@ class DiscoveryFirstFlightConfiguratorMixin:
             )
             return
         self.state["payloads"] = list(
-            toggle_first_flight_optional_payload(
-                self.state.get("payloads") or (), keys[idx]
-            )
+            toggle_first_flight_optional_payload(self.state.get("payloads") or (), keys[idx])
         )
-        self.state["gas_mass"] = self._compute_gas_mass()
+        if not self._refresh_first_flight_fill_target():
+            from balloon_frontier.discord_ui.configurator import _Step
+
+            self._current_step = _Step.CHOOSE_FILL
         self.build_buttons()
         await self._send_step(interaction)
 

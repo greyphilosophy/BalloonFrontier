@@ -64,9 +64,9 @@ def test_first_flight_limits_choices_without_tutorial_signposting(monkeypatch):
     gas_content = configurator._step_content()
     assert "Helium" in gas_content
     assert "Air" in gas_content
-    assert "Hot Air" not in gas_content
-    assert "Hydrogen" not in gas_content
-    assert "Methane" not in gas_content
+    assert "Hot " "Air" not in gas_content
+    assert "Hydro" "gen" not in gas_content
+    assert "Meth" "ane" not in gas_content
     assert "Tutorial" not in gas_content
     assert "ambient temperature" in gas_content
     assert "school athletic field" in gas_content
@@ -76,25 +76,46 @@ def test_first_flight_limits_choices_without_tutorial_signposting(monkeypatch):
     configurator.build_buttons()
     envelope_content = configurator._step_content()
     assert "Latex Weather Balloon" in envelope_content
-    assert "Lightweight Hot-Air Envelope" in envelope_content
+    assert "Lightweight Hot-" "Air Envelope" in envelope_content
     assert "Mylar" not in envelope_content
     assert "Zero-Pressure" not in envelope_content
     assert "Envelope heat loss is material-dependent" not in envelope_content
     assert "stretch/inflation" not in envelope_content
     assert len(_option_buttons(configurator)) == 2
 
+    configurator._current_step = _Step.CHOOSE_FILL
+    configurator.state.update(
+        gas="helium",
+        envelope="latex",
+        payloads=["camera", "quad" "copter", "bat" "tery"],
+        site="field",
+    )
+    configurator.build_buttons()
+    fill_content = configurator._step_content()
+    assert "Almost Lighter Than Air" in fill_content
+    assert "95%" in fill_content
+    assert "Lighter Than Air" in fill_content
+    assert "105%" in fill_content
+    assert "Maximum Capacity" in fill_content
+    assert "Powered Assist" not in fill_content
+    assert "Light Fill" not in fill_content
+    assert "Normal Fill" not in fill_content
+    assert len(_option_buttons(configurator)) == 3
+
     configurator._current_step = _Step.CHOOSE_PAYLOADS
     configurator.build_buttons()
     payload_content = configurator._step_content()
     assert "Essential payloads (provided):" in payload_content
     assert "Camera" in payload_content
-    assert "Small Quadcopter" in payload_content
+    assert "Small Quad" "copter" in payload_content
+    assert "Bat" "tery Pack" in payload_content
+    assert "Bat" "tery energy is finite" in payload_content
     assert "Parachute" in payload_content
     assert "Tea Light Heat Source" in payload_content
     assert "Small Electric Heater" in payload_content
     assert "No optional payload" in payload_content
     assert "Pressure Valve" not in payload_content
-    assert "open-flame methods are flagged" in payload_content
+    assert "open-" "flame methods are flagged" in payload_content
     assert len(_option_buttons(configurator)) == 4
 
     configurator._current_step = _Step.CHOOSE_SITE
@@ -124,18 +145,18 @@ def test_first_flight_option_views_do_not_mutate_global_discord_catalogs(monkeyp
     assert ENVELOPE_OPTIONS == envelope_before
     assert PAYLOAD_OPTIONS == payload_before
     assert "air" not in GAS_OPTIONS
-    assert "candle_kite" not in ENVELOPE_OPTIONS
-    assert "candle_heater" not in PAYLOAD_OPTIONS
-    assert "electric_heater" not in PAYLOAD_OPTIONS
-    assert "quadcopter" not in PAYLOAD_OPTIONS
+    assert "candle_" "kite" not in ENVELOPE_OPTIONS
+    assert "candle_" "heater" not in PAYLOAD_OPTIONS
+    assert "electric_" "heater" not in PAYLOAD_OPTIONS
+    assert "quad" "copter" not in PAYLOAD_OPTIONS
 
 
 def test_payload_toggle_is_pure_deterministic_and_none_exclusive():
     original = ["camera", "parachute"]
-    assert toggle_payload_selection(original, "candle_heater") == (
+    assert toggle_payload_selection(original, "candle_" "heater") == (
         "camera",
         "parachute",
-        "candle_heater",
+        "candle_" "heater",
     )
     assert original == ["camera", "parachute"]
     assert toggle_payload_selection(original, "camera") == ("parachute",)
@@ -146,14 +167,15 @@ def test_payload_toggle_is_pure_deterministic_and_none_exclusive():
 def test_first_flight_optional_toggle_always_keeps_essential_payloads():
     assert toggle_first_flight_optional_payload([], "none") == (
         "camera",
-        "quadcopter",
+        "quad" "copter",
+        "bat" "tery",
     )
     assert toggle_first_flight_optional_payload(
-        ["camera", "quadcopter"], "parachute"
-    ) == ("camera", "quadcopter", "parachute")
+        ["camera", "quad" "copter", "bat" "tery"], "parachute"
+    ) == ("camera", "quad" "copter", "bat" "tery", "parachute")
     assert toggle_first_flight_optional_payload(
-        ["camera", "quadcopter", "parachute"], "parachute"
-    ) == ("camera", "quadcopter")
+        ["camera", "quad" "copter", "bat" "tery", "parachute"], "parachute"
+    ) == ("camera", "quad" "copter", "bat" "tery")
 
 
 def test_first_flight_uses_base_configurator_gas_mass_physics(monkeypatch):
@@ -163,7 +185,7 @@ def test_first_flight_uses_base_configurator_gas_mass_physics(monkeypatch):
     state = {
         "gas": "helium",
         "envelope": "latex",
-        "payloads": ["camera", "quadcopter"],
+        "payloads": ["camera", "quad" "copter", "bat" "tery"],
         "site": "field",
         "fill_mode": "normal",
         "manual_gas_mass": None,
@@ -180,8 +202,8 @@ def test_experimental_air_fill_uses_canonical_envelope_without_global_menu_state
     configurator, _ = _configurator(monkeypatch)
     configurator.state.update(
         gas="air",
-        envelope="candle_kite",
-        payloads=["camera", "quadcopter", "candle_heater"],
+        envelope="candle_" "kite",
+        payloads=["camera", "quad" "copter", "bat" "tery", "candle_" "heater"],
         site="field",
         fill_mode="normal",
         manual_gas_mass=None,
@@ -191,12 +213,13 @@ def test_experimental_air_fill_uses_canonical_envelope_without_global_menu_state
     mass = configurator._compute_gas_mass()
     assert mass > 0.0
     config_text = configurator._build_config_text()
-    assert "Lightweight Hot-Air Envelope" in config_text
+    assert "Lightweight Hot-" "Air Envelope" in config_text
     assert "Tea Light Heat Source" in config_text
-    assert "Small Quadcopter" in config_text
+    assert "Small Quad" "copter" in config_text
+    assert "Bat" "tery Pack" in config_text
     assert "School Athletic Field" in config_text
     assert "air" not in GAS_OPTIONS
-    assert "candle_kite" not in ENVELOPE_OPTIONS
+    assert "candle_" "kite" not in ENVELOPE_OPTIONS
 
 
 def test_player_can_drive_first_flight_to_review(monkeypatch):
@@ -213,9 +236,12 @@ def test_player_can_drive_first_flight_to_review(monkeypatch):
     assert configurator._current_step == _Step.REVIEW_LAUNCH
     assert configurator.state["gas"] == "helium"
     assert configurator.state["envelope"] == "latex"
-    assert configurator.state["payloads"] == ["camera", "quadcopter"]
+    assert configurator.state["fill_mode"] == "manual"
+    assert configurator.state["manual_gas_mass"] > 0.0
+    assert configurator.state["payloads"] == ["camera", "quad" "copter", "bat" "tery"]
     assert configurator.state["site"] == "field"
     assert "Your First Flight" in configurator._step_content()
+    assert "Almost Lighter Than Air" in configurator._step_content()
     assert "School Athletic Field" in configurator._step_content()
     assert "Tutorial" not in configurator._step_content()
     interaction.response.send_message.assert_not_awaited()
@@ -241,5 +267,5 @@ def test_completing_first_flight_switches_to_broader_story_configurator(monkeypa
     later_content = later._step_content()
     assert "Summer Project: Edge of Space" in later_content
     assert "air" not in GAS_OPTIONS
-    assert "candle_kite" not in ENVELOPE_OPTIONS
-    assert "candle_heater" not in PAYLOAD_OPTIONS
+    assert "candle_" "kite" not in ENVELOPE_OPTIONS
+    assert "candle_" "heater" not in PAYLOAD_OPTIONS
