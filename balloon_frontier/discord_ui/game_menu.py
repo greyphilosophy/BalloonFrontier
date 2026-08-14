@@ -6,7 +6,6 @@ from collections.abc import Callable
 
 import discord
 
-from balloon_frontier.atmosphere_profile import atmosphere_profiles
 from balloon_frontier.balloon_cluster import (
     BalloonClusterConfiguratorMixin,
     BalloonClusterFlightService,
@@ -16,13 +15,11 @@ from balloon_frontier.game_modes import GameMode, list_game_modes
 from balloon_frontier.how_to_play import how_to_play_text
 from balloon_frontier.progression import PlayerRegistry
 from balloon_frontier.session_adapters import SessionAwareFlightService
-from balloon_frontier.story import FIRST_FLIGHT_MISSION_ID, format_atmosphere_profile
+from balloon_frontier.story import FIRST_FLIGHT_CHAPTER, FIRST_FLIGHT_MISSION_ID
 from balloon_frontier.story_mission_select import (
     SelectedStoryConfiguratorMixin,
     StoryMissionChoice,
     resolve_story_mission,
-    selected_story_intro,
-    story_chapter_for_mission,
     story_mission_choices,
 )
 from balloon_frontier.discord_ui.configurator import BalloonConfigurator
@@ -299,9 +296,9 @@ def _configurator_for_mode(
             # Limit the menu only. The service, weather, evaluator, and physics are
             # the same Story path used after onboarding.
             configurator_mixins.insert(1, DiscoveryFirstFlightConfiguratorMixin)
+            configurator_mixins.insert(0, _ExternalStoryBriefingMixin)
         else:
             configurator_mixins.insert(1, SelectedStoryConfiguratorMixin)
-        configurator_mixins.insert(0, _ExternalStoryBriefingMixin)
 
     configurator_type = type(
         "BalloonFrontierConfigurator",
@@ -329,25 +326,9 @@ def _configurator_for_mode(
 
 
 def _story_briefing_for_configurator(configurator) -> str:
-    """Build the Story-only message that precedes the configuration wizard."""
+    """Build the First Flight story message that precedes configuration."""
 
-    context = getattr(configurator, "_game_entry_context", None) or {}
-    mission_id = str(context.get("story_mission_id") or "")
-    chapter = story_chapter_for_mission(mission_id)
-    if mission_id == FIRST_FLIGHT_MISSION_ID:
-        return first_flight_briefing(chapter)
-
-    player_id = context.get("player_id")
-    text = selected_story_intro(
-        chapter,
-        player_id=str(player_id) if player_id is not None else None,
-        include_disclaimer=True,
-    )
-    if player_id is not None:
-        profile = atmosphere_profiles.get(str(player_id))
-        if profile is not None:
-            text += "\n\n" + format_atmosphere_profile(profile)
-    return text
+    return first_flight_briefing(FIRST_FLIGHT_CHAPTER)
 
 
 async def start_mode(
@@ -374,7 +355,7 @@ async def start_mode(
     followup = getattr(interaction, "followup", None)
     supports_followup = followup is not None and hasattr(followup, "send")
 
-    if context.get("mode") is GameMode.STORY and supports_followup:
+    if context.get("first_flight") and supports_followup:
         briefing = _story_briefing_for_configurator(configurator)
         configurator._story_briefing_external = True
         await interaction.response.edit_message(content=briefing, view=None)
