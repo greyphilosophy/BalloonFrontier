@@ -1,5 +1,7 @@
 """First-flight Story onboarding uses foundational shared-world components."""
 
+import pytest
+
 from balloon_frontier.career_prologue import (
     DiscoveryFirstFlightConfiguratorMixin,
     FIRST_FLIGHT_PROVIDED_PAYLOADS,
@@ -113,3 +115,37 @@ def test_lift_target_fill_options_are_truthful_for_selected_aircraft():
         holder, _Step.CHOOSE_FILL
     )
     assert tuple(air_small) == ("maximum",)
+
+
+def test_semantic_fill_target_stays_truthful_when_optional_payload_mass_changes():
+    holder = type(
+        "FirstFlightOptions",
+        (DiscoveryFirstFlightConfiguratorMixin,),
+        {
+            "state": {
+                "gas": "helium",
+                "envelope": "latex",
+                "payloads": ["camera", "quad" "copter", "bat" "tery"],
+                "site": "field",
+                "fill_mode": "manual",
+                "manual_gas_mass": None,
+                "gas_mass": None,
+                "_first_flight_fill_key": "almost_lta",
+                "_first_flight_fill_label": "Almost Lighter Than Air",
+            },
+        },
+    )()
+
+    initial_mass = round(holder._first_flight_fill_mass("almost_lta"), 3)
+    holder.state["manual_gas_mass"] = initial_mass
+    holder.state["gas_mass"] = initial_mass
+    holder.state["payloads"].append("parachute")
+
+    assert holder._refresh_first_flight_fill_target() is True
+    expected_mass = round(holder._first_flight_fill_mass("almost_lta"), 3)
+    assert holder.state["gas_mass"] == pytest.approx(expected_mass)
+    assert holder.state["manual_gas_mass"] == pytest.approx(expected_mass)
+    assert holder.state["gas_mass"] > initial_mass
+    assert holder.state["fill_mode"] == "manual"
+    assert holder.state["_first_flight_fill_key"] == "almost_lta"
+    assert holder.state["_first_flight_fill_label"] == "Almost Lighter Than Air"
