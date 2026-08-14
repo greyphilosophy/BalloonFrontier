@@ -60,6 +60,14 @@ def test_first_flight_limits_choices_without_tutorial_signposting(monkeypatch):
     assert isinstance(configurator, DiscoveryFirstFlightConfiguratorMixin)
     assert configurator._game_entry_context["mode"] is GameMode.STORY
     assert configurator._game_entry_context["first_flight"] is True
+    assert configurator.STEPS == (
+        _Step.CHOOSE_GAS,
+        _Step.CHOOSE_ENVELOPE,
+        _Step.CHOOSE_PAYLOADS,
+        _Step.CHOOSE_SITE,
+        _Step.CHOOSE_FILL,
+        _Step.REVIEW_LAUNCH,
+    )
 
     gas_content = configurator._step_content()
     assert "Helium" in gas_content
@@ -70,6 +78,7 @@ def test_first_flight_limits_choices_without_tutorial_signposting(monkeypatch):
     assert "Tutorial" not in gas_content
     assert "ambient temperature" in gas_content
     assert "school athletic field" in gas_content
+    assert "Step 1/6" in gas_content
     assert len(_option_buttons(configurator)) == 2
 
     configurator._current_step = _Step.CHOOSE_ENVELOPE
@@ -81,7 +90,35 @@ def test_first_flight_limits_choices_without_tutorial_signposting(monkeypatch):
     assert "Zero-Pressure" not in envelope_content
     assert "Envelope heat loss is material-dependent" not in envelope_content
     assert "stretch/inflation" not in envelope_content
+    assert "Step 2/6" in envelope_content
     assert len(_option_buttons(configurator)) == 2
+
+    configurator._current_step = _Step.CHOOSE_PAYLOADS
+    configurator.build_buttons()
+    payload_content = configurator._step_content()
+    assert "Essential payloads (provided):" in payload_content
+    assert "Camera" in payload_content
+    assert "Small Quad" "copter" in payload_content
+    assert "Bat" "tery Pack" in payload_content
+    assert "Bat" "tery energy is finite" in payload_content
+    assert "Parachute" in payload_content
+    assert "Tea Light Heat Source" in payload_content
+    assert "Small Electric Heater" in payload_content
+    assert "No optional payload" in payload_content
+    assert "Pressure Valve" not in payload_content
+    assert "open-" "flame methods are flagged" in payload_content
+    assert "Step 3/6" in payload_content
+    assert len(_option_buttons(configurator)) == 4
+
+    configurator._current_step = _Step.CHOOSE_SITE
+    configurator.build_buttons()
+    site_content = configurator._step_content()
+    assert "School Athletic Field" in site_content
+    assert "Open Field" not in site_content
+    assert "Mountain Ridge" not in site_content
+    assert "Urban Rooftop" not in site_content
+    assert "Step 4/6" in site_content
+    assert len(_option_buttons(configurator)) == 1
 
     configurator._current_step = _Step.CHOOSE_FILL
     configurator.state.update(
@@ -100,32 +137,8 @@ def test_first_flight_limits_choices_without_tutorial_signposting(monkeypatch):
     assert "Powered Assist" not in fill_content
     assert "Light Fill" not in fill_content
     assert "Normal Fill" not in fill_content
+    assert "Step 5/6" in fill_content
     assert len(_option_buttons(configurator)) == 3
-
-    configurator._current_step = _Step.CHOOSE_PAYLOADS
-    configurator.build_buttons()
-    payload_content = configurator._step_content()
-    assert "Essential payloads (provided):" in payload_content
-    assert "Camera" in payload_content
-    assert "Small Quad" "copter" in payload_content
-    assert "Bat" "tery Pack" in payload_content
-    assert "Bat" "tery energy is finite" in payload_content
-    assert "Parachute" in payload_content
-    assert "Tea Light Heat Source" in payload_content
-    assert "Small Electric Heater" in payload_content
-    assert "No optional payload" in payload_content
-    assert "Pressure Valve" not in payload_content
-    assert "open-" "flame methods are flagged" in payload_content
-    assert len(_option_buttons(configurator)) == 4
-
-    configurator._current_step = _Step.CHOOSE_SITE
-    configurator.build_buttons()
-    site_content = configurator._step_content()
-    assert "School Athletic Field" in site_content
-    assert "Open Field" not in site_content
-    assert "Mountain Ridge" not in site_content
-    assert "Urban Rooftop" not in site_content
-    assert len(_option_buttons(configurator)) == 1
 
 
 def test_first_flight_option_views_do_not_mutate_global_discord_catalogs(monkeypatch):
@@ -222,18 +235,38 @@ def test_experimental_air_fill_uses_canonical_envelope_without_global_menu_state
     assert "candle_" "kite" not in ENVELOPE_OPTIONS
 
 
+def test_first_flight_back_navigation_matches_dependency_order(monkeypatch):
+    configurator, _ = _configurator(monkeypatch)
+    configurator._current_step = _Step.CHOOSE_FILL
+
+    assert configurator._prev_step() is True
+    assert configurator._current_step == _Step.CHOOSE_SITE
+    assert configurator._prev_step() is True
+    assert configurator._current_step == _Step.CHOOSE_PAYLOADS
+    assert configurator._prev_step() is True
+    assert configurator._current_step == _Step.CHOOSE_ENVELOPE
+
+
 def test_player_can_drive_first_flight_to_review(monkeypatch):
     configurator, _ = _configurator(monkeypatch)
     interaction = _Interaction()
 
     asyncio.run(configurator._on_gas(interaction, 1))
+    assert configurator._current_step == _Step.CHOOSE_ENVELOPE
+
     asyncio.run(configurator._on_envelope(interaction, 1))
-    asyncio.run(configurator._on_fill(interaction, 1))
+    assert configurator._current_step == _Step.CHOOSE_PAYLOADS
+
     asyncio.run(configurator._on_payload(interaction, 4))
     asyncio.run(configurator._advance(interaction))
-    asyncio.run(configurator._on_site(interaction, 1))
+    assert configurator._current_step == _Step.CHOOSE_SITE
 
+    asyncio.run(configurator._on_site(interaction, 1))
+    assert configurator._current_step == _Step.CHOOSE_FILL
+
+    asyncio.run(configurator._on_fill(interaction, 1))
     assert configurator._current_step == _Step.REVIEW_LAUNCH
+
     assert configurator.state["gas"] == "helium"
     assert configurator.state["envelope"] == "latex"
     assert configurator.state["fill_mode"] == "manual"

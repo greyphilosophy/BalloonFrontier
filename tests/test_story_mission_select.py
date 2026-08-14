@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from balloon_frontier.discord_ui import game_menu
+from balloon_frontier.discord_ui.configurator import _Step
 from balloon_frontier.game_modes import GameMode
 from balloon_frontier.progression import PlayerRegistry, PlayerState
 from balloon_frontier.session_controller import assign_missions_for_mode
@@ -234,13 +235,13 @@ def test_back_from_later_configuration_step_stays_in_configuration(monkeypatch):
         on_finished=None,
         story_mission_id=FIRST_FLIGHT_MISSION_ID,
     )
-    configurator._current_step = 2
+    configurator._current_step = _Step.CHOOSE_FILL
     configurator.build_buttons()
     interaction = FakeInteraction()
 
     asyncio.run(configurator._on_back(interaction))
 
-    assert configurator._current_step == 1
+    assert configurator._current_step == _Step.CHOOSE_SITE
     assert interaction.response.edited[1] is configurator
 
 
