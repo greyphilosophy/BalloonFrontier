@@ -136,12 +136,14 @@ class SessionAwareFlightService:
                 atmosphere_provider=atmosphere_provider,
             ).run(request)
             if plan.session.mode is GameMode.STORY:
+                from .first_flight_story import add_first_flight_epilogue
                 from .story import add_story_results
 
                 outcome = add_story_results(
                     outcome,
                     str(player_id) if player_id else None,
                 )
+                outcome = add_first_flight_epilogue(outcome)
             if locked_profile is not None and atmosphere_repository is not None:
                 atmosphere_repository.consume_locked_profile(str(player_id))
             plan.session.complete(outcome)
