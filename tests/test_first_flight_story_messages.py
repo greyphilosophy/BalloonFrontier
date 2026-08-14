@@ -1,7 +1,6 @@
 """Regression coverage for First Flight narrative framing and Discord delivery."""
 
 import asyncio
-from dataclasses import dataclass
 from types import SimpleNamespace
 
 from balloon_frontier.discord_ui import game_menu
@@ -10,7 +9,7 @@ from balloon_frontier.flight_service import FlightOutcome
 from balloon_frontier.game_modes import GameMode
 from balloon_frontier.launch_result import MissionResult
 from balloon_frontier.progression import PlayerRegistry, PlayerState
-from balloon_frontier.story import FIRST_FLIGHT_MISSION_ID
+from balloon_frontier.story import EDGE_OF_SPACE_MISSION_ID, FIRST_FLIGHT_MISSION_ID
 
 
 class FakeResponse:
@@ -39,8 +38,9 @@ class FakeInteraction:
         self.followup = FakeFollowup()
 
 
-def _player(monkeypatch):
+def _player(monkeypatch, completed=()):
     player = PlayerState("player")
+    player.missions_completed.extend(completed)
     monkeypatch.setattr(
         PlayerRegistry,
         "get_or_create",
@@ -81,6 +81,28 @@ def test_first_flight_story_and_configuration_are_separate_messages(monkeypatch)
 
     # Once the briefing is external, later wizard renders remain configuration-only.
     assert "Your First Flight" not in config_view._step_content()
+
+
+def test_later_story_missions_keep_their_existing_message_flow(monkeypatch):
+    _player(monkeypatch, completed=(FIRST_FLIGHT_MISSION_ID,))
+    interaction = FakeInteraction()
+
+    asyncio.run(
+        game_menu.start_mode(
+            interaction,
+            service=object(),
+            mode=GameMode.STORY,
+            player_id="player",
+            channel_kind="dm",
+            story_mission_id=EDGE_OF_SPACE_MISSION_ID,
+        )
+    )
+
+    content, view = interaction.response.edited
+    assert "Summer Project: Edge of Space" in content
+    assert "Balloon Configuration" in content
+    assert view is not None
+    assert interaction.followup.sent == []
 
 
 def test_first_flight_success_epilogue_hooks_the_next_story_question():
