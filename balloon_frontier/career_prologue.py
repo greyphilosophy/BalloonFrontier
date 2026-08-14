@@ -307,6 +307,9 @@ class DiscoveryFirstFlightConfiguratorMixin:
                 lines.append(
                     "     Battery energy is finite; the camera and quadcopter draw from the provided pack."
                 )
+                lines.append(
+                    "     Lift-target fills update as optional payload mass changes so their labels stay true."
+                )
                 lines.append("Optional additions:")
                 for index, payload in enumerate(options.values(), 1):
                     lines.append(f"{index}  {payload[0]}  ({payload[1]}kg, ${payload[2]})")
@@ -329,10 +332,34 @@ class DiscoveryFirstFlightConfiguratorMixin:
 
     def _clear_first_flight_fill(self):
         if self.state.get("_first_flight_fill_label"):
+            self.state.pop("_first_flight_fill_key", None)
             self.state.pop("_first_flight_fill_label", None)
             self.state["fill_mode"] = "auto"
             self.state["manual_gas_mass"] = None
             self.state["gas_mass"] = None
+
+    def _refresh_first_flight_fill_target(self) -> bool:
+        """Keep a semantic fill target truthful when the pre-launch loadout changes."""
+        fill_key = self.state.get("_first_flight_fill_key")
+        if fill_key not in FIRST_FLIGHT_FILL_OPTIONS:
+            self.state["gas_mass"] = self._compute_gas_mass()
+            return True
+
+        try:
+            mass = round(self._first_flight_fill_mass(fill_key), 3)
+        except ValueError:
+            self.state.pop("_first_flight_fill_key", None)
+            self.state.pop("_first_flight_fill_label", None)
+            self.state["fill_mode"] = "auto"
+            self.state["manual_gas_mass"] = None
+            self.state["gas_mass"] = self._compute_gas_mass()
+            return False
+
+        self.state["fill_mode"] = "manual"
+        self.state["manual_gas_mass"] = mass
+        self.state["gas_mass"] = mass
+        self.state["_first_flight_fill_label"] = FIRST_FLIGHT_FILL_OPTIONS[fill_key]["label"]
+        return True
 
     async def _select_single_option(self, interaction, index: int, state_key: str):
         keys = tuple(self._first_flight_options())
@@ -371,6 +398,7 @@ class DiscoveryFirstFlightConfiguratorMixin:
         self.state["fill_mode"] = "manual"
         self.state["manual_gas_mass"] = mass
         self.state["gas_mass"] = mass
+        self.state["_first_flight_fill_key"] = selected
         self.state["_first_flight_fill_label"] = options[selected]["label"]
         await self._advance(interaction)
 
@@ -385,7 +413,10 @@ class DiscoveryFirstFlightConfiguratorMixin:
         self.state["payloads"] = list(
             toggle_first_flight_optional_payload(self.state.get("payloads") or (), keys[idx])
         )
-        self.state["gas_mass"] = self._compute_gas_mass()
+        if not self._refresh_first_flight_fill_target():
+            from balloon_frontier.discord_ui.configurator import _Step
+
+            self._current_step = _Step.CHOOSE_FILL
         self.build_buttons()
         await self._send_step(interaction)
 
