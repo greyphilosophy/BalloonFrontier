@@ -21,10 +21,14 @@ from balloon_frontier.power import (
 FIRST_FLIGHT_REQUIRED_PAYLOADS = ("camera", "quadcopter")
 FIRST_FLIGHT_PROVIDED_PAYLOADS = ("camera", "quadcopter", "battery")
 FIRST_FLIGHT_SITE_NAME = "School Athletic Field"
+
+# Uses the shared _Step numeric identifiers without changing their global values:
+# Gas -> Envelope -> Payloads -> Site -> Fill -> Review/Launch.
+FIRST_FLIGHT_STEP_ORDER = (0, 1, 3, 4, 2, 5)
+
 FIRST_FLIGHT_OPTION_KEYS = {
     0: ("helium", "air"),
     1: ("latex", "candle_kite"),
-    2: ("almost_lta", "lighter_lta", "maximum"),
     3: (
         "parachute",
         "candle_heater",
@@ -32,6 +36,7 @@ FIRST_FLIGHT_OPTION_KEYS = {
         "none",
     ),
     4: ("field",),
+    2: ("almost_lta", "lighter_lta", "maximum"),
 }
 
 FIRST_FLIGHT_FILL_OPTIONS = {
@@ -147,6 +152,8 @@ def toggle_first_flight_optional_payload(
 
 class DiscoveryFirstFlightConfiguratorMixin:
     """Expose a small Story menu while using the ordinary simulation physics."""
+
+    STEPS = FIRST_FLIGHT_STEP_ORDER
 
     def _first_flight_fill_context(self):
         from balloon_frontier.discord_ui.configurator import SITE_OPTIONS
@@ -281,9 +288,10 @@ class DiscoveryFirstFlightConfiguratorMixin:
         else:
             player = self._get_player_state()
             options = self._first_flight_options()
+            step_number = self.STEPS.index(self._current_step) + 1
             lines = [
                 "🔧 **Balloon Configuration**\n",
-                f"**Step {self._current_step + 1}/{len(self.STEPS)}:** "
+                f"**Step {step_number}/{len(self.STEPS)}:** "
                 f"{self.STEP_LABELS[self._current_step]}\n",
             ]
             if self._current_step == _Step.CHOOSE_GAS:
@@ -308,7 +316,7 @@ class DiscoveryFirstFlightConfiguratorMixin:
                     "     Battery energy is finite; the camera and quadcopter draw from the provided pack."
                 )
                 lines.append(
-                    "     Lift-target fills update as optional payload mass changes so their labels stay true."
+                    "     Choose optional payloads now; the later fill step includes their mass in its lift target."
                 )
                 lines.append("Optional additions:")
                 for index, payload in enumerate(options.values(), 1):
@@ -329,6 +337,28 @@ class DiscoveryFirstFlightConfiguratorMixin:
             configuration = "\n".join(lines)
 
         return story_chapter_intro(FIRST_FLIGHT_CHAPTER, include_disclaimer=False) + "\n\n" + configuration
+
+    async def _advance(self, interaction):
+        """Advance through First Flight's dependency-ordered configuration steps."""
+        try:
+            index = self.STEPS.index(self._current_step)
+        except ValueError:
+            self._current_step = self.STEPS[-1]
+        else:
+            self._current_step = self.STEPS[min(index + 1, len(self.STEPS) - 1)]
+        self.build_buttons()
+        await self._send_step(interaction)
+
+    def _prev_step(self):
+        """Navigate backward through the same First Flight step order."""
+        try:
+            index = self.STEPS.index(self._current_step)
+        except ValueError:
+            return False
+        if index <= 0:
+            return False
+        self._current_step = self.STEPS[index - 1]
+        return True
 
     def _clear_first_flight_fill(self):
         if self.state.get("_first_flight_fill_label"):
