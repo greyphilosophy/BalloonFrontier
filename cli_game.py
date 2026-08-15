@@ -11,9 +11,12 @@ from balloon_frontier.aerostat import fill_mass_for_configuration
 from balloon_frontier.atmosphere_profile import atmosphere_profiles
 from balloon_frontier.career_prologue import (
     FIRST_FLIGHT_FILL_OPTIONS,
+    FIRST_FLIGHT_HEAT_SOURCES,
     FIRST_FLIGHT_OPTION_KEYS,
     FIRST_FLIGHT_PROVIDED_PAYLOADS,
     FIRST_FLIGHT_SITE_NAME,
+    first_flight_balloon_choices,
+    first_flight_payload_keys,
     with_required_first_flight_payloads,
 )
 from balloon_frontier.catalog import CATALOG
@@ -49,7 +52,6 @@ from balloon_frontier.story import (
 )
 from balloon_frontier.story_mission_select import story_mission_choices
 
-
 DEFAULT_CLI_PLAYER_ID = "cli-player"
 
 
@@ -67,16 +69,15 @@ def get_choice(max_val, prompt):
         if raw.lower() in ("q", "quit", "exit"):
             return None
         try:
-            val = int(raw)
-            if 1 <= val <= max_val:
-                return val - 1
-            print(f"  Please enter a number between 1 and {max_val}")
+            value = int(raw)
+            if 1 <= value <= max_val:
+                return value - 1
         except ValueError:
-            print("  Invalid input. Try again.")
+            pass
+        print(f"  Please enter a number between 1 and {max_val}")
 
 
 def _terminal_markdown(text: str) -> str:
-    """Make the shared Discord-flavored Story copy pleasant in a terminal."""
     return str(text).replace("**", "").replace("*", "")
 
 
@@ -85,7 +86,6 @@ def show_how_to_play():
 
 
 def show_game_mode_menu():
-    """Choose a playable mode, with How to Play as a non-mode menu action."""
     modes = list_game_modes()
     while True:
         print("\n  Choose an option:\n  " + "─" * 45)
@@ -97,20 +97,17 @@ def show_game_mode_menu():
             return None
         if idx == len(modes):
             show_how_to_play()
-            continue
-        return modes[idx]
+        else:
+            return modes[idx]
 
 
 def show_story_mission_menu(player_id: str):
-    """Mirror Discord Story Mission Select: completed missions + next unlocked."""
     choices = story_mission_choices(player_id)
     if not choices:
         return None
-
     print("\n  📖 Story Missions\n  " + "─" * 45)
     for i, choice in enumerate(choices, 1):
-        status = "Replay" if choice.completed else "Next"
-        print(f"  {i}. {status}: {choice.chapter.title}")
+        print(f"  {i}. {'Replay' if choice.completed else 'Next'}: {choice.chapter.title}")
         print(f"     {choice.chapter.season}")
     idx = get_choice(len(choices), f"Mission (1-{len(choices)})")
     return choices[idx].mission_id if idx is not None else None
@@ -118,11 +115,7 @@ def show_story_mission_menu(player_id: str):
 
 def show_story_briefing(mission_id: str, *, player_id: str | None = None):
     chapter = story_chapter_for_mission(mission_id)
-    content = story_chapter_intro(
-        chapter,
-        player_id=player_id,
-        include_disclaimer=True,
-    )
+    content = story_chapter_intro(chapter, player_id=player_id, include_disclaimer=True)
     if player_id and mission_id != FIRST_FLIGHT_MISSION_ID:
         profile = atmosphere_profiles.get(str(player_id))
         if profile is not None:
@@ -131,7 +124,6 @@ def show_story_briefing(mission_id: str, *, player_id: str | None = None):
 
 
 def get_balloon_choice(balloons):
-    """Return the selected balloon id from the supplied playable list."""
     idx = get_choice(len(balloons), f"Balloon (1-{len(balloons)})")
     return balloons[idx].id if idx is not None else None
 
@@ -139,48 +131,34 @@ def get_balloon_choice(balloons):
 def show_balloon_menu():
     balloons = [b for b in CATALOG.all_balloons() if b.id not in ("s21", "s29")]
     print("\n  Balloon size:\n  " + "─" * 45)
-    for i, b in enumerate(balloons, 1):
+    for i, balloon in enumerate(balloons, 1):
         print(
-            f"  {i}. {b.name} ({b.max_volume_m3:.1f}m³, "
-            f"burst@{b.burst_volume_m3:.1f}m³, {b.mass_kg * 1000}g)"
+            f"  {i}. {balloon.name} ({balloon.max_volume_m3:.1f}m³, "
+            f"burst@{balloon.burst_volume_m3:.1f}m³, {balloon.mass_kg * 1000}g)"
         )
     return get_balloon_choice(balloons)
 
 
 def show_gas_menu(gas_ids=None):
-    gases = (
-        [CATALOG.gas(gas_id) for gas_id in gas_ids]
-        if gas_ids is not None
-        else CATALOG.all_gases()
-    )
+    gases = [CATALOG.gas(g) for g in gas_ids] if gas_ids is not None else CATALOG.all_gases()
     print("\n  Gas type:\n  " + "─" * 45)
     for i, gas in enumerate(gases, 1):
-        print(
-            f"  {i}. {gas.name} (molar mass={gas.molar_mass:.4f} kg/mol, "
-            f"{gas.gas_behavior})"
-        )
+        print(f"  {i}. {gas.name} (molar mass={gas.molar_mass:.4f} kg/mol, {gas.gas_behavior})")
     idx = get_choice(len(gases), f"Gas (1-{len(gases)})")
     return gases[idx].id if idx is not None else None
 
 
 def show_envelope_menu(envelope_ids=None, *, player_id: str | None = None):
-    """Choose an envelope, enforcing the same Story unlock gate as Discord."""
     ids = tuple(envelope_ids or ENVELOPE_OPTIONS.keys())
-    envelopes = [CATALOG.envelope(envelope_id) for envelope_id in ids]
-    player = (
-        PlayerRegistry.get_or_create(str(player_id))
-        if player_id is not None
-        else None
-    )
+    envelopes = [CATALOG.envelope(eid) for eid in ids]
+    player = PlayerRegistry.get_or_create(str(player_id)) if player_id is not None else None
     print("\n  Envelope:\n  " + "─" * 45)
     for i, envelope in enumerate(envelopes, 1):
         locked = player is not None and not player.is_envelope_unlocked(envelope.id)
-        lock_note = " 🔒" if locked else ""
         print(
-            f"  {i}. {envelope.name} "
-            f"({envelope.max_volume_m3:g}m³, {envelope.mass_kg:g}kg){lock_note}"
+            f"  {i}. {envelope.name} ({envelope.max_volume_m3:g}m³, "
+            f"{envelope.mass_kg:g}kg){' 🔒' if locked else ''}"
         )
-
     while True:
         idx = get_choice(len(envelopes), f"Envelope (1-{len(envelopes)})")
         if idx is None:
@@ -188,7 +166,6 @@ def show_envelope_menu(envelope_ids=None, *, player_id: str | None = None):
         envelope = envelopes[idx]
         if player is None or player.is_envelope_unlocked(envelope.id):
             return envelope.id
-
         prog_env = get_envelope(envelope.id)
         print(
             f"  🔒 {prog_env.name} is locked. Unlock by reaching "
@@ -196,8 +173,40 @@ def show_envelope_menu(envelope_ids=None, *, player_id: str | None = None):
         )
 
 
+def show_first_flight_balloon_menu(gas_id: str):
+    """Show only physically coherent balloons for the selected gas."""
+    choices = first_flight_balloon_choices(gas_id)
+    if not choices:
+        return None
+    print("\n  Balloon:\n  " + "─" * 45)
+    for i, choice in enumerate(choices, 1):
+        envelope = CATALOG.envelope(choice.envelope_id)
+        if choice.balloon_size:
+            balloon = CATALOG.balloon(choice.balloon_size)
+            name = f'{balloon.name} Latex Weather Balloon'
+            mass_kg = balloon.mass_kg
+            burst_volume = balloon.burst_volume_m3
+        else:
+            name = envelope.name
+            mass_kg = envelope.mass_kg
+            burst_volume = envelope.burst_volume_m3
+        print(f"  {i}. {name}")
+        print(f"     {mass_kg * 1000:.0f}g • ${choice.cost} • {burst_volume:.1f}m³ before burst")
+    if gas_id == "helium":
+        print(
+            "     Smaller balloons are lighter and cheaper. Larger balloons have "
+            "more room to expand, so they can climb higher before bursting."
+        )
+    else:
+        print(
+            "     Heated air needs an open hot-air envelope; sealed latex weather "
+            "balloons are not offered for this gas."
+        )
+    idx = get_choice(len(choices), f"Balloon (1-{len(choices)})")
+    return choices[idx] if idx is not None else None
+
+
 def show_fill_presets(balloon_key, gas_type):
-    """Legacy Scenario/Free Play weather-balloon fill selector."""
     while True:
         print("\n  Fill mode:\n  " + "─" * 45)
         for i, mode in enumerate(FillMode, 1):
@@ -208,10 +217,8 @@ def show_fill_presets(balloon_key, gas_type):
                     gas_id=gas_type,
                     envelope_id="latex",
                     balloon_size=balloon_key,
-                    payload_ids=tuple(),
                     launch_site_id="field",
                     fill_mode=mode,
-                    manual_gas_mass_kg=None,
                 )
                 mass_str = format_mass_kg(request.gas_mass_kg)
             print(f"  {i}. {mode.label}: {mode.description} ({mass_str})")
@@ -219,29 +226,25 @@ def show_fill_presets(balloon_key, gas_type):
         if idx is None:
             return None, None
         mode = list(FillMode)[idx]
-        if mode == FillMode.MANUAL:
-            raw = input("  Mass (g) > ").strip()
-            if raw.lower() in ("q", "quit"):
-                return None, None
-            try:
-                return mode, float(raw) / 1000.0
-            except ValueError:
-                print("  Invalid input. Try again.")
-                continue
-        request = LaunchRequest(
-            gas_id=gas_type,
-            envelope_id="latex",
-            balloon_size=balloon_key,
-            payload_ids=tuple(),
-            launch_site_id="field",
-            fill_mode=mode,
-            manual_gas_mass_kg=None,
-        )
-        return mode, request.gas_mass_kg
+        if mode != FillMode.MANUAL:
+            request = LaunchRequest(
+                gas_id=gas_type,
+                envelope_id="latex",
+                balloon_size=balloon_key,
+                launch_site_id="field",
+                fill_mode=mode,
+            )
+            return mode, request.gas_mass_kg
+        raw = input("  Mass (g) > ").strip()
+        if raw.lower() in ("q", "quit"):
+            return None, None
+        try:
+            return mode, float(raw) / 1000.0
+        except ValueError:
+            print("  Invalid input. Try again.")
 
 
 def show_story_fill_mode(envelope_id, gas_type):
-    """Use the same fill-mode choices as the regular Discord configuration UI."""
     modes = list(FillMode)
     print("\n  Fill mode:\n  " + "─" * 45)
     for i, mode in enumerate(modes, 1):
@@ -252,7 +255,6 @@ def show_story_fill_mode(envelope_id, gas_type):
     mode = modes[idx]
     if mode != FillMode.MANUAL:
         return mode, None
-
     while True:
         raw = input("  Mass (g) > ").strip()
         if raw.lower() in ("q", "quit"):
@@ -264,13 +266,10 @@ def show_story_fill_mode(envelope_id, gas_type):
 
 
 def show_payloads_menu(payload_ids=None):
-    if payload_ids is None:
-        payloads = CATALOG.all_payloads()
-    else:
-        payloads = [CATALOG.payload(pid) for pid in payload_ids]
+    payloads = CATALOG.all_payloads() if payload_ids is None else [CATALOG.payload(p) for p in payload_ids]
     print("\n  Select payloads (space-separated numbers, or 'done'):\n  " + "─" * 45)
-    for i, p in enumerate(payloads, 1):
-        print(f"  {i}. {p.name} ({p.mass_kg} kg){' 🛡️' if p.has_valve else ''}")
+    for i, payload in enumerate(payloads, 1):
+        print(f"  {i}. {payload.name} ({payload.mass_kg} kg){' 🛡️' if payload.has_valve else ''}")
     print(f"  {len(payloads) + 1}. None")
     while True:
         raw = input("  Payloads > ").strip()
@@ -280,12 +279,12 @@ def show_payloads_menu(payload_ids=None):
         for value in raw.split():
             try:
                 idx = int(value) - 1
-                if 0 <= idx < len(payloads):
-                    chosen.append(payloads[idx].id)
-                elif idx == len(payloads):
-                    return ["none"]
             except ValueError:
-                pass
+                continue
+            if 0 <= idx < len(payloads):
+                chosen.append(payloads[idx].id)
+            elif idx == len(payloads):
+                return ["none"]
         if chosen:
             return list(dict.fromkeys(chosen))
         print("  Invalid selection. Try again.")
@@ -305,45 +304,39 @@ def show_site_menu(site_ids=None, *, first_flight=False):
 
 
 def _first_flight_fill_mass(
-    *,
-    gas_id: str,
-    envelope_id: str,
-    payload_ids,
-    site_id: str,
-    fill_key: str,
-) -> float:
-    """Mirror the Discord First Flight semantic fill targets with shared equations."""
+    *, gas_id, envelope_id, payload_ids, site_id, fill_key, balloon_size=None
+):
     envelope = CATALOG.envelope(envelope_id)
+    balloon = CATALOG.balloon(balloon_size) if balloon_size else None
+    max_volume = balloon.max_volume_m3 if balloon else envelope.max_volume_m3
+    vehicle_mass = balloon.mass_kg if balloon else envelope.mass_kg
     site = CATALOG.site(site_id)
     payloads = with_required_first_flight_payloads(tuple(payload_ids or ()))
-    payload_mass_kg = sum(CATALOG.payload(pid).mass_kg for pid in payloads)
-    launch_pressure = atmosphere_pressure(site.altitude_m)
-    launch_temperature = (
+    payload_mass = sum(CATALOG.payload(pid).mass_kg for pid in payloads)
+    pressure = atmosphere_pressure(site.altitude_m)
+    temperature = (
         site.gas_temperature_k
         if site.gas_temperature_k is not None
         else atmosphere_temperature(site.altitude_m) + site.temperature_offset_k
     )
     ambient_density = atmosphere_density(site.altitude_m)
-    lifting_density = gas_density(gas_id, launch_temperature, launch_pressure)
-
+    lifting_density = gas_density(gas_id, temperature, pressure)
     if fill_key == "maximum":
         return maximum_capacity_gas_mass_kg(
             lifting_gas_density_kg_m3=lifting_density,
-            max_volume_m3=envelope.max_volume_m3,
+            max_volume_m3=max_volume,
         )
-
-    option = FIRST_FLIGHT_FILL_OPTIONS[fill_key]
     return gas_mass_for_supported_fraction_kg(
-        non_gas_mass_kg=envelope.mass_kg + payload_mass_kg,
+        non_gas_mass_kg=vehicle_mass + payload_mass,
         ambient_density_kg_m3=ambient_density,
         lifting_gas_density_kg_m3=lifting_density,
-        max_volume_m3=envelope.max_volume_m3,
-        support_fraction=option["support_fraction"],
+        max_volume_m3=max_volume,
+        support_fraction=FIRST_FLIGHT_FILL_OPTIONS[fill_key]["support_fraction"],
     )
 
 
-def show_first_flight_optional_payloads():
-    keys = tuple(FIRST_FLIGHT_OPTION_KEYS[3])
+def show_first_flight_optional_payloads(gas_id: str):
+    keys = first_flight_payload_keys(gas_id)
     real_keys = tuple(key for key in keys if key != "none")
     print("\n  Payloads:\n  " + "─" * 45)
     print("  Essential payloads (provided):")
@@ -354,10 +347,14 @@ def show_first_flight_optional_payloads():
     for i, pid in enumerate(real_keys, 1):
         payload = CATALOG.payload(pid)
         print(f"  {i}. {payload.name} ({payload.mass_kg}kg, ${payload.cost})")
-
+    if gas_id == "air":
+        print("     Air requires exactly one heat source: tea light or electric heater.")
     while True:
         raw = input("  Optional payloads > ").strip()
         if not raw or raw.lower() in ("done", "none"):
+            if gas_id == "air":
+                print("  Air needs a heat source. Choose the tea light or electric heater.")
+                continue
             return list(FIRST_FLIGHT_PROVIDED_PAYLOADS)
         if raw.lower() in ("q", "quit", "exit"):
             return None
@@ -369,16 +366,24 @@ def show_first_flight_optional_payloads():
             except ValueError:
                 valid = False
                 break
-            if not (0 <= idx < len(real_keys)):
+            if not 0 <= idx < len(real_keys):
                 valid = False
                 break
             selected.append(real_keys[idx])
-        if valid:
-            return list(with_required_first_flight_payloads(tuple(selected)))
-        print("  Invalid selection. Try again.")
+        if not valid:
+            print("  Invalid selection. Try again.")
+            continue
+        selected = list(dict.fromkeys(selected))
+        heaters = [pid for pid in selected if pid in FIRST_FLIGHT_HEAT_SOURCES]
+        if gas_id == "air" and len(heaters) != 1:
+            print("  Choose exactly one heat source for the hot-air envelope.")
+            continue
+        return list(with_required_first_flight_payloads(tuple(selected)))
 
 
-def show_first_flight_fill_menu(gas_id, envelope_id, payload_ids, site_id):
+def show_first_flight_fill_menu(
+    gas_id, envelope_id, payload_ids, site_id, *, balloon_size=None
+):
     options = []
     for key in FIRST_FLIGHT_OPTION_KEYS[2]:
         try:
@@ -389,13 +394,13 @@ def show_first_flight_fill_menu(gas_id, envelope_id, payload_ids, site_id):
                     payload_ids=payload_ids,
                     site_id=site_id,
                     fill_key=key,
+                    balloon_size=balloon_size,
                 ),
                 3,
             )
         except ValueError:
             continue
         options.append((key, FIRST_FLIGHT_FILL_OPTIONS[key], mass))
-
     print("\n  Fill mode:\n  " + "─" * 45)
     for i, (_, option, mass) in enumerate(options, 1):
         print(f"  {i}. {option['label']} — {format_mass_kg(mass)}")
@@ -408,7 +413,6 @@ def show_first_flight_fill_menu(gas_id, envelope_id, payload_ids, site_id):
 
 
 def build_first_flight_request(player_id: str):
-    """Terminal version of Discord's six-step First Flight configurator."""
     print("\n  🔧 Balloon Configuration")
     player = PlayerRegistry.get_or_create(player_id)
     print(f"  ⚡ You have {player.reputation} reputation and ${player.budget} budget.")
@@ -417,47 +421,57 @@ def build_first_flight_request(player_id: str):
     gas_id = show_gas_menu(FIRST_FLIGHT_OPTION_KEYS[0])
     if gas_id is None:
         return None
-
-    print("\n  Step 2/6: Envelope")
-    envelope_id = show_envelope_menu(FIRST_FLIGHT_OPTION_KEYS[1])
-    if envelope_id is None:
+    print("\n  Step 2/6: Balloon")
+    choice = show_first_flight_balloon_menu(gas_id)
+    if choice is None:
         return None
-
     print("\n  Step 3/6: Payloads")
-    payload_ids = show_first_flight_optional_payloads()
+    payload_ids = show_first_flight_optional_payloads(gas_id)
     if payload_ids is None:
         return None
-
     print("\n  Step 4/6: Launch Site")
     site_id = show_site_menu(FIRST_FLIGHT_OPTION_KEYS[4], first_flight=True)
     if site_id is None:
         return None
-
     print("\n  Step 5/6: Fill Mode")
-    fill = show_first_flight_fill_menu(gas_id, envelope_id, payload_ids, site_id)
+    fill = show_first_flight_fill_menu(
+        gas_id,
+        choice.envelope_id,
+        payload_ids,
+        site_id,
+        balloon_size=choice.balloon_size,
+    )
     if fill is None:
         return None
     _, fill_label, gas_mass = fill
-
     request = LaunchRequest(
         gas_id=gas_id,
-        envelope_id=envelope_id,
+        envelope_id=choice.envelope_id,
+        balloon_size=choice.balloon_size,
         payload_ids=tuple(payload_ids),
         launch_site_id=site_id,
         fill_mode=FillMode.MANUAL,
         manual_gas_mass_kg=gas_mass,
         player_id=player_id,
     )
-
-    print("\n  Step 6/6: Review & Launch")
-    print("  " + "─" * 45)
+    if choice.balloon_size:
+        balloon = CATALOG.balloon(choice.balloon_size)
+        name, mass, burst = (
+            f'{balloon.name} Latex Weather Balloon',
+            balloon.mass_kg,
+            balloon.burst_volume_m3,
+        )
+    else:
+        envelope = CATALOG.envelope(choice.envelope_id)
+        name, mass, burst = envelope.name, envelope.mass_kg, envelope.burst_volume_m3
+    print("\n  Step 6/6: Review & Launch\n  " + "─" * 45)
     print(f"  Gas:       {CATALOG.gas(gas_id).name}")
     print(f"  Fill:      {fill_label} → {format_mass_kg(gas_mass)}")
-    print(f"  Envelope:  {CATALOG.envelope(envelope_id).name}")
-    print(
-        "  Payloads:  "
-        + ", ".join(CATALOG.payload(pid).name for pid in payload_ids)
-    )
+    print(f"  Balloon:   {name}")
+    print(f"  Weight:    {mass * 1000:.0f}g")
+    print(f"  Cost:      ${choice.cost}")
+    print(f"  Burst cap: {burst:.1f}m³")
+    print("  Payloads:  " + ", ".join(CATALOG.payload(pid).name for pid in payload_ids))
     print(f"  Site:      {FIRST_FLIGHT_SITE_NAME}")
     if input("  Ready to launch? (y/n) > ").strip().lower() not in ("y", "yes"):
         return None
@@ -465,37 +479,28 @@ def build_first_flight_request(player_id: str):
 
 
 def _offer_recorded_atmosphere(player_id: str) -> None:
-    """Mirror the later-Story Discord control for replaying measured conditions."""
     profile = atmosphere_profiles.get(str(player_id))
     if profile is None:
         return
-    answer = input("  Use recorded atmosphere for this launch? (y/n) > ").strip().lower()
-    if answer in ("y", "yes"):
+    if input("  Use recorded atmosphere for this launch? (y/n) > ").strip().lower() in ("y", "yes"):
         atmosphere_profiles.lock_for_next_flight(str(player_id))
         print("  🔒 Measured conditions selected for the next launch.")
 
 
 def build_standard_story_request(player_id: str):
-    """Use the regular Discord Story configuration categories in the CLI."""
     gas_id = show_gas_menu(tuple(GAS_OPTIONS.keys()))
     if gas_id is None:
         return None
-    envelope_id = show_envelope_menu(
-        tuple(ENVELOPE_OPTIONS.keys()),
-        player_id=player_id,
-    )
+    envelope_id = show_envelope_menu(tuple(ENVELOPE_OPTIONS.keys()), player_id=player_id)
     if envelope_id is None:
         return None
     fill_mode, manual_mass = show_story_fill_mode(envelope_id, gas_id)
     if fill_mode is None:
         return None
-    payload_ids = show_payloads_menu(
-        tuple(key for key in PAYLOAD_OPTIONS.keys() if key != "none")
-    )
+    payload_ids = show_payloads_menu(tuple(key for key in PAYLOAD_OPTIONS if key != "none"))
     site_id = show_site_menu(tuple(SITE_OPTIONS.keys()))
     if site_id is None:
         return None
-
     request = LaunchRequest(
         gas_id=gas_id,
         envelope_id=envelope_id,
@@ -516,12 +521,8 @@ def build_standard_story_request(player_id: str):
     print(f"  Gas:       {CATALOG.gas(gas_id).name}")
     print(f"  Fill:      {fill_mode.label} → {format_mass_kg(resolved_mass)}")
     print(f"  Envelope:  {CATALOG.envelope(envelope_id).name}")
-    print(
-        "  Payloads:  "
-        + ", ".join(
-            CATALOG.payload(pid).name for pid in payload_ids if pid != "none"
-        )
-    )
+    names = [CATALOG.payload(pid).name for pid in payload_ids if pid != "none"]
+    print(f"  Payloads:  {', '.join(names) or 'None'}")
     print(f"  Site:      {CATALOG.site(site_id).name}")
     _offer_recorded_atmosphere(player_id)
     if input("  Ready to launch? (y/n) > ").strip().lower() not in ("y", "yes"):
@@ -530,47 +531,39 @@ def build_standard_story_request(player_id: str):
 
 
 def _legacy_request(player_id: str | None = None):
-    balloon_key = show_balloon_menu()
-    if balloon_key is None:
+    balloon = show_balloon_menu()
+    if balloon is None:
         return None
-    gas_type = show_gas_menu()
-    if gas_type is None:
+    gas = show_gas_menu()
+    if gas is None:
         return None
-    fill_mode, gas_mass = show_fill_presets(balloon_key, gas_type)
+    fill_mode, gas_mass = show_fill_presets(balloon, gas)
     if gas_mass is None:
         return None
     payloads = show_payloads_menu()
-    site_key = show_site_menu()
-    if site_key is None:
-        return None
-    if input("  Ready to launch? (y/n) > ").strip().lower() not in ("y", "yes"):
+    site = show_site_menu()
+    if site is None or input("  Ready to launch? (y/n) > ").strip().lower() not in ("y", "yes"):
         return None
     return LaunchRequest(
-        gas_id=gas_type,
+        gas_id=gas,
         envelope_id="latex",
-        balloon_size=balloon_key,
+        balloon_size=balloon,
         payload_ids=tuple(payloads),
-        launch_site_id=site_key,
+        launch_site_id=site,
         fill_mode=fill_mode,
         manual_gas_mass_kg=gas_mass if fill_mode == FillMode.MANUAL else None,
         player_id=player_id,
     )
 
 
-def show_results(
-    outcome: FlightOutcome,
-    balloon_key=None,
-    gas_type=None,
-    gas_mass=None,
-    payloads=None,
-):
-    """Render transport-neutral results; legacy parameters remain source-compatible."""
+def show_results(outcome: FlightOutcome, balloon_key=None, gas_type=None, gas_mass=None, payloads=None):
     result = outcome.result
     request = result.launch_request
-    if request.balloon_size:
-        vehicle = f"{CATALOG.balloon(request.balloon_size).name} latex"
-    else:
-        vehicle = CATALOG.envelope(request.envelope_id).name
+    vehicle = (
+        f"{CATALOG.balloon(request.balloon_size).name} latex"
+        if request.balloon_size
+        else CATALOG.envelope(request.envelope_id).name
+    )
     resolved_mass = fill_mass_for_configuration(
         gas_id=request.gas_id,
         envelope_id=request.envelope_id,
@@ -580,10 +573,7 @@ def show_results(
         balloon_size=request.balloon_size,
         gas_temperature_delta_k=request.gas_temperature_delta_k,
     )
-    names = [
-        CATALOG.payload(pid).name for pid in request.payload_ids if pid != "none"
-    ]
-
+    names = [CATALOG.payload(pid).name for pid in request.payload_ids if pid != "none"]
     print("\n  +-----------------------------------------------+")
     print("  |              FLIGHT RESULTS                  |")
     print("  +-----------------------------------------------+")
@@ -592,10 +582,8 @@ def show_results(
     print(f"  Payloads:    {', '.join(names) or 'None'}")
     print(f"  Peak Alt:    {result.peak_altitude_m:.1f}m")
     print(f"  Flight Time: {result.duration_s:.1f}s")
-    print(
-        f"  Result:      "
-        f"{'CRASHED' if result.crashed else 'BURST' if result.burst else 'LANDED' if result.landed else 'COMPLETE'}"
-    )
+    state = "CRASHED" if result.crashed else "BURST" if result.burst else "LANDED" if result.landed else "COMPLETE"
+    print(f"  Result:      {state}")
     print(f"  Score:       {outcome.score:.1f}")
     print(f"  Medal:       {outcome.medal_emoji} {outcome.medal_name}")
     if outcome.safety_notes:
@@ -608,10 +596,7 @@ def show_results(
         print(f"\n  Missions:    {', '.join(outcome.mission_assignment.mission_ids)}")
         for mission in outcome.mission_results:
             reward = f" (+{mission.reward} credits)" if mission.reward else ""
-            print(
-                f"    {'PASS' if mission.completed else 'FAIL'} "
-                f"{mission.mission_id}{reward}: {mission.explanation}"
-            )
+            print(f"    {'PASS' if mission.completed else 'FAIL'} {mission.mission_id}{reward}: {mission.explanation}")
 
 
 def play(args=None):
@@ -623,30 +608,27 @@ def play(args=None):
             player_id=DEFAULT_CLI_PLAYER_ID,
         )
     player_id = str(getattr(args, "player_id", DEFAULT_CLI_PLAYER_ID))
-
     print("\n  +-----------------------------------------------+")
     print("  |             BALLOON FRONTIER                  |")
     print("  +-----------------------------------------------+")
     mode = show_game_mode_menu()
     if mode is None:
         return
-
     story_mission_id = None
     if mode is GameMode.STORY:
         story_mission_id = show_story_mission_menu(player_id)
         if story_mission_id is None:
             return
         show_story_briefing(story_mission_id, player_id=player_id)
-        if story_mission_id == FIRST_FLIGHT_MISSION_ID:
-            request = build_first_flight_request(player_id)
-        else:
-            request = build_standard_story_request(player_id)
+        request = (
+            build_first_flight_request(player_id)
+            if story_mission_id == FIRST_FLIGHT_MISSION_ID
+            else build_standard_story_request(player_id)
+        )
     else:
         request = _legacy_request(player_id)
-
     if request is None:
         return
-
     service = SessionAwareFlightService(
         flight_service,
         mode,
@@ -660,7 +642,6 @@ def play(args=None):
     except Exception as exc:
         print(f"\n  Flight simulation failed: {exc}")
         return
-
     TerminalFlightAnimator().play(
         build_flight_moments(outcome.result.telemetry, max_frames=18),
         speed=args.animation_speed,
@@ -674,22 +655,9 @@ def play(args=None):
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Balloon Frontier CLI")
-    parser.add_argument(
-        "--no-animation",
-        action="store_true",
-        help="show one static launch frame",
-    )
-    parser.add_argument(
-        "--no-color",
-        action="store_true",
-        help="disable ANSI colors",
-    )
-    parser.add_argument(
-        "--animation-speed",
-        type=float,
-        default=1.0,
-        metavar="MULTIPLIER",
-    )
+    parser.add_argument("--no-animation", action="store_true", help="show one static launch frame")
+    parser.add_argument("--no-color", action="store_true", help="disable ANSI colors")
+    parser.add_argument("--animation-speed", type=float, default=1.0, metavar="MULTIPLIER")
     parser.add_argument(
         "--player-id",
         default=DEFAULT_CLI_PLAYER_ID,
@@ -705,13 +673,7 @@ def main(argv=None):
     args = parse_args(argv)
     print("Welcome to Balloon Frontier! Type 'q' at any prompt to exit.\n")
     play(args)
-    while input("  Play again? (y/n) > ").strip().lower() not in (
-        "n",
-        "no",
-        "q",
-        "quit",
-        "exit",
-    ):
+    while input("  Play again? (y/n) > ").strip().lower() not in ("n", "no", "q", "quit", "exit"):
         play(args)
     print("Thanks for playing Balloon Frontier!\n")
 
