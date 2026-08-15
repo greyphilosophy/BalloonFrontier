@@ -50,7 +50,10 @@ FIRST_FLIGHT_BALLOON_CHOICES = (
 FIRST_FLIGHT_STEP_ORDER = (0, 1, 3, 4, 2, 5)
 
 FIRST_FLIGHT_OPTION_KEYS = {
-    0: ("helium", "air"),
+    # The opening mission deliberately provides helium. The existing 0.2m³
+    # heated-air envelope cannot carry the provided starter aircraft, so air is
+    # reserved for later experiments rather than presented as a fake choice.
+    0: ("helium",),
     1: tuple(choice.key for choice in FIRST_FLIGHT_BALLOON_CHOICES),
     3: (
         "parachute",
@@ -433,7 +436,7 @@ class DiscoveryFirstFlightConfiguratorMixin:
                 for index, gas in enumerate(options.values(), 1):
                     lines.append(f"{index}  {gas[0]}  (M={gas[1]} kg/mol, ${gas[2]}/kg)")
                 lines.append(
-                    "     Air starts at ambient temperature; heat sources change its density during the simulation."
+                    "     Helium is provided for the opening mission; this flight is about choosing balloon size and fill."
                 )
             elif self._current_step == _Step.CHOOSE_ENVELOPE:
                 for index, balloon in enumerate(options.values(), 1):
