@@ -8,6 +8,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from balloon_frontier.aerostat import fill_mass_for_configuration
+from balloon_frontier.atmosphere_profile import atmosphere_profiles
 from balloon_frontier.career_prologue import (
     FIRST_FLIGHT_FILL_OPTIONS,
     FIRST_FLIGHT_OPTION_KEYS,
@@ -42,6 +43,7 @@ from balloon_frontier.progression import PlayerRegistry
 from balloon_frontier.session_adapters import SessionAwareFlightService
 from balloon_frontier.story import (
     FIRST_FLIGHT_MISSION_ID,
+    format_atmosphere_profile,
     story_chapter_for_mission,
     story_chapter_intro,
 )
@@ -121,6 +123,10 @@ def show_story_briefing(mission_id: str, *, player_id: str | None = None):
         player_id=player_id,
         include_disclaimer=True,
     )
+    if player_id and mission_id != FIRST_FLIGHT_MISSION_ID:
+        profile = atmosphere_profiles.get(str(player_id))
+        if profile is not None:
+            content += "\n\n" + format_atmosphere_profile(profile)
     print("\n" + _terminal_markdown(content) + "\n")
 
 
@@ -356,12 +362,15 @@ def show_first_flight_fill_menu(gas_id, envelope_id, payload_ids, site_id):
     options = []
     for key in FIRST_FLIGHT_OPTION_KEYS[2]:
         try:
-            mass = _first_flight_fill_mass(
-                gas_id=gas_id,
-                envelope_id=envelope_id,
-                payload_ids=payload_ids,
-                site_id=site_id,
-                fill_key=key,
+            mass = round(
+                _first_flight_fill_mass(
+                    gas_id=gas_id,
+                    envelope_id=envelope_id,
+                    payload_ids=payload_ids,
+                    site_id=site_id,
+                    fill_key=key,
+                ),
+                3,
             )
         except ValueError:
             continue
@@ -435,6 +444,17 @@ def build_first_flight_request(player_id: str):
     return request
 
 
+def _offer_recorded_atmosphere(player_id: str) -> None:
+    """Mirror the later-Story Discord control for replaying measured conditions."""
+    profile = atmosphere_profiles.get(str(player_id))
+    if profile is None:
+        return
+    answer = input("  Use recorded atmosphere for this launch? (y/n) > ").strip().lower()
+    if answer in ("y", "yes"):
+        atmosphere_profiles.lock_for_next_flight(str(player_id))
+        print("  🔒 Measured conditions selected for the next launch.")
+
+
 def build_standard_story_request(player_id: str):
     """Use the regular Discord Story configuration categories in the CLI."""
     gas_id = show_gas_menu(tuple(GAS_OPTIONS.keys()))
@@ -480,6 +500,7 @@ def build_standard_story_request(player_id: str):
         )
     )
     print(f"  Site:      {CATALOG.site(site_id).name}")
+    _offer_recorded_atmosphere(player_id)
     if input("  Ready to launch? (y/n) > ").strip().lower() not in ("y", "yes"):
         return None
     return request
