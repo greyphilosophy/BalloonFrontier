@@ -9,7 +9,12 @@ from balloon_frontier.flight_service import FlightOutcome
 from balloon_frontier.game_modes import GameMode
 from balloon_frontier.launch_result import MissionResult
 from balloon_frontier.progression import PlayerRegistry, PlayerState
-from balloon_frontier.story import EDGE_OF_SPACE_MISSION_ID, FIRST_FLIGHT_MISSION_ID
+from balloon_frontier.story import (
+    EDGE_OF_SPACE_MISSION_ID,
+    FIRST_FLIGHT_CHAPTER,
+    FIRST_FLIGHT_MISSION_ID,
+    story_chapter_intro,
+)
 
 
 class FakeResponse:
@@ -21,21 +26,28 @@ class FakeResponse:
 
 
 class FakeFollowup:
-    def __init__(self):
+    def __init__(self, *, fail=False):
+        self.fail = fail
         self.sent = []
 
     async def send(self, *, content, view, wait=False):
+        if self.fail:
+            raise RuntimeError("follow-up unavailable")
         message = SimpleNamespace(content=content, view=view)
         self.sent.append((content, view, wait, message))
         return message
 
 
 class FakeInteraction:
-    def __init__(self, user_id="player"):
+    def __init__(self, user_id="player", *, followup_fails=False):
         self.user = SimpleNamespace(id=user_id)
         self.message = object()
         self.response = FakeResponse()
-        self.followup = FakeFollowup()
+        self.followup = FakeFollowup(fail=followup_fails)
+        self.original_edited = None
+
+    async def edit_original_response(self, *, content, view):
+        self.original_edited = (content, view)
 
 
 def _player(monkeypatch, completed=()):
@@ -47,6 +59,15 @@ def _player(monkeypatch, completed=()):
         classmethod(lambda cls, player_id: player),
     )
     return player
+
+
+def test_first_flight_story_is_canonical_story_chapter():
+    content = story_chapter_intro(FIRST_FLIGHT_CHAPTER, include_disclaimer=False)
+
+    assert "School let out twenty minutes ago" in content
+    assert "principal" in content
+    assert "Get an aerial photograph of the school" in content
+    assert "There is no hidden training physics" not in content
 
 
 def test_first_flight_story_and_configuration_are_separate_messages(monkeypatch):
@@ -81,6 +102,32 @@ def test_first_flight_story_and_configuration_are_separate_messages(monkeypatch)
 
     # Once the briefing is external, later wizard renders remain configuration-only.
     assert "Your First Flight" not in config_view._step_content()
+
+
+def test_first_flight_falls_back_to_combined_message_if_followup_fails(monkeypatch):
+    _player(monkeypatch)
+    interaction = FakeInteraction(followup_fails=True)
+
+    asyncio.run(
+        game_menu.start_mode(
+            interaction,
+            service=object(),
+            mode=GameMode.STORY,
+            player_id="player",
+            channel_kind="dm",
+            story_mission_id=FIRST_FLIGHT_MISSION_ID,
+        )
+    )
+
+    story_content, story_view = interaction.response.edited
+    assert story_view is None
+    assert "School let out twenty minutes ago" in story_content
+
+    combined_content, combined_view = interaction.original_edited
+    assert "School let out twenty minutes ago" in combined_content
+    assert "Balloon Configuration" in combined_content
+    assert combined_view is not None
+    assert combined_view._story_briefing_external is False
 
 
 def test_later_story_missions_keep_their_existing_message_flow(monkeypatch):
@@ -124,7 +171,7 @@ def test_first_flight_success_epilogue_hooks_the_next_story_question():
     assert '"How high could this thing go?"' in updated.mission_results[0].explanation
 
 
-def test_first_flight_crash_epilogue_reacts_to_the_simulation():
+def test_first_flight_crash_epilogue_does_not_invent_a_photo():
     result = MissionResult(
         mission_id=FIRST_FLIGHT_MISSION_ID,
         completed=False,
@@ -140,5 +187,6 @@ def test_first_flight_crash_epilogue_reacts_to_the_simulation():
 
     explanation = updated.mission_results[0].explanation
     assert "after dark" in explanation
-    assert "last image" in explanation
+    assert "flight log" in explanation
+    assert "last image" not in explanation
     assert "The idea didn't" in explanation
