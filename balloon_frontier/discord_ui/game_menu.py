@@ -325,10 +325,24 @@ def _configurator_for_mode(
     return configurator
 
 
-def _story_briefing_for_configurator(configurator) -> str:
+def _story_briefing_for_configurator() -> str:
     """Build the First Flight story message that precedes configuration."""
 
     return first_flight_briefing(FIRST_FLIGHT_CHAPTER)
+
+
+async def _restore_combined_first_flight(
+    interaction: discord.Interaction,
+    configurator: BalloonConfigurator,
+) -> None:
+    """Keep the wizard usable if Discord refuses the separate follow-up message."""
+
+    configurator._story_briefing_external = False
+    edit_original = getattr(interaction, "edit_original_response", None)
+    if not callable(edit_original):
+        raise RuntimeError("Discord follow-up failed and original response cannot be restored")
+    await edit_original(content=configurator._step_content(), view=configurator)
+    configurator._msg = interaction.message
 
 
 async def start_mode(
@@ -356,15 +370,19 @@ async def start_mode(
     supports_followup = followup is not None and hasattr(followup, "send")
 
     if context.get("first_flight") and supports_followup:
-        briefing = _story_briefing_for_configurator(configurator)
+        briefing = _story_briefing_for_configurator()
         configurator._story_briefing_external = True
         await interaction.response.edit_message(content=briefing, view=None)
-        config_message = await followup.send(
-            content=configurator._step_content(),
-            view=configurator,
-            wait=True,
-        )
-        configurator._msg = config_message or interaction.message
+        try:
+            config_message = await followup.send(
+                content=configurator._step_content(),
+                view=configurator,
+                wait=True,
+            )
+        except Exception:
+            await _restore_combined_first_flight(interaction, configurator)
+        else:
+            configurator._msg = config_message or interaction.message
     else:
         configurator._msg = interaction.message
         await interaction.response.edit_message(
