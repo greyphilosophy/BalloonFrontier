@@ -108,6 +108,23 @@ def test_cli_first_flight_fill_matches_discord_calculation(monkeypatch):
     assert cli_mass == pytest.approx(discord_mass)
 
 
+def test_cli_later_story_rejects_locked_envelopes_like_discord(monkeypatch, capsys):
+    _player(monkeypatch, completed=(FIRST_FLIGHT_MISSION_ID,))
+    choices = iter((1, 0))  # try locked zero-pressure, then always-available latex
+    monkeypatch.setattr(cli_game, "get_choice", lambda *args, **kwargs: next(choices))
+
+    envelope_id = cli_game.show_envelope_menu(
+        ("latex", "zero_pressure"),
+        player_id="cli-test",
+    )
+
+    assert envelope_id == "latex"
+    output = capsys.readouterr().out
+    assert "Zero-Pressure Polyethylene" in output
+    assert "locked" in output.lower()
+    assert "15000 credits" in output
+
+
 def test_cli_can_lock_recorded_atmosphere_like_discord(monkeypatch, capsys):
     profile = object()
     locked = []
