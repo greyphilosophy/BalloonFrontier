@@ -39,7 +39,7 @@ from balloon_frontier.power import (
     maximum_capacity_gas_mass_kg,
 )
 from balloon_frontier.presentation import build_flight_moments
-from balloon_frontier.progression import PlayerRegistry
+from balloon_frontier.progression import PlayerRegistry, get_envelope
 from balloon_frontier.session_adapters import SessionAwareFlightService
 from balloon_frontier.story import (
     FIRST_FLIGHT_MISSION_ID,
@@ -163,17 +163,37 @@ def show_gas_menu(gas_ids=None):
     return gases[idx].id if idx is not None else None
 
 
-def show_envelope_menu(envelope_ids=None):
+def show_envelope_menu(envelope_ids=None, *, player_id: str | None = None):
+    """Choose an envelope, enforcing the same Story unlock gate as Discord."""
     ids = tuple(envelope_ids or ENVELOPE_OPTIONS.keys())
     envelopes = [CATALOG.envelope(envelope_id) for envelope_id in ids]
+    player = (
+        PlayerRegistry.get_or_create(str(player_id))
+        if player_id is not None
+        else None
+    )
     print("\n  Envelope:\n  " + "─" * 45)
     for i, envelope in enumerate(envelopes, 1):
+        locked = player is not None and not player.is_envelope_unlocked(envelope.id)
+        lock_note = " 🔒" if locked else ""
         print(
             f"  {i}. {envelope.name} "
-            f"({envelope.max_volume_m3:g}m³, {envelope.mass_kg:g}kg)"
+            f"({envelope.max_volume_m3:g}m³, {envelope.mass_kg:g}kg){lock_note}"
         )
-    idx = get_choice(len(envelopes), f"Envelope (1-{len(envelopes)})")
-    return envelopes[idx].id if idx is not None else None
+
+    while True:
+        idx = get_choice(len(envelopes), f"Envelope (1-{len(envelopes)})")
+        if idx is None:
+            return None
+        envelope = envelopes[idx]
+        if player is None or player.is_envelope_unlocked(envelope.id):
+            return envelope.id
+
+        prog_env = get_envelope(envelope.id)
+        print(
+            f"  🔒 {prog_env.name} is locked. Unlock by reaching "
+            f"{prog_env.min_reputation} reputation OR {prog_env.cost} credits."
+        )
 
 
 def show_fill_presets(balloon_key, gas_type):
@@ -460,7 +480,10 @@ def build_standard_story_request(player_id: str):
     gas_id = show_gas_menu(tuple(GAS_OPTIONS.keys()))
     if gas_id is None:
         return None
-    envelope_id = show_envelope_menu(tuple(ENVELOPE_OPTIONS.keys()))
+    envelope_id = show_envelope_menu(
+        tuple(ENVELOPE_OPTIONS.keys()),
+        player_id=player_id,
+    )
     if envelope_id is None:
         return None
     fill_mode, manual_mass = show_story_fill_mode(envelope_id, gas_id)
