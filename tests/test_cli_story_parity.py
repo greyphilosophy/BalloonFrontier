@@ -136,13 +136,14 @@ def test_cli_first_flight_balloon_menu_explains_tradeoff(monkeypatch, capsys):
     assert "Lightweight Hot-Air Envelope" not in output
 
 
-def test_cli_air_requires_one_heat_source(monkeypatch, capsys):
+def test_cli_air_helper_requires_one_heat_source(monkeypatch, capsys):
+    """The later-experiment helper remains coherent even though First Flight hides air."""
     answers = iter(("", "2"))  # reject blank, then choose tea light
     monkeypatch.setattr("builtins.input", lambda *args, **kwargs: next(answers))
 
     payloads = cli_game.show_first_flight_optional_payloads("air")
 
-    assert payloads == FIRST_FLIGHT_PROVIDED_PAYLOADS + ("candle_heater",)
+    assert payloads == list(FIRST_FLIGHT_PROVIDED_PAYLOADS) + ["candle_heater"]
     output = capsys.readouterr().out
     assert "needs a heat source" in output
 
