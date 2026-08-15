@@ -45,6 +45,18 @@ def test_cli_story_briefing_uses_canonical_first_flight_copy(capsys):
     assert "There is no hidden training physics" not in output
 
 
+def test_cli_later_story_briefing_renders_recorded_atmosphere(monkeypatch, capsys):
+    profile = SimpleNamespace(layers=(), wind_measurements_available=True)
+    monkeypatch.setattr(cli_game.atmosphere_profiles, "get", lambda player_id: profile)
+
+    cli_game.show_story_briefing(EDGE_OF_SPACE_MISSION_ID, player_id="cli-test")
+
+    output = capsys.readouterr().out
+    assert "recorded atmosphere profile is available below" in output.lower()
+    assert "Recorded atmosphere" in output
+    assert "No measured layers are available" in output
+
+
 def test_cli_first_flight_builds_same_reduced_configuration(monkeypatch):
     _player(monkeypatch)
     choices = iter((0, 0, 0, 0))  # gas, envelope, site, fill
@@ -61,6 +73,7 @@ def test_cli_first_flight_builds_same_reduced_configuration(monkeypatch):
     assert request.payload_ids == FIRST_FLIGHT_PROVIDED_PAYLOADS
     assert request.fill_mode.value == "manual"
     assert request.manual_gas_mass_kg is not None
+    assert request.manual_gas_mass_kg == round(request.manual_gas_mass_kg, 3)
     assert request.player_id == "cli-test"
 
 
@@ -95,24 +108,26 @@ def test_cli_first_flight_fill_matches_discord_calculation(monkeypatch):
     assert cli_mass == pytest.approx(discord_mass)
 
 
+def test_cli_can_lock_recorded_atmosphere_like_discord(monkeypatch, capsys):
+    profile = object()
+    locked = []
+    monkeypatch.setattr(cli_game.atmosphere_profiles, "get", lambda player_id: profile)
+    monkeypatch.setattr(
+        cli_game.atmosphere_profiles,
+        "lock_for_next_flight",
+        lambda player_id: locked.append(player_id) or True,
+    )
+    monkeypatch.setattr("builtins.input", lambda *args, **kwargs: "y")
+
+    cli_game._offer_recorded_atmosphere("cli-test")
+
+    assert locked == ["cli-test"]
+    assert "Measured conditions selected" in capsys.readouterr().out
+
+
 def test_cli_story_service_receives_selected_mission_and_player(monkeypatch):
     _player(monkeypatch)
-    captured = {}
 
-    request = SimpleNamespace(
-        gas_id="helium",
-        envelope_id="latex",
-        payload_ids=FIRST_FLIGHT_PROVIDED_PAYLOADS,
-        launch_site_id="field",
-        fill_mode=SimpleNamespace(value="manual"),
-        manual_gas_mass_kg=0.1,
-        player_id="cli-test",
-        balloon_size=None,
-        gas_temperature_delta_k=None,
-    )
-
-    # The session adapter itself is shared by CLI and Discord; this assertion
-    # protects the CLI wiring without running a full simulation here.
     service = cli_game.SessionAwareFlightService(
         object(),
         GameMode.STORY,
