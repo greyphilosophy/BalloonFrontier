@@ -5,7 +5,12 @@ from types import SimpleNamespace
 import pytest
 
 import cli_game
-from balloon_frontier.career_prologue import FIRST_FLIGHT_PROVIDED_PAYLOADS
+from balloon_frontier.catalog import CATALOG
+from balloon_frontier.career_prologue import (
+    FIRST_FLIGHT_PROVIDED_PAYLOADS,
+    first_flight_balloon_choices,
+    first_flight_payload_keys,
+)
 from balloon_frontier.discord_ui import game_menu
 from balloon_frontier.game_modes import GameMode
 from balloon_frontier.progression import PlayerRegistry, PlayerState
@@ -57,9 +62,45 @@ def test_cli_later_story_briefing_renders_recorded_atmosphere(monkeypatch, capsy
     assert "No measured layers are available" in output
 
 
+def test_first_flight_gas_choices_only_offer_compatible_balloon_families():
+    helium = first_flight_balloon_choices("helium")
+    air = first_flight_balloon_choices("air")
+
+    assert tuple(choice.balloon_size for choice in helium) == ("s45", "s55", "s70")
+    assert all(choice.envelope_id == "latex" for choice in helium)
+    assert all(choice.envelope_id != "candle_kite" for choice in helium)
+    assert len(air) == 1
+    assert air[0].envelope_id == "candle_kite"
+    assert air[0].balloon_size is None
+
+
+def test_first_flight_helium_choices_teach_size_weight_cost_and_burst_tradeoff():
+    choices = first_flight_balloon_choices("helium")
+    balloons = [CATALOG.balloon(choice.balloon_size) for choice in choices]
+
+    assert [balloon.mass_kg for balloon in balloons] == sorted(
+        balloon.mass_kg for balloon in balloons
+    )
+    assert [choice.cost for choice in choices] == sorted(choice.cost for choice in choices)
+    assert [balloon.burst_volume_m3 for balloon in balloons] == sorted(
+        balloon.burst_volume_m3 for balloon in balloons
+    )
+    assert [round(balloon.burst_volume_m3, 1) for balloon in balloons] == [13.2, 22.0, 55.0]
+
+
+def test_first_flight_payload_options_follow_selected_gas():
+    assert first_flight_payload_keys("helium") == ("parachute", "none")
+    assert first_flight_payload_keys("air") == (
+        "parachute",
+        "candle_heater",
+        "electric_heater",
+        "none",
+    )
+
+
 def test_cli_first_flight_builds_same_reduced_configuration(monkeypatch):
     _player(monkeypatch)
-    choices = iter((0, 0, 0, 0))  # gas, envelope, site, fill
+    choices = iter((0, 0, 0, 0))  # gas, balloon, site, fill
     monkeypatch.setattr(cli_game, "get_choice", lambda *args, **kwargs: next(choices))
     answers = iter(("", "y"))  # no optional payloads, launch
     monkeypatch.setattr("builtins.input", lambda *args, **kwargs: next(answers))
@@ -69,12 +110,42 @@ def test_cli_first_flight_builds_same_reduced_configuration(monkeypatch):
     assert request is not None
     assert request.gas_id == "helium"
     assert request.envelope_id == "latex"
+    assert request.balloon_size == "s45"
     assert request.launch_site_id == "field"
     assert request.payload_ids == FIRST_FLIGHT_PROVIDED_PAYLOADS
     assert request.fill_mode.value == "manual"
     assert request.manual_gas_mass_kg is not None
     assert request.manual_gas_mass_kg == round(request.manual_gas_mass_kg, 3)
     assert request.player_id == "cli-test"
+
+
+def test_cli_first_flight_balloon_menu_explains_tradeoff(monkeypatch, capsys):
+    monkeypatch.setattr(cli_game, "get_choice", lambda *args, **kwargs: 1)
+
+    choice = cli_game.show_first_flight_balloon_menu("helium")
+
+    assert choice.balloon_size == "s55"
+    output = capsys.readouterr().out
+    assert '45" Latex Weather Balloon' in output
+    assert '55" Latex Weather Balloon' in output
+    assert '70" Latex Weather Balloon' in output
+    assert "$15" in output and "$25" in output and "$45" in output
+    assert "13.2m³" in output and "22.0m³" in output and "55.0m³" in output
+    assert "lighter and cheaper" in output
+    assert "higher before bursting" in output
+    assert "Lightweight Hot-Air Envelope" not in output
+
+
+def test_cli_air_helper_requires_one_heat_source(monkeypatch, capsys):
+    """The later-experiment helper remains coherent even though First Flight hides air."""
+    answers = iter(("", "2"))  # reject blank, then choose tea light
+    monkeypatch.setattr("builtins.input", lambda *args, **kwargs: next(answers))
+
+    payloads = cli_game.show_first_flight_optional_payloads("air")
+
+    assert payloads == list(FIRST_FLIGHT_PROVIDED_PAYLOADS) + ["candle_heater"]
+    output = capsys.readouterr().out
+    assert "needs a heat source" in output
 
 
 def test_cli_first_flight_fill_matches_discord_calculation(monkeypatch):
@@ -87,6 +158,7 @@ def test_cli_first_flight_fill_matches_discord_calculation(monkeypatch):
         payload_ids=payloads,
         site_id="field",
         fill_key="almost_lta",
+        balloon_size="s55",
     )
 
     configurator = game_menu._configurator_for_mode(
@@ -100,6 +172,8 @@ def test_cli_first_flight_fill_matches_discord_calculation(monkeypatch):
     configurator.state.update(
         gas="helium",
         envelope="latex",
+        balloon_size="s55",
+        _first_flight_balloon_choice="s55",
         payloads=list(payloads),
         site="field",
     )

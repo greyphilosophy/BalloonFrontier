@@ -1,7 +1,8 @@
-"""First-flight Story onboarding uses foundational shared-world components."""
+"""First-flight Story onboarding uses truthful shared-world balloon physics."""
 
 import pytest
 
+from balloon_frontier.catalog import CATALOG
 from balloon_frontier.career_prologue import (
     DiscoveryFirstFlightConfiguratorMixin,
     FIRST_FLIGHT_PROVIDED_PAYLOADS,
@@ -9,7 +10,6 @@ from balloon_frontier.career_prologue import (
     FIRST_FLIGHT_SITE_NAME,
 )
 from balloon_frontier.discord_ui.configurator import (
-    ENVELOPE_OPTIONS,
     GAS_OPTIONS,
     PAYLOAD_OPTIONS,
     SITE_OPTIONS,
@@ -17,19 +17,27 @@ from balloon_frontier.discord_ui.configurator import (
 )
 
 
-def test_first_flight_envelopes_include_standard_latex_and_second_option():
+def test_first_flight_helium_balloon_choices_are_small_to_large():
+    holder = type(
+        "FirstFlightOptions",
+        (),
+        {"_current_step": _Step.CHOOSE_ENVELOPE, "state": {"gas": "helium"}},
+    )()
     options = DiscoveryFirstFlightConfiguratorMixin._first_flight_options(
-        type("FirstFlightOptions", (), {"_current_step": _Step.CHOOSE_ENVELOPE})(),
+        holder,
         _Step.CHOOSE_ENVELOPE,
     )
 
-    second_env = "candle_" "kite"
-    assert tuple(options) == ("latex", second_env)
-    assert options["latex"] == ENVELOPE_OPTIONS["latex"]
-    assert options["latex"][0] == "Latex Weather Balloon"
-    assert options[second_env][0] == "Lightweight Hot-" "Air Envelope"
-    assert second_env not in ENVELOPE_OPTIONS
-    assert "tutorial_party_balloon" not in ENVELOPE_OPTIONS
+    assert tuple(options) == ("s45", "s55", "s70")
+    assert options["s45"][0] == '45" Latex Weather Balloon'
+    assert options["s55"][0] == '55" Latex Weather Balloon'
+    assert options["s70"][0] == '70" Latex Weather Balloon'
+    assert [options[key][2] for key in options] == [
+        CATALOG.balloon("s45").mass_kg,
+        CATALOG.balloon("s55").mass_kg,
+        CATALOG.balloon("s70").mass_kg,
+    ]
+    assert [options[key][5] for key in options] == [15, 25, 45]
 
 
 def test_first_flight_provided_equipment_is_not_optional():
@@ -45,19 +53,17 @@ def test_first_flight_provided_equipment_is_not_optional():
 
     assert FIRST_FLIGHT_REQUIRED_PAYLOADS == ("camera", "quad" "copter")
     assert FIRST_FLIGHT_PROVIDED_PAYLOADS == ("camera", "quad" "copter", "bat" "tery")
-    first_heat = "candle_" "heater"
-    second_heat = "electric_" "heater"
-    assert tuple(options) == ("parachute", first_heat, second_heat, "none")
+    assert tuple(options) == ("parachute", "none")
     assert options["parachute"] == PAYLOAD_OPTIONS["parachute"]
-    assert options[first_heat][0] == "Tea Light Heat Source"
-    assert options[second_heat][0] == "Small Electric Heater"
     assert options["none"][0] == "No optional payload"
     assert "camera" not in options
     assert "quad" "copter" not in options
     assert "bat" "tery" not in options
+    assert "candle_" "heater" not in options
+    assert "electric_" "heater" not in options
 
 
-def test_first_flight_air_and_school_site_are_local_to_story():
+def test_first_flight_provides_helium_and_keeps_school_site_local_to_story():
     holder = type(
         "FirstFlightOptions",
         (),
@@ -70,18 +76,15 @@ def test_first_flight_air_and_school_site_are_local_to_story():
         holder, _Step.CHOOSE_SITE
     )
 
+    assert tuple(gases) == ("helium",)
     assert gases["helium"] == GAS_OPTIONS["helium"]
-    assert gases["air"][0] == "Air"
-    assert "air" not in GAS_OPTIONS
-    assert "hot_" "air" not in gases
+    assert "air" not in gases
     assert sites["field"].name == FIRST_FLIGHT_SITE_NAME
     assert sites["field"].altitude_m == SITE_OPTIONS["field"].altitude_m
     assert SITE_OPTIONS["field"].name == "Open Field"
 
 
-def test_lift_target_fill_options_are_truthful_for_selected_aircraft():
-    # This path calls other mixin helpers, so mirror the production inheritance
-    # instead of using the method as an unbound function on an incomplete stub.
+def test_lift_target_fill_options_are_truthful_for_selected_balloon_size():
     holder = type(
         "FirstFlightOptions",
         (DiscoveryFirstFlightConfiguratorMixin,),
@@ -90,34 +93,33 @@ def test_lift_target_fill_options_are_truthful_for_selected_aircraft():
             "state": {
                 "gas": "helium",
                 "envelope": "latex",
+                "balloon_size": "s45",
+                "_first_flight_balloon_choice": "s45",
                 "payloads": ["camera", "quad" "copter", "bat" "tery"],
                 "site": "field",
             },
         },
     )()
 
-    helium_latex = DiscoveryFirstFlightConfiguratorMixin._first_flight_options(
+    options = DiscoveryFirstFlightConfiguratorMixin._first_flight_options(
         holder, _Step.CHOOSE_FILL
     )
-    assert tuple(helium_latex) == ("almost_lta", "lighter_lta", "maximum")
-    assert helium_latex["almost_lta"]["label"] == "Almost Lighter Than Air"
-    assert helium_latex["lighter_lta"]["label"] == "Lighter Than Air"
-    assert helium_latex["maximum"]["label"] == "Maximum Capacity"
+    assert tuple(options) == ("almost_lta", "lighter_lta", "maximum")
+    assert options["almost_lta"]["label"] == "Almost Lighter Than Air"
+    assert options["lighter_lta"]["label"] == "Lighter Than Air"
+    assert options["maximum"]["label"] == "Maximum Capacity"
 
-    holder.state["envelope"] = "candle_" "kite"
-    helium_small = DiscoveryFirstFlightConfiguratorMixin._first_flight_options(
+    # Larger First Flight balloons preserve the same semantic fill choices while
+    # changing the real envelope mass/volume/burst properties underneath them.
+    holder.state["balloon_size"] = "s70"
+    holder.state["_first_flight_balloon_choice"] = "s70"
+    larger = DiscoveryFirstFlightConfiguratorMixin._first_flight_options(
         holder, _Step.CHOOSE_FILL
     )
-    assert tuple(helium_small) == ("maximum",)
-
-    holder.state["gas"] = "air"
-    air_small = DiscoveryFirstFlightConfiguratorMixin._first_flight_options(
-        holder, _Step.CHOOSE_FILL
-    )
-    assert tuple(air_small) == ("maximum",)
+    assert tuple(larger) == ("almost_lta", "lighter_lta", "maximum")
 
 
-def test_semantic_fill_target_stays_truthful_when_optional_payload_mass_changes():
+def test_semantic_fill_target_recalculates_when_payload_mass_changes():
     holder = type(
         "FirstFlightOptions",
         (DiscoveryFirstFlightConfiguratorMixin,),
@@ -125,6 +127,8 @@ def test_semantic_fill_target_stays_truthful_when_optional_payload_mass_changes(
             "state": {
                 "gas": "helium",
                 "envelope": "latex",
+                "balloon_size": "s55",
+                "_first_flight_balloon_choice": "s55",
                 "payloads": ["camera", "quad" "copter", "bat" "tery"],
                 "site": "field",
                 "fill_mode": "manual",
@@ -149,3 +153,34 @@ def test_semantic_fill_target_stays_truthful_when_optional_payload_mass_changes(
     assert holder.state["fill_mode"] == "manual"
     assert holder.state["_first_flight_fill_key"] == "almost_lta"
     assert holder.state["_first_flight_fill_label"] == "Almost Lighter Than Air"
+
+
+def test_smallest_balloon_invalidates_semantic_target_after_heavy_optional_payload():
+    holder = type(
+        "FirstFlightOptions",
+        (DiscoveryFirstFlightConfiguratorMixin,),
+        {
+            "state": {
+                "gas": "helium",
+                "envelope": "latex",
+                "balloon_size": "s45",
+                "_first_flight_balloon_choice": "s45",
+                "payloads": [
+                    "camera",
+                    "quad" "copter",
+                    "bat" "tery",
+                    "parachute",
+                ],
+                "site": "field",
+                "fill_mode": "manual",
+                "manual_gas_mass": 0.5,
+                "gas_mass": 0.5,
+                "_first_flight_fill_key": "almost_lta",
+                "_first_flight_fill_label": "Almost Lighter Than Air",
+            },
+        },
+    )()
+
+    assert holder._refresh_first_flight_fill_target() is False
+    assert "_first_flight_fill_key" not in holder.state
+    assert "_first_flight_fill_label" not in holder.state

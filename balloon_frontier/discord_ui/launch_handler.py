@@ -320,7 +320,7 @@ async def run_launch(
             fill_mode=FillMode(state.get("fill_mode", "auto")),
             manual_gas_mass_kg=state.get("manual_gas_mass"),
             player_id=player_id,
-            balloon_size=None,
+            balloon_size=state.get("balloon_size"),
         )
         try:
             result = await asyncio.to_thread(service.run, launch_request)

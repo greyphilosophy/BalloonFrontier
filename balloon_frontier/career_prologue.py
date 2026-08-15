@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from balloon_frontier.catalog import CATALOG
 from balloon_frontier.fill import FillMode, apply_fill_mode
@@ -21,14 +21,40 @@ from balloon_frontier.power import (
 FIRST_FLIGHT_REQUIRED_PAYLOADS = ("camera", "quadcopter")
 FIRST_FLIGHT_PROVIDED_PAYLOADS = ("camera", "quadcopter", "battery")
 FIRST_FLIGHT_SITE_NAME = "School Athletic Field"
+FIRST_FLIGHT_HEAT_SOURCES = ("candle_heater", "electric_heater")
+
+
+@dataclass(frozen=True)
+class FirstFlightBalloonChoice:
+    """A gas-compatible balloon choice for the opening Story flight."""
+
+    key: str
+    gas_id: str
+    envelope_id: str
+    balloon_size: str | None
+    cost: int
+
+
+# The helium choices deliberately teach the size/weight/cost/burst tradeoff.
+# s36 is omitted because it cannot support the provided camera/quadcopter/battery
+# loadout at the First Flight semantic lift targets.
+FIRST_FLIGHT_BALLOON_CHOICES = (
+    FirstFlightBalloonChoice("s45", "helium", "latex", "s45", 15),
+    FirstFlightBalloonChoice("s55", "helium", "latex", "s55", 25),
+    FirstFlightBalloonChoice("s70", "helium", "latex", "s70", 45),
+    FirstFlightBalloonChoice("candle_kite", "air", "candle_kite", None, 5),
+)
 
 # Uses the shared _Step numeric identifiers without changing their global values:
-# Gas -> Envelope -> Payloads -> Site -> Fill -> Review/Launch.
+# Gas -> Balloon/Envelope -> Payloads -> Site -> Fill -> Review/Launch.
 FIRST_FLIGHT_STEP_ORDER = (0, 1, 3, 4, 2, 5)
 
 FIRST_FLIGHT_OPTION_KEYS = {
-    0: ("helium", "air"),
-    1: ("latex", "candle_kite"),
+    # The opening mission deliberately provides helium. The existing 0.2m³
+    # heated-air envelope cannot carry the provided starter aircraft, so air is
+    # reserved for later experiments rather than presented as a fake choice.
+    0: ("helium",),
+    1: tuple(choice.key for choice in FIRST_FLIGHT_BALLOON_CHOICES),
     3: (
         "parachute",
         "candle_heater",
@@ -76,20 +102,53 @@ def needs_first_flight(player_id: str | int | None) -> bool:
     return "first_flight" not in player.missions_completed
 
 
+def first_flight_balloon_choices(gas_id: str) -> tuple[FirstFlightBalloonChoice, ...]:
+    """Return only balloons that make physical sense for the selected gas."""
+
+    return tuple(choice for choice in FIRST_FLIGHT_BALLOON_CHOICES if choice.gas_id == gas_id)
+
+
+def first_flight_balloon_choice(key: str) -> FirstFlightBalloonChoice:
+    for choice in FIRST_FLIGHT_BALLOON_CHOICES:
+        if choice.key == key:
+            return choice
+    raise KeyError(key)
+
+
+def first_flight_payload_keys(gas_id: str) -> tuple[str, ...]:
+    """Hide heat-source payloads when the selected lifting gas does not use them."""
+
+    if gas_id == "helium":
+        return ("parachute", "none")
+    if gas_id == "air":
+        return ("parachute", "candle_heater", "electric_heater", "none")
+    return FIRST_FLIGHT_OPTION_KEYS[3]
+
+
 def _gas_option(gas_id: str) -> tuple[str, float, int]:
     gas = CATALOG.gas(gas_id)
     return gas.name, gas.molar_mass, gas.cost_per_kg
 
 
-def _envelope_option(envelope_id: str) -> tuple[str, float, float, float, float, int]:
-    envelope = CATALOG.envelope(envelope_id)
+def _balloon_option(choice: FirstFlightBalloonChoice) -> tuple[str, float, float, float, float, int]:
+    envelope = CATALOG.envelope(choice.envelope_id)
+    if choice.balloon_size is not None:
+        balloon = CATALOG.balloon(choice.balloon_size)
+        return (
+            f'{balloon.name} Latex Weather Balloon',
+            balloon.max_volume_m3,
+            balloon.mass_kg,
+            envelope.drag_coefficient,
+            balloon.burst_stretch_ratio,
+            choice.cost,
+        )
     return (
         envelope.name,
         envelope.max_volume_m3,
         envelope.mass_kg,
         envelope.drag_coefficient,
         envelope.burst_stretch_ratio,
-        envelope.cost,
+        choice.cost,
     )
 
 
@@ -154,12 +213,64 @@ class DiscoveryFirstFlightConfiguratorMixin:
     """Expose a small Story menu while using the ordinary simulation physics."""
 
     STEPS = FIRST_FLIGHT_STEP_ORDER
+    STEP_LABELS = (
+        "Gas Type",
+        "Balloon",
+        "Fill Mode",
+        "Payloads",
+        "Launch Site",
+        "Review & Launch",
+    )
+
+    def _selected_first_flight_balloon_choice(self) -> FirstFlightBalloonChoice:
+        key = self.state.get("_first_flight_balloon_choice")
+        if key is not None:
+            try:
+                return first_flight_balloon_choice(key)
+            except KeyError:
+                pass
+
+        gas_id = self.state.get("gas", "helium")
+        balloon_size = self.state.get("balloon_size")
+        envelope_id = self.state.get("envelope")
+        compatible = first_flight_balloon_choices(gas_id)
+        for choice in compatible:
+            if choice.balloon_size == balloon_size and choice.envelope_id == envelope_id:
+                return choice
+        if not compatible:
+            raise ValueError(f"No First Flight balloon is compatible with {gas_id!r}")
+        return compatible[0]
+
+    def _apply_first_flight_balloon_choice(self, choice: FirstFlightBalloonChoice) -> None:
+        self.state["_first_flight_balloon_choice"] = choice.key
+        self.state["envelope"] = choice.envelope_id
+        self.state["balloon_size"] = choice.balloon_size
+
+    def _first_flight_vehicle_params(self):
+        choice = self._selected_first_flight_balloon_choice()
+        envelope = CATALOG.envelope(choice.envelope_id)
+        if choice.balloon_size is not None:
+            balloon = CATALOG.balloon(choice.balloon_size)
+            return (
+                choice,
+                envelope,
+                balloon.max_volume_m3,
+                balloon.mass_kg,
+                balloon.burst_stretch_ratio,
+            )
+        return (
+            choice,
+            envelope,
+            envelope.max_volume_m3,
+            envelope.mass_kg,
+            envelope.burst_stretch_ratio,
+        )
 
     def _first_flight_fill_context(self):
         from balloon_frontier.discord_ui.configurator import SITE_OPTIONS
 
         state = self.state
-        envelope = CATALOG.envelope(state["envelope"])
+        choice, envelope, max_volume_m3, vehicle_mass_kg, _ = self._first_flight_vehicle_params()
         site_conditions = SITE_OPTIONS[state["site"]].derive_conditions()
         payload_ids = with_required_first_flight_payloads(state.get("payloads") or ())
         payload_mass_kg = sum(
@@ -170,23 +281,37 @@ class DiscoveryFirstFlightConfiguratorMixin:
             site_conditions["gas_temperature"],
             site_conditions["launch_pressure"],
         )
-        return envelope, site_conditions, payload_mass_kg, lifting_density
+        return (
+            choice,
+            envelope,
+            max_volume_m3,
+            vehicle_mass_kg,
+            site_conditions,
+            payload_mass_kg,
+            lifting_density,
+        )
 
     def _first_flight_fill_mass(self, fill_key: str) -> float:
-        envelope, site_conditions, payload_mass_kg, lifting_density = (
-            self._first_flight_fill_context()
-        )
+        (
+            _,
+            _,
+            max_volume_m3,
+            vehicle_mass_kg,
+            site_conditions,
+            payload_mass_kg,
+            lifting_density,
+        ) = self._first_flight_fill_context()
         if fill_key == "maximum":
             return maximum_capacity_gas_mass_kg(
                 lifting_gas_density_kg_m3=lifting_density,
-                max_volume_m3=envelope.max_volume_m3,
+                max_volume_m3=max_volume_m3,
             )
         option = FIRST_FLIGHT_FILL_OPTIONS[fill_key]
         return gas_mass_for_supported_fraction_kg(
-            non_gas_mass_kg=envelope.mass_kg + payload_mass_kg,
+            non_gas_mass_kg=vehicle_mass_kg + payload_mass_kg,
             ambient_density_kg_m3=site_conditions["launch_density_kg_m3"],
             lifting_gas_density_kg_m3=lifting_density,
-            max_volume_m3=envelope.max_volume_m3,
+            max_volume_m3=max_volume_m3,
             support_fraction=option["support_fraction"],
         )
 
@@ -194,16 +319,21 @@ class DiscoveryFirstFlightConfiguratorMixin:
         from balloon_frontier.discord_ui.configurator import _Step
 
         current_step = self._current_step if step is None else step
-        keys = FIRST_FLIGHT_OPTION_KEYS[current_step]
         if current_step == _Step.CHOOSE_GAS:
-            return {key: _gas_option(key) for key in keys}
+            return {key: _gas_option(key) for key in FIRST_FLIGHT_OPTION_KEYS[0]}
         if current_step == _Step.CHOOSE_ENVELOPE:
-            return {key: _envelope_option(key) for key in keys}
+            return {
+                choice.key: _balloon_option(choice)
+                for choice in first_flight_balloon_choices(self.state.get("gas", "helium"))
+            }
         if current_step == _Step.CHOOSE_PAYLOADS:
-            return {key: _payload_option(key) for key in keys}
+            return {
+                key: _payload_option(key)
+                for key in first_flight_payload_keys(self.state.get("gas", "helium"))
+            }
         if current_step == _Step.CHOOSE_FILL:
             available = {}
-            for key in keys:
+            for key in FIRST_FLIGHT_OPTION_KEYS[2]:
                 if key != "maximum":
                     try:
                         self._first_flight_fill_mass(key)
@@ -220,24 +350,24 @@ class DiscoveryFirstFlightConfiguratorMixin:
         from balloon_frontier.discord_ui.configurator import SITE_OPTIONS
 
         state = self.state
-        envelope = CATALOG.envelope(state["envelope"])
+        _, envelope, max_volume_m3, _, burst_stretch_ratio = self._first_flight_vehicle_params()
         site_conditions = SITE_OPTIONS[state["site"]].derive_conditions()
         if state.get("fill_mode") in FIRST_FLIGHT_FILL_OPTIONS:
             return round(self._first_flight_fill_mass(state["fill_mode"]), 3)
 
         mode = FillMode(state.get("fill_mode", "auto"))
         mass = apply_fill_mode(
-            envelope.max_volume_m3,
+            max_volume_m3,
             state["gas"],
             mode,
             manual_mass_kg=state.get("manual_gas_mass"),
-            burst_stretch_ratio=envelope.burst_stretch_ratio,
+            burst_stretch_ratio=burst_stretch_ratio,
             envelope_type=envelope.id,
             launch_altitude=site_conditions.get("launch_altitude"),
             launch_pressure=site_conditions.get("launch_pressure"),
             gas_temperature=site_conditions.get("gas_temperature"),
             safe_fill_data={
-                "burst_stretch_ratio": envelope.burst_stretch_ratio,
+                "burst_stretch_ratio": burst_stretch_ratio,
                 "safe_fill_fraction": envelope.safe_fill_fraction,
             },
         )
@@ -252,7 +382,10 @@ class DiscoveryFirstFlightConfiguratorMixin:
             with_required_first_flight_payloads(state.get("payloads") or ())
         )
         gas = CATALOG.gas(state["gas"])
-        envelope = CATALOG.envelope(state["envelope"])
+        choice, _, max_volume_m3, vehicle_mass_kg, burst_stretch_ratio = (
+            self._first_flight_vehicle_params()
+        )
+        balloon = _balloon_option(choice)
         payload_defs = [
             CATALOG.payload(pid)
             for pid in state.get("payloads") or ()
@@ -270,11 +403,16 @@ class DiscoveryFirstFlightConfiguratorMixin:
         lines = ["🎈 **Balloon Configuration**\n"]
         lines.append(f"Gas: {gas.name}")
         lines.append(f"Fill: {fill_label} → {gas_mass:.3f} kg")
-        lines.append(f"Envelope: {envelope.name} — {envelope.max_volume_m3}m³")
+        lines.append(
+            f"Balloon: {balloon[0]} — {vehicle_mass_kg * 1000:.0f}g — ${choice.cost}"
+        )
+        lines.append(
+            f"Burst capacity: {max_volume_m3 * burst_stretch_ratio:.1f}m³"
+        )
         lines.append(f"Payloads: {', '.join(payload_names)}")
         lines.append(f"Site: {site.name}")
         lines.append(
-            f"Total mass: {gas_mass + envelope.mass_kg + payload_mass:.1f} kg\n"
+            f"Total mass: {gas_mass + vehicle_mass_kg + payload_mass:.1f} kg\n"
         )
         lines.append("Review looks good? Hit **Launch**! 🚀")
         return "\n".join(lines)
@@ -298,11 +436,27 @@ class DiscoveryFirstFlightConfiguratorMixin:
                 for index, gas in enumerate(options.values(), 1):
                     lines.append(f"{index}  {gas[0]}  (M={gas[1]} kg/mol, ${gas[2]}/kg)")
                 lines.append(
-                    "     Air starts at ambient temperature; heat sources change its density during the simulation."
+                    "     Helium is provided for the opening mission; this flight is about choosing balloon size and fill."
                 )
             elif self._current_step == _Step.CHOOSE_ENVELOPE:
-                for index, envelope in enumerate(options.values(), 1):
-                    lines.append(f"{index}  {envelope[0]}  ({envelope[1]}m³)")
+                for index, balloon in enumerate(options.values(), 1):
+                    burst_volume = balloon[1] * balloon[4]
+                    lines.append(f"{index}  {balloon[0]}")
+                    lines.append(
+                        f"     {balloon[2] * 1000:.0f}g • ${balloon[5]} • "
+                        f"{burst_volume:.1f}m³ before burst"
+                    )
+                if self.state.get("gas") == "helium":
+                    lines.append(
+                        "     Smaller balloons are lighter and cheaper. Larger balloons "
+                        "have more room to expand as pressure falls, so they can climb "
+                        "higher before bursting."
+                    )
+                else:
+                    lines.append(
+                        "     Heated air needs an open hot-air envelope; sealed latex "
+                        "weather balloons are not offered for this gas."
+                    )
             elif self._current_step == _Step.CHOOSE_FILL:
                 for index, fill in enumerate(options.values(), 1):
                     lines.append(f"{index}  {fill['label']}")
@@ -321,9 +475,16 @@ class DiscoveryFirstFlightConfiguratorMixin:
                 lines.append("Optional additions:")
                 for index, payload in enumerate(options.values(), 1):
                     lines.append(f"{index}  {payload[0]}  ({payload[1]}kg, ${payload[2]})")
-                lines.append(
-                    "     Heater choices contribute watts to the same gas energy balance; open-flame methods are flagged in results."
-                )
+                if self.state.get("gas") == "air":
+                    lines.append(
+                        "     Air needs a heat source. Choose either the tea light or the "
+                        "electric heater before continuing."
+                    )
+                else:
+                    lines.append(
+                        "     Heat sources are hidden for helium because heating helium "
+                        "is not part of this First Flight tradeoff."
+                    )
             elif self._current_step == _Step.CHOOSE_SITE:
                 for index, site in enumerate(options.values(), 1):
                     lines.append(f"{index}  {site.name}")
@@ -340,6 +501,17 @@ class DiscoveryFirstFlightConfiguratorMixin:
 
     async def _advance(self, interaction):
         """Advance through First Flight's dependency-ordered configuration steps."""
+        from balloon_frontier.discord_ui.configurator import _Step
+
+        if self._current_step == _Step.CHOOSE_PAYLOADS and self.state.get("gas") == "air":
+            payloads = set(self.state.get("payloads") or ())
+            if not payloads.intersection(FIRST_FLIGHT_HEAT_SOURCES):
+                await interaction.response.send_message(
+                    "Air needs a heat source. Choose the tea light or electric heater first.",
+                    ephemeral=True,
+                )
+                return
+
         try:
             index = self.STEPS.index(self._current_step)
         except ValueError:
@@ -405,11 +577,45 @@ class DiscoveryFirstFlightConfiguratorMixin:
 
     async def _on_gas(self, interaction, index: int):
         self._clear_first_flight_fill()
-        await self._select_single_option(interaction, index, "gas")
+        keys = tuple(self._first_flight_options())
+        idx = index - 1
+        if idx < 0 or idx >= len(keys):
+            await interaction.response.send_message(
+                "That option isn't available right now.", ephemeral=True
+            )
+            return
+        gas_id = keys[idx]
+        self.state["gas"] = gas_id
+        compatible = first_flight_balloon_choices(gas_id)
+        if not compatible:
+            await interaction.response.send_message(
+                "No compatible First Flight balloon is available for that gas.",
+                ephemeral=True,
+            )
+            return
+        self._apply_first_flight_balloon_choice(compatible[0])
+        allowed_payloads = set(first_flight_payload_keys(gas_id))
+        kept_optional = tuple(
+            pid
+            for pid in self.state.get("payloads") or ()
+            if pid in allowed_payloads and pid != "none"
+        )
+        self.state["payloads"] = list(with_required_first_flight_payloads(kept_optional))
+        self.state["gas_mass"] = self._compute_gas_mass()
+        await self._advance(interaction)
 
     async def _on_envelope(self, interaction, index: int):
         self._clear_first_flight_fill()
-        await self._select_single_option(interaction, index, "envelope")
+        keys = tuple(self._first_flight_options())
+        idx = index - 1
+        if idx < 0 or idx >= len(keys):
+            await interaction.response.send_message(
+                "That option isn't available right now.", ephemeral=True
+            )
+            return
+        self._apply_first_flight_balloon_choice(first_flight_balloon_choice(keys[idx]))
+        self.state["gas_mass"] = self._compute_gas_mass()
+        await self._advance(interaction)
 
     async def _on_fill(self, interaction, index: int):
         options = self._first_flight_options()
@@ -440,8 +646,16 @@ class DiscoveryFirstFlightConfiguratorMixin:
                 "That option isn't available right now.", ephemeral=True
             )
             return
+        selected = keys[idx]
+        current = tuple(self.state.get("payloads") or ())
+        if selected in FIRST_FLIGHT_HEAT_SOURCES:
+            current = tuple(
+                pid
+                for pid in current
+                if pid not in FIRST_FLIGHT_HEAT_SOURCES or pid == selected
+            )
         self.state["payloads"] = list(
-            toggle_first_flight_optional_payload(self.state.get("payloads") or (), keys[idx])
+            toggle_first_flight_optional_payload(current, selected)
         )
         if not self._refresh_first_flight_fill_target():
             from balloon_frontier.discord_ui.configurator import _Step
@@ -483,7 +697,7 @@ class DiscoveryFirstFlightConfiguratorMixin:
         }[self._current_step]
         label = {
             _Step.CHOOSE_GAS: "Choose gas",
-            _Step.CHOOSE_ENVELOPE: "Choose envelope",
+            _Step.CHOOSE_ENVELOPE: "Choose balloon",
             _Step.CHOOSE_FILL: "Choose fill",
             _Step.CHOOSE_PAYLOADS: "Toggle optional payload",
             _Step.CHOOSE_SITE: "Choose site",
