@@ -127,7 +127,8 @@ def test_discord_first_flight_uses_limited_story_menu_without_tutorial_copy(monk
     content = configurator._step_content()
     assert "Your First Flight" in content
     assert "Tutorial" not in content
-    assert "same simulation" in content
+    assert "School let out twenty minutes ago" in content
+    assert "same simulation" not in content
 
     context = configurator._game_entry_context
     assert context["mode"] is GameMode.STORY
