@@ -46,10 +46,12 @@ def test_story_mode_keeps_current_chapter_for_invalid_configuration():
 def test_first_story_intro_is_the_school_first_flight():
     intro = story_intro()
     assert "Your First Flight" in intro
-    assert "same simulation" in intro
-    assert "school athletic field" in intro
+    assert "School let out twenty minutes ago" in intro
+    assert "principal" in intro
+    assert "athletic field" in intro
     assert "quadcopter" in intro
-    assert "aerial pictures of the school" in intro
+    assert "Get an aerial photograph of the school" in intro
+    assert "same simulation" not in intro
     assert "open field" not in intro.lower()
     assert "Tutorial" not in intro
 
