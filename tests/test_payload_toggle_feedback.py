@@ -76,7 +76,8 @@ def test_clearing_optional_payloads_keeps_first_flight_essentials(monkeypatch):
     ]
     interaction = _interaction()
 
-    asyncio.run(configurator._on_payload(interaction, 4))
+    # Helium First Flight exposes only Parachute + None.
+    asyncio.run(configurator._on_payload(interaction, 2))
 
     assert configurator.state["payloads"] == ["camera", "quadcopter", "battery"]
     content = interaction.response.edit_message.await_args.kwargs["content"]
@@ -88,18 +89,19 @@ def test_legacy_tutorial_alias_receives_story_first_flight_feedback(monkeypatch)
     configurator = _configurator(monkeypatch, GameMode.TUTORIAL)
     interaction = _interaction()
 
-    asyncio.run(configurator._on_payload(interaction, 2))
+    # The legacy Tutorial alias normalizes to the same helium First Flight menu.
+    asyncio.run(configurator._on_payload(interaction, 1))
 
     content = interaction.response.edit_message.await_args.kwargs["content"]
     assert configurator.state["payloads"] == [
         "camera",
         "quadcopter",
         "battery",
-        "candle_heater",
+        "parachute",
     ]
-    assert "✅ **Added:** Tea Light Heat Source" in content
+    assert "✅ **Added:** Parachute" in content
     assert (
-        "**Currently equipped:** Camera, Small Quadcopter, Battery Pack, Tea Light Heat Source"
+        "**Currently equipped:** Camera, Small Quadcopter, Battery Pack, Parachute"
         in content
     )
 
