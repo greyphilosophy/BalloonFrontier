@@ -73,17 +73,17 @@ def test_first_flight_limits_choices_without_tutorial_signposting(monkeypatch):
 
     gas_content = configurator._step_content()
     assert "Helium" in gas_content
-    assert "Air" in gas_content
+    assert "Air" not in gas_content
     assert "Hot " "Air" not in gas_content
     assert "Hydro" "gen" not in gas_content
     assert "Meth" "ane" not in gas_content
     assert "Tutorial" not in gas_content
-    assert "ambient temperature" in gas_content
+    assert "Helium is provided" in gas_content
     assert "School let out twenty minutes ago" in gas_content
     assert "athletic field" in gas_content
     assert "principal" in gas_content
     assert "Step 1/6" in gas_content
-    assert len(_option_buttons(configurator)) == 2
+    assert len(_option_buttons(configurator)) == 1
 
     configurator._current_step = _Step.CHOOSE_ENVELOPE
     configurator.build_buttons()
@@ -160,6 +160,9 @@ def test_first_flight_balloon_options_follow_gas(monkeypatch):
     assert tuple(helium) == ("s45", "s55", "s70")
     assert all("Hot-Air" not in option[0] for option in helium.values())
 
+    # Heated-air components remain modeled for later experiments, but they are
+    # not an opening-mission gas choice because the existing tiny envelope cannot
+    # carry the provided starter aircraft.
     configurator.state["gas"] = "air"
     air = configurator._first_flight_options()
     assert tuple(air) == ("candle_kite",)
@@ -352,7 +355,7 @@ def test_player_can_drive_first_flight_to_review(monkeypatch):
 def test_completing_first_flight_switches_to_broader_story_configurator(monkeypatch):
     first, player = _configurator(monkeypatch)
     first_gases = tuple(first._first_flight_options(_Step.CHOOSE_GAS))
-    assert first_gases == ("helium", "air")
+    assert first_gases == ("helium",)
 
     player.missions_completed.append(FIRST_FLIGHT_MISSION_ID)
     later = game_menu._configurator_for_mode(
