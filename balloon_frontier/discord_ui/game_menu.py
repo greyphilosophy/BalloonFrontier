@@ -10,10 +10,12 @@ from balloon_frontier.balloon_cluster import (
     BalloonClusterConfiguratorMixin,
     BalloonClusterFlightService,
 )
+from balloon_frontier.first_flight_story import first_flight_briefing
 from balloon_frontier.game_modes import GameMode, list_game_modes
 from balloon_frontier.how_to_play import how_to_play_text
 from balloon_frontier.progression import PlayerRegistry
 from balloon_frontier.session_adapters import SessionAwareFlightService
+from balloon_frontier.story import FIRST_FLIGHT_CHAPTER, FIRST_FLIGHT_MISSION_ID
 from balloon_frontier.story_mission_select import (
     SelectedStoryConfiguratorMixin,
     StoryMissionChoice,
@@ -165,6 +167,26 @@ class StoryMissionSelectView(discord.ui.View):
         )
 
 
+class _ExternalStoryBriefingMixin:
+    """Hide duplicated Story prose once the briefing owns its own Discord message."""
+
+    _CONFIGURATION_MARKERS = (
+        "🔧 **Balloon Configuration**",
+        "🎈 **Balloon Configuration**",
+    )
+
+    def _step_content(self) -> str:
+        content = super()._step_content()
+        if not getattr(self, "_story_briefing_external", False):
+            return content
+        starts = [
+            content.find(marker)
+            for marker in self._CONFIGURATION_MARKERS
+            if marker in content
+        ]
+        return content[min(starts):] if starts else content
+
+
 async def _configurator_interaction_check(
     configurator: BalloonConfigurator,
     interaction: discord.Interaction,
@@ -268,13 +290,13 @@ def _configurator_for_mode(
     first_flight = False
     if mode is GameMode.STORY and supports_wizard_mixins:
         from balloon_frontier.career_prologue import DiscoveryFirstFlightConfiguratorMixin
-        from balloon_frontier.story import FIRST_FLIGHT_MISSION_ID
 
         first_flight = selected_story_mission_id == FIRST_FLIGHT_MISSION_ID
         if first_flight:
             # Limit the menu only. The service, weather, evaluator, and physics are
             # the same Story path used after onboarding.
             configurator_mixins.insert(1, DiscoveryFirstFlightConfiguratorMixin)
+            configurator_mixins.insert(0, _ExternalStoryBriefingMixin)
         else:
             configurator_mixins.insert(1, SelectedStoryConfiguratorMixin)
 
@@ -303,6 +325,26 @@ def _configurator_for_mode(
     return configurator
 
 
+def _story_briefing_for_configurator() -> str:
+    """Build the First Flight story message that precedes configuration."""
+
+    return first_flight_briefing(FIRST_FLIGHT_CHAPTER)
+
+
+async def _restore_combined_first_flight(
+    interaction: discord.Interaction,
+    configurator: BalloonConfigurator,
+) -> None:
+    """Keep the wizard usable if Discord refuses the separate follow-up message."""
+
+    configurator._story_briefing_external = False
+    edit_original = getattr(interaction, "edit_original_response", None)
+    if not callable(edit_original):
+        raise RuntimeError("Discord follow-up failed and original response cannot be restored")
+    await edit_original(content=configurator._step_content(), view=configurator)
+    configurator._msg = interaction.message
+
+
 async def start_mode(
     interaction: discord.Interaction,
     *,
@@ -323,11 +365,30 @@ async def start_mode(
         on_view_changed=on_view_changed,
         story_mission_id=story_mission_id,
     )
-    configurator._msg = interaction.message
-    await interaction.response.edit_message(
-        content=configurator._step_content(),
-        view=configurator,
-    )
+    context = getattr(configurator, "_game_entry_context", None) or {}
+    followup = getattr(interaction, "followup", None)
+    supports_followup = followup is not None and hasattr(followup, "send")
+
+    if context.get("first_flight") and supports_followup:
+        briefing = _story_briefing_for_configurator()
+        configurator._story_briefing_external = True
+        await interaction.response.edit_message(content=briefing, view=None)
+        try:
+            config_message = await followup.send(
+                content=configurator._step_content(),
+                view=configurator,
+                wait=True,
+            )
+        except Exception:
+            await _restore_combined_first_flight(interaction, configurator)
+        else:
+            configurator._msg = config_message or interaction.message
+    else:
+        configurator._msg = interaction.message
+        await interaction.response.edit_message(
+            content=configurator._step_content(),
+            view=configurator,
+        )
     if on_view_changed is not None:
         on_view_changed(configurator)
 

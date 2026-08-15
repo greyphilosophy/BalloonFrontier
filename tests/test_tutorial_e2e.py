@@ -77,7 +77,9 @@ def test_first_flight_limits_choices_without_tutorial_signposting(monkeypatch):
     assert "Meth" "ane" not in gas_content
     assert "Tutorial" not in gas_content
     assert "ambient temperature" in gas_content
-    assert "school athletic field" in gas_content
+    assert "School let out twenty minutes ago" in gas_content
+    assert "athletic field" in gas_content
+    assert "principal" in gas_content
     assert "Step 1/6" in gas_content
     assert len(_option_buttons(configurator)) == 2
 

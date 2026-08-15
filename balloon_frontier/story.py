@@ -44,17 +44,21 @@ FIRST_FLIGHT_CHAPTER = StoryChapter(
     title="Your First Flight",
     season="The beginning",
     introduction=(
-        "You have a balloon, a camera, a small quadcopter, and access to your "
-        "school athletic field. Start with a small set of choices, make a real "
-        "launch, and learn from what the same simulation used everywhere else "
-        "says happened. There is no hidden training physics and no prescribed "
-        "winning configuration."
+        "School let out twenty minutes ago, but you're still standing at the edge of "
+        "the athletic field with a balloon, a camera-equipped quadcopter, and a folding "
+        "table covered in parts.\n\n"
+        "The principal has agreed to let you photograph the campus from above. The "
+        "school needs a new picture for its website, and hiring a photographer wasn't "
+        "in the budget.\n\n"
+        "Your quadcopter can carry the camera, but on its own the battery won't get it "
+        "high enough for the shot you promised. The balloon beside you might solve "
+        "that problem.\n\n"
+        "Or it might drag your quadcopter into the trees.\n\n"
+        "Either way, you've told everyone you're launching today."
     ),
     mission_id=FIRST_FLIGHT_MISSION_ID,
     primary_objective=(
-        "Use the camera-equipped, balloon-assisted quadcopter to take aerial "
-        "pictures of the school from the athletic field and recover it without "
-        "crashing."
+        "Get an aerial photograph of the school and recover the camera safely."
     ),
     bonus_challenges=("Compare a different gas or fill on a later flight",),
 )

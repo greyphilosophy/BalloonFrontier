@@ -127,7 +127,8 @@ def test_discord_first_flight_uses_limited_story_menu_without_tutorial_copy(monk
     content = configurator._step_content()
     assert "Your First Flight" in content
     assert "Tutorial" not in content
-    assert "same simulation" in content
+    assert "School let out twenty minutes ago" in content
+    assert "same simulation" not in content
 
     context = configurator._game_entry_context
     assert context["mode"] is GameMode.STORY
@@ -149,7 +150,7 @@ def test_first_flight_menu_is_smaller_than_later_story_menu(monkeypatch):
         on_finished=None,
     )
     first_gases = tuple(first._first_flight_options(0))
-    assert first_gases == ("helium", "hot_air")
+    assert first_gases == ("helium", "air")
 
     player.missions_completed.append(FIRST_FLIGHT_MISSION_ID)
     later = game_menu._configurator_for_mode(
