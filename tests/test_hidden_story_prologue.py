@@ -150,7 +150,7 @@ def test_first_flight_menu_is_smaller_than_later_story_menu(monkeypatch):
         on_finished=None,
     )
     first_gases = tuple(first._first_flight_options(0))
-    assert first_gases == ("helium", "air")
+    assert first_gases == ("helium",)
 
     player.missions_completed.append(FIRST_FLIGHT_MISSION_ID)
     later = game_menu._configurator_for_mode(
