@@ -426,8 +426,8 @@ class BalloonConfigurator(discord.ui.View):
             self.add_item(item)
 
         if self._current_step == _Step.CHOOSE_GAS:
-            for i in range(1, len(GAS_OPTIONS) + 1):
-                self.add_item(_OptionButton(i, f"Choose gas {i}", self._on_gas))
+            for i, gas in enumerate(GAS_OPTIONS.values(), 1):
+                self.add_item(_OptionButton(i, gas[0], self._on_gas))
         elif self._current_step == _Step.CHOOSE_ENVELOPE:
             for i, key in enumerate([k for k in ENVELOPE_OPTIONS if self._is_item_unlocked(k)], 1):
                 self.add_item(_OptionButton(i, f"Choose envelope {i}", self._on_envelope))

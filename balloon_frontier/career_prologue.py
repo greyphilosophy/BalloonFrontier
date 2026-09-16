@@ -488,5 +488,10 @@ class DiscoveryFirstFlightConfiguratorMixin:
             _Step.CHOOSE_PAYLOADS: "Toggle optional payload",
             _Step.CHOOSE_SITE: "Choose site",
         }[self._current_step]
-        for index in range(1, len(self._first_flight_options()) + 1):
-            self.add_item(_OptionButton(index, f"{label} {index}", callback))
+        for index, option in enumerate(self._first_flight_options().values(), 1):
+            button_label = (
+                option[0]
+                if self._current_step == _Step.CHOOSE_GAS
+                else f"{label} {index}"
+            )
+            self.add_item(_OptionButton(index, button_label, callback))
