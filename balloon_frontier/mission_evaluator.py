@@ -14,6 +14,7 @@ from balloon_frontier.aerostat import (
     risk_tags_for_request,
     safety_notes_for_request,
 )
+from balloon_frontier.communications import relay_service
 from balloon_frontier.launch_result import (
     LaunchRequest,
     TelemetryPoint,
@@ -155,6 +156,24 @@ class MissionEvaluator:
                 completed=completed,
                 peak_altitude=peak_altitude,
             )
+            for objective in mission.objectives:
+                if objective.type == "provide_coverage":
+                    service = relay_service(
+                        telemetry,
+                        target_x_m=objective.params.get("target_x_m", 0.0),
+                        target_radius_m=objective.params.get("target_radius_m", 0.0),
+                        minimum_altitude_m=objective.params.get("minimum_altitude_m", 0.0),
+                    )
+                    required_s = objective.params.get("minimum_duration_s", 0.0)
+                    explanation += (
+                        f" Relay coverage: {service.connected_s / 60.0:.1f} / "
+                        f"{required_s / 60.0:.1f} min; longest connection "
+                        f"{service.longest_connection_s / 60.0:.1f} min."
+                    )
+                    if service.connected_s < required_s:
+                        explanation += f" Needs {required_s - service.connected_s:.1f} more connected seconds."
+                    if service.interruptions:
+                        explanation += " Service gaps: " + ", ".join(service.interruptions) + "."
             if safety_notes:
                 explanation += " Safety notes: " + " ".join(safety_notes)
 
@@ -241,6 +260,18 @@ class MissionEvaluator:
         if obj_type == "float_duration":
             target_hours = objective.params.get("target_hours", 0)
             return duration / 3600.0 >= target_hours
+
+        if obj_type == "provide_coverage":
+            if "radio" not in selected_payloads:
+                return False
+            required_s = objective.params.get("minimum_duration_s", 0.0)
+            service = relay_service(
+                telemetry,
+                target_x_m=objective.params.get("target_x_m", 0.0),
+                target_radius_m=objective.params.get("target_radius_m", 0.0),
+                minimum_altitude_m=objective.params.get("minimum_altitude_m", 0.0),
+            )
+            return required_s > 0.0 and service.connected_s >= required_s
 
         if obj_type == "station_keep":
             target_alt = objective.params.get("target_altitude_m", 0)

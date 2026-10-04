@@ -85,6 +85,19 @@ Gameplay concepts:
 - Atmospheric science missions.
 - Commercial ventures.
 
+### Stratospheric communications progression
+
+The Sceye-inspired [communications plan](stratospheric_communications.md) develops
+the mesh-network and persistent-platform ideas into service contracts: emergency
+relay, overnight operation, station keeping, rural connectivity, disaster fleets,
+onboard computing, and eventually optical backhaul. Players solve coverage,
+energy, drift, and later capacity constraints through the shared physics model.
+
+The first slice, **Sky Relay**, is available in the Scenario mission pool with a
+Radio Repeater and Battery Pack at Open Field. Its goal is 30 connected minutes
+above 16 km over a 10 km-radius community. Solar charging, powered station keeping,
+and a new Story chapter are later implementation steps.
+
 ## Future Flavor
 
 Recurring NPCs can offer advice without driving the plot.
