@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from balloon_frontier.communications import radio_coverage_radius_m
 from balloon_frontier.power import (
     battery_energy_after_step,
     battery_fraction,
@@ -155,6 +156,17 @@ def run_powered_simulation(
         tick["electrical_power_w"] = electrical_power_w
         tick["vertical_control_force_N"] = vertical_force_N
         tick["returning"] = returning
+        # Telemetry describes the end of this step. A depleted battery cannot
+        # leave a live footprint behind, even on the step that exhausted it.
+        tick["radio_active"] = (
+            "radio" in payload_ids
+            and battery_remaining_wh > 1e-9
+            and not (state.landed or state.crashed)
+        )
+        tick["radio_coverage_radius_m"] = (
+            radio_coverage_radius_m(state.altitude_m - ground_altitude_m)
+            if tick["radio_active"] else 0.0
+        )
 
         if step_interval is None or tick["time_s"] >= next_sample:
             telemetry.append(tick)
@@ -168,7 +180,7 @@ def run_powered_simulation(
         )
     if battery_depleted:
         notes.append(
-            "Battery depleted; powered flight and electrical heating shut down."
+            "Battery depleted; powered flight, electrical heating, and radio service shut down."
         )
     if recovery_problem_detected:
         notes.append(

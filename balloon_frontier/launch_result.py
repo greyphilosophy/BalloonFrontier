@@ -106,6 +106,12 @@ class TelemetryPoint:
     crashed: bool = False
     x_m: float = 0.0
     vx_mps: float = 0.0
+    # Optional fields keep legacy/unpowered telemetry valid and offline.
+    battery_remaining_wh: float = 0.0
+    battery_capacity_wh: float = 0.0
+    electrical_power_w: float = 0.0
+    radio_active: bool = False
+    radio_coverage_radius_m: float = 0.0
 
 
 # ═══════════════════════════════════════════════════════════
@@ -613,6 +619,11 @@ def telemetry_point_from_dict(d: dict) -> TelemetryPoint:
         crashed=d.get("crashed", False),
         x_m=d.get("x_m", 0.0),
         vx_mps=d.get("vx_mps", 0.0),
+        battery_remaining_wh=d.get("battery_remaining_wh", 0.0),
+        battery_capacity_wh=d.get("battery_capacity_wh", 0.0),
+        electrical_power_w=d.get("electrical_power_w", 0.0),
+        radio_active=d.get("radio_active", False),
+        radio_coverage_radius_m=d.get("radio_coverage_radius_m", 0.0),
     )
 
 

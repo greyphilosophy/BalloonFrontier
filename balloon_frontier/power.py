@@ -13,6 +13,7 @@ from math import hypot
 from typing import Iterable
 
 from balloon_frontier.aerostat import HEAT_SOURCE_PROFILES, horizontal_control_force_N
+from balloon_frontier.communications import RADIO_POWER_W
 from balloon_frontier.physics import G
 
 
@@ -32,6 +33,7 @@ LIGHTER_THAN_AIR_SUPPORT_FRACTION = 1.05
 CONSTANT_ELECTRICAL_LOAD_W: dict[str, float] = {
     "camera": 5.0,
     "quadcopter": 6.0,
+    "radio": RADIO_POWER_W,
 }
 
 ELECTRICAL_HEATER_INPUT_W: dict[str, float] = {

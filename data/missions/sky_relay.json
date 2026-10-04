@@ -1,0 +1,21 @@
+{
+    "id": "sky_relay",
+    "title": "Sky Relay",
+    "description": "A remote community needs a dependable communications relay. Inspired by stratospheric cell-tower trials, keep your Radio Repeater powered above 16 km and cover the entire community, a 10 km radius around the launch field, for a total of 30 minutes. Choose your own gas, envelope, and fill. Only connected time counts: climbing out of range, drifting away, or losing battery power interrupts service.",
+    "launch_site": "field",
+    "budget": 8000,
+    "required_payloads": ["radio", "battery"],
+    "objectives": [
+        {
+            "type": "provide_coverage",
+            "params": {
+                "minimum_altitude_m": 16000,
+                "target_x_m": 0,
+                "target_radius_m": 10000,
+                "minimum_duration_s": 1800
+            },
+            "description": "Provide 30 minutes of powered coverage to the whole community from at least 16 km altitude."
+        }
+    ],
+    "difficulty": 4
+}

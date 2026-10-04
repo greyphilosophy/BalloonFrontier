@@ -10,8 +10,9 @@ A playable balloon building simulator with realistic physics, CLI game interface
 - **Modular Architecture**: Physics, simulation, thermal, wind, valves, and fuel subsystems
 - **Fill Modes**: Auto-fill presets (Light, Normal, Heavy, Manual) for strategic gas management
 - **Medal System**: Peak altitude tiers from Bronze to Platinum
-- **Missions**: 17 unique missions with objectives, budgets, and difficulty ratings
+- **Missions**: Data-driven missions with objectives, budgets, and difficulty ratings
 - **Weather Events**: Dynamic conditions affecting flight dynamics with severity ratings
+- **Powered Relay Coverage**: Radio footprints account for altitude, range, drift, and finite battery energy; the Sky Relay scenario scores connected service time
 
 ## Installation
 
@@ -111,7 +112,7 @@ Each flight can be assigned 1–3 missions selected from the mission pool. Missi
 - **Required Payloads**: Equipment needed for the mission
 - **Difficulty**: 1–5 scale rating
 
-**Mission pool (17 missions):**
+**Selected missions:**
 
 | Mission | Difficulty | Budget |
 |---------|-----------|--------|
@@ -132,8 +133,23 @@ Each flight can be assigned 1–3 missions selected from the mission pool. Missi
 | space_tourism_promo | 4 | 12000 |
 | supersonic | 4 | 10000 |
 | meteorology_final | 5 | 15000 |
+| sky_relay | 4 | 8000 |
 
 Missions are stored as JSON files in `data/missions/` for easy content expansion.
+
+### Sky Relay: stratospheric communications
+
+In **Scenario** mode, select **Open Field**, a **Radio Repeater**, and a
+**Battery Pack** to make Sky Relay eligible for the mission set. Design your
+vehicle to provide 30 minutes of coverage above 16 km to a community extending
+10 km around the launch field. The report shows connected minutes and why
+service was interrupted; altitude or flight duration alone cannot pass.
+
+The repeater consumes 20 W and its modeled footprint is bounded by a 100 km
+slant range and a 10-degree elevation mask. These are gameplay assumptions for
+a generic relay, not SceyeCELL specifications. Solar charging, powered station
+keeping, cellular capacity, and backhaul are future work. See the
+[Sceye-inspired communications progression](docs/stratospheric_communications.md).
 
 
 ## Weather
